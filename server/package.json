@@ -1,0 +1,20 @@
+{
+  "name": "@gungame/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "pnpm run build && node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.64.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

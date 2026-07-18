@@ -1,0 +1,21 @@
+{
+  "name": "gungame",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @gungame/client dev",
+    "dev:server": "pnpm --filter @gungame/server dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@size-limit/file": "12.1.0",
+    "size-limit": "12.1.0",
+    "typescript": "5.9.3"
+  }
+}

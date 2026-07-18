@@ -1,0 +1,34 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+}
+
+#fps {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  min-width: 5.5rem;
+  padding: 0.45rem 0.65rem;
+  color: #dff8ff;
+  text-align: right;
+  background: rgb(5 10 18 / 72%);
+  border: 1px solid rgb(101 212 255 / 42%);
+  border-radius: 0.25rem;
+}

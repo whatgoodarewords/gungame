@@ -1,0 +1,27 @@
+{
+  "name": "@gungame/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "size": "size-limit",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "vite": "8.1.5"
+  },
+  "size-limit": [
+    {
+      "name": "client JavaScript (gzip)",
+      "path": "dist/assets/*.js",
+      "limit": "3 MB",
+      "gzip": true
+    }
+  ]
+}

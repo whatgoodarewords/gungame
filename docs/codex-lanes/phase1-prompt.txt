@@ -1,0 +1,24 @@
+Role: Codex GPT-5.6 implementation lane for gungame Phase 1 — the CODE half only (github.com/whatgoodarewords/gungame issue #3; spec = docs/SPEC.md §3.1, §3.3 map pipeline, §6 Phase 1). The Prime (Fable) separately owns: first-person camera, §3.6 input path, dev panel UI, feel constants — DO NOT implement those; where the fence requires a seam, expose the minimal API named below and stop.
+
+You may modify only: packages/sim/**, packages/shared/**, tools/mappipe/** (new), maps/** (new), and add package scripts. Read-only elsewhere. No git operations. Do not touch docs/process-ledger.md, docs/codex-lanes/, client/src/** (except: you may ADD client/src/sim-bridge.ts exporting the playground glue API defined below).
+
+Task — Phase 1 code half, exactly per spec:
+
+1. packages/sim — full Q3-style pmove (clean-room from the algorithm descriptions in Gustavsson's "Quake 3 movement" write-up and adrianb.io/bunnyhop — cite both in a header comment; NO GPL-derived source):
+   - MoveParams type = the §3.1 table (gravity, runSpeed, airAccelerate, groundAccelerate, friction, jumpVelocity), presets DEFAULT and SCOUTZ from the table.
+   - Pipeline per tick: friction → accelerate(wishdir, wishspeed, accel) → airAccelerate → gravity → stepSlideMove; step-up 0.45 m; slope handling; capsule hull (radius 0.4 m, height 1.8 m, eye 1.62 m).
+   - Swept collision via three-mesh-bvh (MeshBVH over baked collision geometry, capsule shapecast along displacement, ≤4 clip iterations, sub-step when |displacement| > capsule radius). three + three-mesh-bvh become sim deps (headless — no renderer import).
+   - Jump buffering hook: cmd.buttons JUMP + a bufferMs param (default 80) — sim-side implementation, constant supplied by shared/feel.ts.
+   - Tests (vitest, all CI gates): (a) tunneling — capsule fired 30 m/s at a 0.1 m wall never passes, incl. diagonal approach; (b) replay determinism extended to pmove (1,000 ticks scripted strafe-jump sequence, bit-exact twice); (c) air-accel sanity — with SCOUTZ params, a scripted circle-strafe sequence gains speed beyond runSpeed; with DEFAULT airAccelerate=1.0 it stays near runSpeed; (d) step-up crosses a 0.4 m ledge, not a 0.5 m one.
+
+2. tools/mappipe — map pipeline v1 (spec §3.3):
+   - CLI (tsx) that takes a GLTF (exported from Blender) and emits maps/<name>.blob: binary layout = header {magic 'GGMP', version u32, counts} + collision positions (f32) + indices (u32) + spawns [{mode u8, team u8, pos f32x3, yaw f32}] + AABB bounds + kill volumes [{min f32x3, max f32x3}]. Node-naming convention: nodes prefixed `col_` = collision, `spawn_<mode>_<team>_` = spawns, `kill_` = kill volumes; document in tools/mappipe/README.md.
+   - Loader in packages/shared (blob → typed structures, zero deps) consumed by sim on both ends.
+   - Validator subcommand: asserts ≥1 collision mesh, ≥8 spawns per declared mode, bounds present; exits nonzero otherwise (CI hook).
+   - Greybox map: generate maps/greybox.gltf PROGRAMMATICALLY (a script, not Blender — Blender authoring starts Phase 4): a 60×40 m arena with perimeter walls, 3 ramps (15°/30°/45°), stairs (0.3 m steps), a 0.4 m ledge, two towers with jump gaps, 12 spawns per mode. Run it through mappipe so maps/greybox.blob ships.
+
+3. client/src/sim-bridge.ts (the ONLY client file you may add): exports `createPlayground(canvas: HTMLCanvasElement): { sim: SimHandle }` — loads greybox.blob, instantiates sim state + a fixed-timestep loop (accumulator, §3.1), exposes { step, getState, setParams(params), setFeel(feel), applyInput(frameInput) } — the seam the Prime's camera/input/panel code will drive. No camera, no pointer lock, no UI in this file.
+
+Done means: `pnpm -r typecheck && pnpm -r test` exit 0 (all 4 sim test families green); `pnpm mappipe maps/greybox.gltf` emits+validates the blob; sim-bridge compiles with no DOM APIs beyond the canvas param passthrough.
+
+Report: conclusion; verification evidence (commands + output tails); caveats; next action. APPEND progressively to docs/codex-lanes/phase1-report.md.
