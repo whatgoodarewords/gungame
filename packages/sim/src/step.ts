@@ -1,26 +1,39 @@
 /**
- * Clean-room Q3-style movement based only on published algorithm descriptions:
- * - Mattias Gustavsson, “Quake 3 movement”.
- * - Adrian Biagioli, “Bunnyhopping from the Programmer's Perspective”
- *   https://adrianb.io/2015/02/14/bunnyhop.html
- * No Quake, ioquake3, or other GPL/GPL-derived source was consulted.
+ * Fixed-tick movement. The base acceleration and slide movement are clean-room
+ * Q3-style implementations; duck ordering and Phase 1c subtleties follow the
+ * project specification's transcription of GoldSrc pmove behavior.
  */
 import {
-  DEFAULT_JUMP_BUFFER_MS,
+  DEFAULT_FEEL,
   TICK_DT,
+  type FeelParams,
+  type ResolvedFeelParams,
   type Vec3,
 } from "@gungame/shared";
 
-import { CollisionWorld } from "./collision.js";
+import {
+  CAPSULE_HEIGHT,
+  CollisionWorld,
+  DUCKED_CAPSULE_HEIGHT,
+  type SweepHit,
+} from "./collision.js";
 import { DEFAULT, type MoveParams } from "./params.js";
 import { Buttons, type Cmd, type State } from "./types.js";
 
-const MAX_WALKABLE_NORMAL_Y = 0.7;
+const AIRBORNE_UPWARD_VELOCITY = 4.6;
 
 export interface StepOptions {
   readonly world?: CollisionWorld;
   readonly params?: MoveParams;
+  readonly feel?: FeelParams;
+  /** Backward-compatible alias used by the Phase 1 client bridge. */
   readonly bufferMs?: number;
+}
+
+interface GroundState {
+  readonly grounded: boolean;
+  readonly hit: SweepHit | undefined;
+  readonly hasSupport: boolean;
 }
 
 function pressed(buttons: number, button: number): number {
@@ -90,7 +103,7 @@ function projectDirectionOnGround(direction: Vec3, normal: Vec3): Vec3 {
     : { x: projected.x / length, y: projected.y / length, z: projected.z / length };
 }
 
-function clipToGround(velocity: Vec3, normal: Vec3): Vec3 {
+function clipVelocity(velocity: Vec3, normal: Vec3): Vec3 {
   const into = velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z;
   if (into >= 0) return velocity;
   return {
@@ -98,6 +111,73 @@ function clipToGround(velocity: Vec3, normal: Vec3): Vec3 {
     y: velocity.y - normal.y * into,
     z: velocity.z - normal.z * into,
   };
+}
+
+function ticksFor(milliseconds: number): number {
+  return Math.ceil(milliseconds / (TICK_DT * 1000));
+}
+
+function hull(ducked: boolean, feetTuck: number): {
+  readonly height: number;
+  readonly bottomOffset: number;
+} {
+  return ducked
+    ? { height: DUCKED_CAPSULE_HEIGHT, bottomOffset: feetTuck }
+    : { height: CAPSULE_HEIGHT, bottomOffset: 0 };
+}
+
+function categorizeGround(
+  world: CollisionWorld | undefined,
+  position: Vec3,
+  velocity: Vec3,
+  ducked: boolean,
+  feetTuck: number,
+  fallbackGrounded: boolean,
+): GroundState {
+  if (world === undefined) {
+    const hasSupport = fallbackGrounded;
+    return {
+      grounded: hasSupport && velocity.y <= AIRBORNE_UPWARD_VELOCITY,
+      hit: undefined,
+      hasSupport,
+    };
+  }
+  const playerHull = hull(ducked, feetTuck);
+  const hit = world.ground(
+    position,
+    0.04,
+    playerHull.height,
+    playerHull.bottomOffset,
+  );
+  return {
+    grounded: hit !== undefined && velocity.y <= AIRBORNE_UPWARD_VELOCITY,
+    hit,
+    hasSupport: hit !== undefined,
+  };
+}
+
+function validateFeel(feel: ResolvedFeelParams): void {
+  const nonNegative = [
+    ["jumpBufferMs", feel.jumpBufferMs],
+    ["duckTransitionMs", feel.duckTransitionMs],
+    ["feetTuck", feel.feetTuck],
+    ["coyoteMs", feel.coyoteMs],
+    ["cornerNudge", feel.cornerNudge],
+    ["slideMs", feel.slideMs],
+  ] as const;
+  for (const [name, value] of nonNegative) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(`${name} must be a non-negative finite value`);
+    }
+  }
+  for (const [name, value] of [
+    ["duckSpeedScale", feel.duckSpeedScale],
+    ["slideFrictionScale", feel.slideFrictionScale],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      throw new RangeError(`${name} must be a finite value in [0, 1]`);
+    }
+  }
 }
 
 export function step(
@@ -110,46 +190,134 @@ export function step(
     throw new RangeError(`simulation dt must be exactly 1/64 (${TICK_DT})`);
   }
   const params = options.params ?? DEFAULT;
+  const feel: ResolvedFeelParams = {
+    ...DEFAULT_FEEL,
+    ...options.feel,
+    ...(options.bufferMs === undefined ? {} : { jumpBufferMs: options.bufferMs }),
+  };
+  validateFeel(feel);
   const world = options.world;
-  const bufferMs = options.bufferMs ?? DEFAULT_JUMP_BUFFER_MS;
-  if (!Number.isFinite(bufferMs) || bufferMs < 0) {
-    throw new RangeError("jump buffer must be a non-negative finite duration");
-  }
 
   const jumpDown = (cmd.buttons & Buttons.Jump) !== 0;
   const jumpPressed = jumpDown && !state.player.jumpButtonDown;
-  const bufferTicks = Math.ceil(bufferMs / (TICK_DT * 1000));
   let jumpBufferTicks = jumpPressed
-    ? bufferTicks
+    ? ticksFor(feel.jumpBufferMs)
     : Math.max(0, state.player.jumpBufferTicks - 1);
-  const groundHit = world?.ground(state.player.position);
-  let grounded = groundHit !== undefined || (world === undefined && state.player.grounded);
-  const shouldJump = grounded && jumpBufferTicks > 0;
-  const wish = wishVelocity(cmd, params.runSpeed);
+  let position = state.player.position;
   let velocity = state.player.velocity;
+  let ducked = state.player.ducked;
+  let duckProgress = state.player.duckProgress;
+  let coyoteTicksLeft = state.player.coyoteTicksLeft;
+  let slideTicksLeft = state.player.slideTicksLeft;
 
-  if (grounded && !shouldJump) {
-    velocity = friction(velocity, params.friction, dt);
-    const groundDirection =
-      groundHit === undefined
-        ? wish.direction
-        : projectDirectionOnGround(wish.direction, groundHit.normal);
-    velocity = accelerate(
+  // 1. Categorize ground.
+  let ground = categorizeGround(
+    world,
+    position,
+    velocity,
+    ducked,
+    feel.feetTuck,
+    state.player.grounded,
+  );
+  let grounded = ground.grounded;
+  let coyoteStartedThisTick = false;
+  if (grounded) {
+    coyoteTicksLeft = 0;
+  } else if (state.player.grounded && !ground.hasSupport) {
+    coyoteTicksLeft = ticksFor(feel.coyoteMs);
+    coyoteStartedThisTick = true;
+  }
+
+  // 2. Duck/unduck. Ground duck transitions keep the standing hull until done.
+  const duckDown = (cmd.buttons & Buttons.Duck) !== 0;
+  let hullChanged = false;
+  if (duckDown && !ducked) {
+    if (grounded) {
+      duckProgress = feel.duckTransitionMs === 0
+        ? 1
+        : Math.min(1, duckProgress + dt * 1000 / feel.duckTransitionMs);
+      if (duckProgress >= 1) {
+        ducked = true;
+        position = { ...position, y: position.y - feel.feetTuck };
+        hullChanged = true;
+      }
+    } else {
+      ducked = true;
+      duckProgress = 1;
+      hullChanged = true;
+    }
+  } else if (!duckDown && ducked) {
+    if (grounded) {
+      const standingPosition = { ...position, y: position.y + feel.feetTuck };
+      if (world === undefined || world.capsuleFits(standingPosition)) {
+        position = standingPosition;
+        ducked = false;
+        duckProgress = 0;
+        hullChanged = true;
+      }
+    } else {
+      ducked = false;
+      duckProgress = 0;
+      hullChanged = true;
+    }
+  } else if (!duckDown && !ducked) {
+    duckProgress = 0;
+  } else if (ducked) {
+    duckProgress = 1;
+  }
+
+  // Air-unduck can lower the feet onto a surface (jumpbug), so recategorize now.
+  if (hullChanged) {
+    ground = categorizeGround(
+      world,
+      position,
       velocity,
-      groundDirection,
-      wish.speed,
-      params.groundAccelerate,
+      ducked,
+      feel.feetTuck,
+      grounded,
+    );
+    grounded = ground.grounded;
+    if (grounded) coyoteTicksLeft = 0;
+  }
+
+  // 3. Jump check. De-grounding here deliberately precedes friction.
+  const canJump = grounded || coyoteTicksLeft > 0;
+  const jumped = canJump && jumpBufferTicks > 0;
+  if (jumped) {
+    velocity = { ...velocity, y: params.jumpVelocity };
+    grounded = false;
+    ground = { grounded: false, hit: undefined, hasSupport: false };
+    jumpBufferTicks = 0;
+    coyoteTicksLeft = 0;
+  }
+
+  const groundedBeforeMove = grounded;
+  // 4. Friction, grounded only. 5. Ground/air acceleration, then gravity.
+  const wish = wishVelocity(
+    cmd,
+    params.runSpeed * (ducked ? feel.duckSpeedScale : 1),
+  );
+  if (grounded) {
+    const sliding = slideTicksLeft > 0;
+    velocity = friction(
+      velocity,
+      params.friction * (sliding ? feel.slideFrictionScale : 1),
       dt,
     );
-    if (groundHit !== undefined && groundHit.normal.y >= MAX_WALKABLE_NORMAL_Y) {
-      velocity = clipToGround(velocity, groundHit.normal);
+    if (!sliding || Math.hypot(velocity.x, velocity.z) < params.runSpeed) {
+      const groundDirection = ground.hit === undefined
+        ? wish.direction
+        : projectDirectionOnGround(wish.direction, ground.hit.normal);
+      velocity = accelerate(
+        velocity,
+        groundDirection,
+        wish.speed,
+        params.groundAccelerate,
+        dt,
+      );
     }
+    if (ground.hit !== undefined) velocity = clipVelocity(velocity, ground.hit.normal);
   } else {
-    if (shouldJump) {
-      velocity = { ...velocity, y: params.jumpVelocity };
-      grounded = false;
-      jumpBufferTicks = 0;
-    }
     velocity = accelerate(
       velocity,
       wish.direction,
@@ -160,22 +328,57 @@ export function step(
     velocity = { ...velocity, y: velocity.y - params.gravity * dt };
   }
 
-  const movement =
-    world === undefined
-      ? {
-          position: {
-            x: state.player.position.x + velocity.x * dt,
-            y: state.player.position.y + velocity.y * dt,
-            z: state.player.position.z + velocity.z * dt,
-          },
-          velocity,
-        }
-      : world.stepSlideMove(state.player.position, velocity, dt);
-  const finalGround = world?.ground(movement.position);
-  grounded = finalGround !== undefined;
+  // 6. Move/collide.
+  const playerHull = hull(ducked, feel.feetTuck);
+  const movement = world === undefined
+    ? {
+        position: {
+          x: position.x + velocity.x * dt,
+          y: position.y + velocity.y * dt,
+          z: position.z + velocity.z * dt,
+        },
+        velocity,
+      }
+    : world.stepSlideMove(position, velocity, dt, {
+        height: playerHull.height,
+        bottomOffset: playerHull.bottomOffset,
+        allowStep: grounded,
+        cornerNudge: grounded ? 0 : feel.cornerNudge,
+      });
+
+  // 7. Categorize ground again.
+  const finalGround = categorizeGround(
+    world,
+    movement.position,
+    movement.velocity,
+    ducked,
+    feel.feetTuck,
+    world === undefined ? grounded : false,
+  );
+  grounded = finalGround.grounded;
   velocity = movement.velocity;
-  if (grounded && velocity.y < 0 && finalGround !== undefined) {
-    velocity = clipToGround(velocity, finalGround.normal);
+  if (grounded && velocity.y < 0 && finalGround.hit !== undefined) {
+    velocity = clipVelocity(velocity, finalGround.hit.normal);
+  }
+
+  const landed = !groundedBeforeMove && grounded;
+  if (
+    landed &&
+    ducked &&
+    Math.hypot(velocity.x, velocity.z) > params.runSpeed
+  ) {
+    slideTicksLeft = ticksFor(feel.slideMs);
+  } else if (slideTicksLeft > 0) {
+    slideTicksLeft -= 1;
+  }
+
+  if (grounded) {
+    coyoteTicksLeft = 0;
+  } else if (groundedBeforeMove && !jumped) {
+    coyoteTicksLeft = ticksFor(feel.coyoteMs);
+    coyoteStartedThisTick = true;
+  } else if (!coyoteStartedThisTick && coyoteTicksLeft > 0) {
+    coyoteTicksLeft -= 1;
   }
 
   return {
@@ -189,6 +392,10 @@ export function step(
       grounded,
       jumpBufferTicks,
       jumpButtonDown: jumpDown,
+      ducked,
+      duckProgress,
+      coyoteTicksLeft,
+      slideTicksLeft,
     },
   };
 }

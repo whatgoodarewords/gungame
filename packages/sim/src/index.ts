@@ -21,6 +21,10 @@ export function createInitialState(playerId = "player-0"): State {
       grounded: false,
       jumpBufferTicks: 0,
       jumpButtonDown: false,
+      ducked: false,
+      duckProgress: 0,
+      coyoteTicksLeft: 0,
+      slideTicksLeft: 0,
     },
   };
 }

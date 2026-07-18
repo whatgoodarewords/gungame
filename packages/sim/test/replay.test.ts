@@ -18,9 +18,14 @@ function replay(): string {
   for (let tick = 0; tick < 1_000; tick += 1) {
     const strafe = Math.floor(tick / 80) % 2 === 0 ? Buttons.Right : Buttons.Left;
     const jump = tick % 43 === 0 ? Buttons.Jump : 0;
+    const duck =
+      tick % 131 >= 82 && tick % 131 < 116
+        ? Buttons.Duck
+        : 0;
+    const jumpbugRelease = tick % 257 === 196 ? Buttons.Jump : 0;
     state = step(
       state,
-      cmd(tick, Buttons.Forward | strafe | jump, tick * 1.3),
+      cmd(tick, Buttons.Forward | strafe | jump | duck | jumpbugRelease, tick * 1.3),
       TICK_DT,
       { world, params: SCOUTZ },
     );
@@ -29,7 +34,7 @@ function replay(): string {
 }
 
 describe("simulation replay determinism", () => {
-  it("produces bit-exact pmove state over 1,000 scripted strafe-jump ticks", () => {
+  it("is bit-exact over scripted strafe, duck, slide, and jumpbug inputs", () => {
     expect(replay()).toBe(replay());
   });
 });

@@ -124,7 +124,8 @@ renderer.setAnimationLoop(() => {
   wasGrounded = curr.grounded;
 
   // Camera angles come straight from input (radians) — never from the 64 Hz sim.
-  fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs);
+  const duckP = prev.duckProgress + (curr.duckProgress - prev.duckProgress) * a;
+  fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs, duckP);
 
   const vx = curr.velocity.x;
   const vz = curr.velocity.z;

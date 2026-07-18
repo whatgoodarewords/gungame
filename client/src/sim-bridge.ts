@@ -97,7 +97,7 @@ export function createPlayground(
     .then(async (response) => {
       if (!response.ok) throw new Error(`greybox load failed: HTTP ${response.status}`);
       const map = loadGameplayMap(await response.arrayBuffer());
-      world = new CollisionWorld(map.collision);
+      world = new CollisionWorld(map.collision, map.killVolumes);
       const spawn = map.spawns[0];
       state = createInitialState();
       if (spawn !== undefined) {

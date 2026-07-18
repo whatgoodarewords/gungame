@@ -7,6 +7,7 @@ export const Buttons = {
   Right: 1 << 3,
   Jump: 1 << 4,
   Fire: 1 << 5,
+  Duck: 1 << 6,
 } as const;
 
 export interface Cmd {
@@ -33,6 +34,10 @@ export interface PlayerState {
   readonly grounded: boolean;
   readonly jumpBufferTicks: number;
   readonly jumpButtonDown: boolean;
+  readonly ducked: boolean;
+  readonly duckProgress: number;
+  readonly coyoteTicksLeft: number;
+  readonly slideTicksLeft: number;
 }
 
 export interface State {

@@ -1,3 +1,5 @@
+import type { MapAabb } from "@gungame/shared";
+
 import { CollisionWorld, type Cmd, type PlayerState, type State } from "../src/index.js";
 
 export interface BoxSpec {
@@ -5,7 +7,10 @@ export interface BoxSpec {
   readonly max: readonly [number, number, number];
 }
 
-export function worldFromBoxes(boxes: readonly BoxSpec[]): CollisionWorld {
+export function worldFromBoxes(
+  boxes: readonly BoxSpec[],
+  killVolumes: readonly MapAabb[] = [],
+): CollisionWorld {
   const positions: number[] = [];
   const indices: number[] = [];
   const faces = [
@@ -23,10 +28,13 @@ export function worldFromBoxes(boxes: readonly BoxSpec[]): CollisionWorld {
     );
     indices.push(...faces.map((index) => base + index));
   }
-  return new CollisionWorld({
-    positions: Float32Array.from(positions),
-    indices: Uint32Array.from(indices),
-  });
+  return new CollisionWorld(
+    {
+      positions: Float32Array.from(positions),
+      indices: Uint32Array.from(indices),
+    },
+    killVolumes,
+  );
 }
 
 export function cmd(tick: number, buttons = 0, viewYaw = 0): Cmd {
