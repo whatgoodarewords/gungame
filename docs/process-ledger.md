@@ -33,7 +33,8 @@ Raw material for the eventual write-up. Updated at every milestone by the prime 
 | 1 | 3× Claude (lensed, parallel) | 3× REVISE, 34 findings | folded → rev 2 |
 | 2 | Codex xhigh + cold Claude | BLOCK (3B/21M/4m) / REVISE (1M/6m) | 30 unique: 26 folded, 3 trimmed (overthinking guard), 1 simplified away → rev 3 |
 | 3 | fresh pair | REVISE (4M/2m) / REVISE (1M/5m) | 10 unique, all folded → rev 4 |
-| 4 | fresh pair (severity valve) | Claude REVISE (1 MAJOR + 2 fold-fidelity); Codex pending | pending fold → rev 5 (will also fold: feel-first section, dev.sml.world/gg deploy rewrite, gungame rename) |
+| 4 | fresh pair (severity valve) | REVISE (5 blocking) / REVISE (1 blocking + 2 fold-fidelity) | 8 blocking folded (epoch/resync FSM; forward-sliding cmd window — found by BOTH auditors from different angles; clamp degradation contract; flick oracle; reconnect token contract) + owner fold (gungame rename, feel-first §3.6, dream-server deploy) → rev 5, posted as issue #1 |
+| 5 | fresh pair | in flight | — |
 
 ## Token / compute accounting
 
@@ -46,9 +47,11 @@ Observable sub-agent spend (output tokens reported by harness per agent):
 | Round 2 Claude cold | 43,934 | |
 | Round 3 Claude cold | 29,938 | |
 | Round 4 Claude cold | 31,118 | |
-| Infra recon (sw-dev, Explore agent) | pending | |
-| **Claude sub-agent subtotal so far** | **~331k** | excludes prime-session tokens |
-| Codex xhigh rounds 2–4 | not yet pulled | to be read from codex session logs/usage meter at next milestone |
+| Infra recon (sw-dev, Explore agent) | 85,912 | found dream server topology, Traefik routing, deploy model |
+| Round 4 Claude cold | 31,118 | (row above superseded: r4 = 31,118 already listed) |
+| Round 5 Claude cold | pending | |
+| **Claude sub-agent subtotal so far** | **~417k** | excludes prime-session tokens |
+| Codex xhigh audits r2/r3/r4 | 172,948 / 116,609 / 103,909 = **393,466** | from codex session logs ("tokens used"); r5 pending |
 | Prime orchestrator session | not directly observable mid-session | pull from usage meter at milestones |
 
 Owner prompts so far: ~14 messages (1 substantial voice-note brief + short steering messages). Everything else is agent-to-agent.
