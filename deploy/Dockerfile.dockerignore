@@ -1,0 +1,10 @@
+.git
+.agents
+.codex
+node_modules
+**/node_modules
+**/dist
+**/*.log
+deploy/PHASE2D-REPORT.md
+tools/netsim/reports
+tools/wan-smoke/reports

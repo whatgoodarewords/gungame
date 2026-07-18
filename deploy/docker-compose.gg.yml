@@ -1,0 +1,39 @@
+services:
+  gungame:
+    image: "${GUNGAME_IMAGE:-gungame:staging}"
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BUILD_HASH: "${GUNGAME_BUILD_HASH:-dev}"
+    container_name: gungame
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      ALLOWED_ORIGINS: "https://dev.sml.world"
+      ALLOW_HEADLESS_BOTS: "1"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/gg/healthz').then(r=>{if(!r.ok)throw Error(String(r.status))})"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gungame.rule=Host(`dev.sml.world`) && (Path(`/gg`) || PathPrefix(`/gg/`))"
+      - "traefik.http.routers.gungame.entrypoints=web"
+      - "traefik.http.routers.gungame.priority=50"
+      - "traefik.http.services.gungame.loadbalancer.server.port=8787"
+      - "project=smallworld"
+      - "instance=gungame"
+    networks:
+      - smallworld-web
+
+networks:
+  smallworld-web:
+    name: "${TRAEFIK_NETWORK:-smallworld-web}"
+    external: true

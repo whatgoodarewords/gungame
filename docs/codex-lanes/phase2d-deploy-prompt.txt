@@ -1,0 +1,16 @@
+Role: Codex GPT-5.6 lane for gungame "Phase 2d — deploy artifacts for the dream-server staging deploy + WAN confirm" (spec docs/SPEC.md §3.4 topology is normative). You may create/modify only: deploy/** (new), tools/wan-smoke/** (new), and root package.json scripts. Read-only elsewhere. No git operations. Do NOT execute ssh/docker against any remote — write scripts; the Prime runs them.
+
+Reference (READ, do not modify): /Volumes/SD/sw-dev/infra/dream-server/docker-compose.live.yml — the Traefik conventions on the target box (label style, entrypoint name, docker network). Mirror its conventions exactly.
+
+Deliverables:
+1. deploy/Dockerfile — multi-stage: pnpm install + build client (Vite, base /gg/) and bundle server (esbuild); final stage = slim Node 22, runs the server which serves BOTH static client under /gg/ and WS at /gg/ws, plus /gg/healthz. PORT env (default 8787). linux/amd64-safe (the box is x86_64; uWebSockets.js ships prebuilt binaries — ensure the right one lands).
+2. deploy/docker-compose.gg.yml — service `gungame`, restart unless-stopped, Traefik labels per the reference file's conventions: router rule Host(`dev.sml.world`) && (Path(`/gg`) || PathPrefix(`/gg/`)), priority 50, service port 8787, attached to the same docker network Traefik uses (parameterize via env with a sane default read from the reference file). Healthcheck hitting /gg/healthz. No published host ports (Traefik-only).
+3. deploy/deploy.sh — idempotent, run FROM the dev machine: ssh root@dream-runner: clone https://github.com/whatgoodarewords/gungame to /opt/gungame (or fetch+reset if exists) at a SHA passed as $1 (default origin/main), docker build via the Dockerfile ON the box, compose up -d, wait for healthcheck, curl https://dev.sml.world/gg/healthz from the box AND print instructions for external verification. Echo every step; set -euo pipefail; NEVER touch other containers.
+4. tools/wan-smoke/ — script run from the dev machine: connects N headless bots (reuse the existing bot client code paths via import) to wss://dev.sml.world/gg/ws (config flag for URL), 60 s scripted movement, emits the same metrics JSON shape as netsim (correction p95, stall p95, reconnects, bytes) tagged {"environment":"wan"}. Also a plain HTTPS check of /gg/ and /gg/healthz.
+5. Root scripts: "deploy:staging" -> bash deploy/deploy.sh, "wan-smoke" -> the smoke.
+
+Constraints: server must bind 0.0.0.0 inside the container; the server already serves /gg/healthz — ADD static-serving of the built client from the server if not already present (server/src change allowed ONLY for static file serving under /gg/ with correct MIME + SPA fallback + /gg -> /gg/ redirect per spec §3.4; keep it dependency-free). Respect existing style.
+
+Done means: docker build succeeds LOCALLY for linux/amd64 (document the buildx command; run it if the local docker supports it — if no local docker, static-verify and say so honestly); shellcheck-clean scripts; pnpm -r typecheck green.
+
+Report: conclusion, evidence, caveats, next action. APPEND progressively to deploy/PHASE2D-REPORT.md.

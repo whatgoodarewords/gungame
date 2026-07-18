@@ -10,10 +10,12 @@
   "scripts": {
     "dev": "pnpm --filter @gungame/client dev",
     "dev:server": "pnpm --filter @gungame/server dev",
+    "deploy:staging": "bash deploy/deploy.sh",
     "mappipe": "pnpm --filter @gungame/tools mappipe",
     "mappipe:greybox": "pnpm --filter @gungame/tools exec tsx mappipe/generate-greybox.ts",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "wan-smoke": "pnpm --filter @gungame/tools exec tsx wan-smoke/run.ts"
   },
   "devDependencies": {
     "@size-limit/file": "12.1.0",
