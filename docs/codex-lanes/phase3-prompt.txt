@@ -1,0 +1,27 @@
+Role: Codex GPT-5.6 implementation lane for gungame Phase 3 — Combat (issue #6; NORMATIVE: docs/SPEC.md §2 reconnect contract, §3.2 lag comp + sub-tick fire contract, §3.5 modes/weapons incl. Amendment A1, §3.6 combat feel hooks; docs/arsenal-ladder.md for ARSENAL design intent). You write ALL code; the Prime reviews/integrates/verifies/owns git — NO git operations. Work only in /Volumes/SD/gungame. Do not touch docs/codex-lanes/, docs/process-ledger.md, docs/SPEC.md, deploy/.
+
+Deliverables:
+
+1. packages/sim — combat layer:
+   - Health/damage/death/respawn (2 s), per-entity generation increments on respawn (TELEPORT semantics already exist), kill-volume deaths.
+   - Weapons in shared/weapons.ts as data (all dials): CLASSIC six (pistol, SMG, shotgun, rifle, scout w/ zoom-accuracy model, knife) + ARSENAL eight per SPEC A1 (Sidewinder 3-tap+HS bonus; Boomstick 20-pellet double + slow rack; Arc per-tick beam; Peacemaker rocket; Discus disc w/ direct-hit bonus dial; Deadeye 1-shot-headshot/2-shot-body scoped w/ scout-mobility; Goldie 1-shot 1-round 1.2 s reload; Knife). Melee carried as secondary on both ladders; knife-in-hands move-speed bonus (dial, any tier).
+   - Hitscan resolution via the §3.2 fire contract (latched angles, eye lerp E-1→E by fireFraction/256, target rewind = validated interpTargetTick only, clamped 300 ms, generation-fenced, never across death). Head hitbox = capsule top sphere (simple, honest).
+   - A1 minimal projectile system per the completed spec contract: server-sim entities (create/delete/generation), despawn on impact/kill-volume/lifetime dial, per-player live cap dial, splash w/ falloff + knockback velocity add, self-knockback ON, self-damage scalar dial. OWN-projectile client prediction incl. detonation vs world + self-impulse, replayed in reconciliation; matched to replicated entity by (owner, fire cmd seq).
+2. packages/protocol — extend: player health/alive/weapon-tier in snapshots; projectile entity kind; damage/kill/hit-confirm events (snapshot-embedded, repeated-until-acked, already the mechanism — add the event types); mode/scoreboard state (compact); protocol version bump.
+3. server — mode rulesets over shared hooks (exactly two modes, config chosen at room creation):
+   - Scoutzknivez: scout+knife, scoutz preset, TDM to 50, 2 auto-balanced teams (rebalance on leave), team spawn selection.
+   - Gun Game: FFA, CLASSIC or ARSENAL ladder; kill advances; melee-kill demotes victim; final-tier melee kill wins; win → restart same map after 8 s scoreboard freeze.
+   - Phase 3 rules (decide sensibly, document in report): late-joiner = trailing-parity minus one (min tier 1); suicide (self-splash/kill-volume) = no advance, killfeed 'suicide', no demote; posthumous in-flight rocket kills DO advance (delight rule); AFK 30 s kick (input drought or bg flag); 45 s reconnect slot-hold w/ token contract per §2.
+   - Server-side name validation (length 2-16, charset [a-zA-Z0-9_ -], strip control chars).
+   - Lag-comp rewind implementation over the existing 400 ms hull ring per the fire contract.
+4. client — combat presentation (mechanical wiring; the Prime restyles later):
+   - Weapon state HUD (current tier/ladder progress, ammo for Goldie, health), hitmarkers + damage numbers, killfeed, scoreboard (Tab), death/respawn flow, scout/Deadeye zoom (FOV lerp + overlay stub), tracers/impact flashes (minimal), first-person weapon placeholder (simple colored mesh per weapon — real viewmodels are Phase 4).
+   - §3.6 combat feel hooks wired: damage-pitched hitmarker audio stubs (Web Audio beeps at distinct pitches — real SFX Phase 4), headshot ding, kill-confirm sound, directional damage indicator, AIRSHOT detection (victim airborne >0.5 s at kill time) emitting a distinct event + sound stub.
+   - Own-projectile prediction rendering (rocket/disc meshes).
+   - Name-entry screen (type name → join quickplay; dev query params for mode/ladder/gravity per spec).
+5. Tests (all gates): fire-contract forged-input suite (out-of-window interpTargetTick clamps, fireFraction bounds); rewind correctness (moving target hit at rewound position, generation fence, 300 ms clamp overflow case); projectile lifecycle (spawn/impact/lifetime/cap, own-prediction reconcile w/ impulse replay); mode rules (ladder advance/demote/win, TDM scoring/rebalance, late-joiner, suicide, posthumous); reconnect token (valid resume ≤45 s w/ tier kept, expired = fresh, supersede race); name validation; 12-bot combat determinism smoke. Combat-capable bots (aim-at-nearest + fire) extending the existing bot.
+6. Aggregate bench re-run with combat bots (both ladders incl. an ARSENAL room) — record numbers in the report; netsim mean-snapshot re-assertion under projectile combat (12p ARSENAL) — must hold ≤400 B mean or report honestly with the measured value.
+
+Done means: pnpm -r typecheck && pnpm -r test green (all suites incl. new ones); scripted full-match completion test: gun-game round (CLASSIC and ARSENAL) and scoutz TDM completable by bots end-to-end (win → restart observed); netsim steady-profile 12-bot ARSENAL combat run emits metrics JSON.
+
+Report: conclusion, verification evidence, material caveats, next action. APPEND progressively to packages/sim/PHASE3-REPORT.md. Land order if forced: sim combat + weapons → protocol → server modes → client wiring → bots/bench.
