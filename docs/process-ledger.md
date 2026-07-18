@@ -34,7 +34,15 @@ Raw material for the eventual write-up. Updated at every milestone by the prime 
 | 2 | Codex xhigh + cold Claude | BLOCK (3B/21M/4m) / REVISE (1M/6m) | 30 unique: 26 folded, 3 trimmed (overthinking guard), 1 simplified away → rev 3 |
 | 3 | fresh pair | REVISE (4M/2m) / REVISE (1M/5m) | 10 unique, all folded → rev 4 |
 | 4 | fresh pair (severity valve) | REVISE (5 blocking) / REVISE (1 blocking + 2 fold-fidelity) | 8 blocking folded (epoch/resync FSM; forward-sliding cmd window — found by BOTH auditors from different angles; clamp degradation contract; flick oracle; reconnect token contract) + owner fold (gungame rename, feel-first §3.6, dream-server deploy) → rev 5, posted as issue #1 |
-| 5 | fresh pair | in flight | — |
+| 5 | fresh pair | PASS (Fable) / REVISE (Codex, 2 blocking) | sub-tick ray contract + room-creation flow folded → rev 6 |
+| 6 | fresh pair | PASS (Fable) / REVISE (Codex, 2 blocking) | 1 folded (timebase unified on execution tick E), 1 REJECTED by Prime adjudication (repo location = owner directive) → rev 7 |
+| 7 | fresh pair | **PASS / PASS — loop closed** | $specced APPROVE on issue #1; 6-item follow-ups annex; finding trajectory 34→30→10→8→2→1→0 |
+
+## Implementation phase (started 2026-07-18 ~07:00)
+
+- Phase issues #2–#9 created. Lane model live: Codex `high` implements in tmux (`codex-gg-phase0` first), Fable reviews/integrates/commits.
+- Incident: root disk hit 100% mid-lane; Codex's rollout logging failed (non-fatal) and it self-recovered by creating a repo-local `.pnpm-store` on the SD volume. Owner waved off cleanup ("we have disk space" — all project work is on the SD card).
+- Prime-session spend checkpoint (ccusage, 5h block from 06:00, ~1h10m in): $888.55, 90k input / 1.23M output tokens. Codex audit rounds r2–r4: 393,466 tokens (r5–r7 pending pull from logs).
 
 ## Token / compute accounting
 
@@ -51,7 +59,8 @@ Observable sub-agent spend (output tokens reported by harness per agent):
 | Round 4 Claude cold | 31,118 | (row above superseded: r4 = 31,118 already listed) |
 | Round 5 Claude cold | pending | |
 | **Claude sub-agent subtotal so far** | **~417k** | excludes prime-session tokens |
-| Codex xhigh audits r2/r3/r4 | 172,948 / 116,609 / 103,909 = **393,466** | from codex session logs ("tokens used"); r5 pending |
+| Codex xhigh audits r2–r7 | 172,948 / 116,609 / 103,909 / 87,558 / 76,967 / 55,246 = **613,237** | from codex session logs ("tokens used"); note the per-round decay as the spec converged |
+| Round 5/6/7 Claude colds | 32,013 / 32,608 / 33,199 | |
 | Prime orchestrator session | not directly observable mid-session | pull from usage meter at milestones |
 
 Owner prompts so far: ~14 messages (1 substantial voice-note brief + short steering messages). Everything else is agent-to-agent.
