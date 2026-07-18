@@ -1,0 +1,24 @@
+Role: Codex GPT-5.6 lane for gungame "Phase 1c — duck mechanics + Tier-1 feel" (repo /Volumes/SD/gungame, issue #3 follow-on; spec docs/SPEC.md §3.1/§3.6). You may modify only: packages/sim/**, packages/shared/src/feel.ts, and test files. Read-only elsewhere. No git operations. Do not touch docs/codex-lanes/ or client/**.
+
+Implement GoldSrc-faithful duck mechanics + four movement subtleties in the sim, mechanisms exactly as specified (they are transcribed from ValveSoftware/halflife pm_shared.c behavior), constants as named dials in shared/feel.ts (Fable owns tuning; ship the defaults given).
+
+UNITS: our sim is metric. GoldSrc reference in parens (1 unit = 0.0254 m).
+
+1. DUCK (button bit Duck = 1<<6 in sim Buttons; client will send it):
+   - Standing capsule height 1.8 m, ducked 0.9 m (72/36 u). Eye offsets are client concern — sim only tracks hull + a `ducked` flag + `duckProgress`.
+   - Grounded duck: 400 ms transition (duckTransitionMs dial). CRITICAL AUTHENTIC DETAIL: during the transition the player keeps FULL standing speed and FULL standing hull; only after completion does `ducked` set, hull shrink (feet stay planted — origin drops half the hull delta), and input scale by duckSpeedScale=0.333.
+   - Airborne duck: INSTANT, and the hull shrinks upward — origin unchanged, feet rise 0.45 m (18 u "feet tuck"). This is what makes crouch-jump clear higher ledges.
+   - Unduck grounded: stand only if a standing hull fits (test origin raised half-delta); else remain ducked. Unduck airborne: instant, feet drop 0.45 m (hull grows downward), origin unchanged.
+   - Duck-spam is legal by construction (no cooldown, no penalty during transition) — do not add countermeasures.
+2. TICK ORDERING (normative — several beloved mechanics are ordering consequences; replicate exactly): categorize-ground → duck/unduck → jump-check → friction (ONLY if grounded) → accelerate/air-accelerate → move/collide → categorize-ground. Consequences that MUST hold and get tests:
+   - BHOP ZERO-FRICTION FRAME: a jump executed on the landing tick skips friction entirely that tick (jump de-grounds before the friction step).
+   - JUMPBUG: airborne, falling, duck held→released + jump pressed same tick: unduck drops feet 0.45 m, re-categorize grounds the player, jump fires same tick → no friction, no landing event, full speed kept. Test it.
+3. SURF (normative): ground contact requires surface normal.y ≥ 0.7 (≤ ~45.57°); steeper surfaces never ground you → no friction, velocity clipped along the plane (overbounce 1.0), gravity component accelerates you down-slope. Also: upward velocity > 4.6 m/s (180 u/s) always counts as airborne. Test: player on the greybox 45° ramp with SCOUTZ params gains speed sliding down without friction.
+4. COYOTE TIME: jump remains valid coyoteMs=50 after walking off an edge (never after a jump — only ledge departures). Dial, test (jump fires 2 ticks after leaving a ledge; does not double-fire).
+5. CORNER-CORRECTION: airborne only — if the capsule sweep is blocked and a retrace offset by ≤ cornerNudge=0.05 m (perpendicular, both directions, also upward for ceilings-edges) clears, apply the nudge and continue. Never on ground, never through kill volumes. Test: a jump that clips a tower corner by 3 cm completes; by 10 cm is blocked.
+6. LANDING SLIDE (our invention, dials): landing while `ducked` at horizontal speed > runSpeed converts the landing into a slide: friction × slideFrictionScale=0.25 for slideMs=300, input accel ignored during the slide unless speed drops below runSpeed. No slide when landing un-ducked. Test: crouch-land at 12 m/s keeps ≥ 85% speed through the slide window vs ~uncrouched baseline losing more.
+7. NO stamina, NO bhop takeoff speed cap (spec: none) — assert in a test that two frame-perfect chained hops lose zero horizontal speed.
+8. feel.ts additions (all readonly in FeelParams + DEFAULT_FEEL): duckTransitionMs 400, duckSpeedScale 0.333, feetTuck 0.45, coyoteMs 50, cornerNudge 0.05, slideFrictionScale 0.25, slideMs 300 (jumpBufferMs 80 already exists).
+9. PlayerState grows: ducked, duckProgress (0..1), coyoteTicksLeft, slideTicksLeft (all serializable numbers/booleans, deterministic). Replay-determinism test updated to include duck/slide/jumpbug inputs in the scripted sequence.
+
+Done means: pnpm -r typecheck && pnpm -r test green including ALL new tests (duck transition speed, feet-tuck clearance, jumpbug, bhop zero-friction, surf ramp, coyote, corner-nudge, landing slide, no-cap chain, determinism). Report: conclusion, verification evidence (commands+output), caveats, next action. APPEND progressively to a file you create at packages/sim/PHASE1C-REPORT.md (you own packages/sim).

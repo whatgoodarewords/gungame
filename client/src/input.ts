@@ -19,7 +19,8 @@ export const Button = {
   Right: 1 << 3,
   Jump: 1 << 4,
   Fire: 1 << 5,
-  Zoom: 1 << 6,
+  Duck: 1 << 6, // matches sim Buttons.Duck
+  Zoom: 1 << 7, // client-local until the Phase 2 wire format pins it
 } as const;
 
 const PITCH_LIMIT = (89 * Math.PI) / 180;
@@ -29,6 +30,8 @@ const KEY_BUTTON: Record<string, number> = {
   KeyA: Button.Left,
   KeyD: Button.Right,
   Space: Button.Jump,
+  ControlLeft: Button.Duck,
+  KeyC: Button.Duck,
 };
 
 export class RawInput {
