@@ -1,0 +1,30 @@
+Role: Codex GPT-5.6 implementation lane for gungame Phase 2 — Netcode core (issue #4; the NORMATIVE contract is docs/SPEC.md §3.2 — read it in full before writing code; §3.1 tick ordering and §4 budgets also bind). You write ALL the code; the Prime (Fable) reviews, integrates, verifies, owns git — perform NO git operations. Work only inside /Volumes/SD/gungame. Do not touch docs/codex-lanes/, docs/process-ledger.md, docs/SPEC.md, maps/*.gltf.
+
+Deliverables (spec §3.2 + issue #4, all normative details live in the spec — do not re-derive, transcribe):
+
+1. packages/protocol — the wire format + connection FSM:
+   - Binary codec (DataView, little-endian): versioned hello (protocol version + build hash), typed refusals (version-mismatch/room-full/rate-limited/room-create-refused/room-not-found), cmd encoding (seq, tick, buttons, viewYaw/viewPitch quantized 16-bit, fireFraction u8, lastSnapshotTick, interpTargetTick + u8 fraction), snapshot encoding (header: tick, lastProcessedCmdSeq, cmd-arrival margin, baseline epoch; per-entity delta with create/delete bits + generation counters; snapshot-embedded tick-tagged events repeated until acked-baseline coverage; client dedupe by event id).
+   - Connection FSM: connecting → hello → baseline-install → active ⇄ resync → closing, per-state timeouts, malformed-frame → close. Unit-tested as a state machine (legal + illegal transitions).
+   - Baseline epochs exactly per spec: full snapshots on the reliable path open an epoch, client installs + acks, server suspends deltas until ack, prior-epoch traffic valid-stale during the open resync window, anything else = scoped protocol error.
+   - Cmd acceptance: forward-sliding newest-wins window per spec (accept seq > lastProcessedCmdSeq, retain newest 8, ack advances across gaps), lastSnapshotTick monotonicity evaluated at seq-ordered consumption of accepted cmds only, viewPitch clamp, finite-number validation on every decoded field. Adversarial tests: forged/oversized/malformed frames, seq replay, gap floods, the 500 ms outage stall-recovery test (resume ≤ 4 ticks).
+   - Serializer packs against a size ceiling (1,100 B), mandatory state first; oversize → promote to full snapshot (new epoch). Unit test at 12 synthetic players.
+2. server — authoritative loop + rooms + WS transport:
+   - Monotonic accumulator 64 Hz loop (catch-up cap 4, overload log + refuse-new-rooms), rooms (quickplay join-fullest, create via hello w/ mode+variant config immutable, invite by roomId, 45 s reconnect slot-hold with the §2 token contract: 128-bit CSPRNG, single-use rotate, supersede race rule), per-client snapshot ring (64), lag-comp hull ring (400 ms) with generation+alive — ring STORAGE only this phase; rewind queries are Phase 3.
+   - uWebSockets.js binary WS channel with the one-slot backpressure policy (newest replaces unsent; hysteresis; hard threshold → typed disconnect), Origin allowlist, per-connection message/byte rate caps, parser hard limits.
+   - Cmd pacing: margin computation in snapshot header; starvation policy (repeat ≤ 8 ticks then hold).
+3. client/src/net/ — prediction/reconciliation/interpolation (client netcode is code, not taste — you own it):
+   - NetChannel abstraction (send-policy interface) + WS impl; clock sync (tick offset + RTT/2, slewed; cmd-tick slew ≤ 1 tick/s toward +1–2 margin; >250 ms step-resync).
+   - Prediction: immediate sim-state correction (snap to authoritative + replay unacked via lastProcessedCmdSeq) + render-only exponentially-decaying error offset (snap > 0.5 m, reset on teleport/epoch). Unit test: correction beside a wall never leaves the render capsule inside geometry.
+   - Remote-entity snapshot interpolation: pinned buffers (datagram 3 / WS 5 ticks, adaptive ceiling 7), generation-fenced (never interpolate across).
+   - Integrate with the existing playground loop via a minimal seam consistent with sim-bridge; two-browser localhost play against the local server must work (manual final check is the Prime's; your job is that `pnpm dev` + `pnpm dev:server` connect and move two players).
+4. tools/netsim + bots:
+   - Packet-level impairment harness: on macOS drive dummynet/pfctl via a documented script (require sudo, degrade gracefully to a documented "run in Docker/netem for CI" path with a compose file); deterministic seeds; steady (150 ms RTT, 2% loss) + burst (5% in 500 ms bursts / 5 s) profiles; byte counters at the boundaries the spec defines (TCP payload for WS).
+   - Headless bot client (Node WS): scripted strafe-jump movement, 12-bot rooms; metrics collection: prediction-correction magnitude p95, remote-entity stall p95, reconnect count, mean/max snapshot bytes. Emit a JSON report — this is the §3.2 decision-table input.
+   - CI wiring: snapshot-size cap + mean-size assertions (12-bot fixture), protocol round-trip fuzz, FSM tests, stall-recovery, aggregate tick bench (trend-only, 2x smoke threshold).
+5. Protocol version bump discipline: build hash embedded at build time (esbuild define), mismatch → typed refusal (client force-reload handling is a TODO comment at the seam — Prime will direct it later).
+
+Constraints: no new runtime deps beyond what exists + (if genuinely needed) small zero-dep utilities you write yourself; msgpack and socket libraries are BANNED (spec: custom DataView codec). Determinism: no Math.random/Date.now in sim or protocol (crypto.randomBytes allowed server-side for tokens only). Match existing code style (strict TS, ESM, readonly types).
+
+Done means: pnpm -r typecheck && pnpm -r test green (all new suites); a scripted two-client localhost smoke (tools script: server + 2 headless bots, 30 s, zero protocol errors, movement mirrored) exits 0; netsim steady-profile 12-bot run emits a metrics JSON.
+
+Report: conclusion, verification evidence (commands + output tails), material caveats, next action. APPEND progressively to packages/protocol/PHASE2-REPORT.md as each deliverable lands (durable partial output). This is a large lane — if you must choose an order, land protocol codec + FSM + tests first, then server, then client net, then netsim.
