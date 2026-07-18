@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "pnpm --filter @gungame/client dev",
     "dev:server": "pnpm --filter @gungame/server dev",
+    "mappipe": "pnpm --filter @gungame/tools mappipe",
+    "mappipe:greybox": "pnpm --filter @gungame/tools exec tsx mappipe/generate-greybox.ts",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   },

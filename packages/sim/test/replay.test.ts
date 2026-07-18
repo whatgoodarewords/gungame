@@ -1,41 +1,35 @@
 import { TICK_DT } from "@gungame/shared";
 import { describe, expect, it } from "vitest";
 
-import { Buttons, createInitialState, step, type Cmd } from "../src/index.js";
+import { Buttons, createInitialState, SCOUTZ, step } from "../src/index.js";
+import { cmd, worldFromBoxes } from "./helpers.js";
 
-function scriptedCmd(tick: number): Cmd {
-  const directions = [
-    Buttons.Forward,
-    Buttons.Right,
-    Buttons.Backward,
-    Buttons.Left,
-  ] as const;
-
-  return {
-    seq: tick + 1,
-    tick,
-    buttons: directions[Math.floor(tick / 125) % directions.length] ?? 0,
-    viewYaw: ((tick * 17) % 360) - 180,
-    viewPitch: ((tick * 7) % 178) - 89,
-    fireFraction: tick % 256,
-    lastSnapshotTick: Math.max(0, tick - 5),
-    interpTargetTick: Math.max(0, tick - 8),
-    interpTargetFraction: (tick * 13) % 256,
-  };
-}
+const world = worldFromBoxes([
+  { min: [-20, -0.2, -20], max: [20, 0, 20] },
+  { min: [-20, 0, -20], max: [-19.5, 5, 20] },
+  { min: [19.5, 0, -20], max: [20, 5, 20] },
+  { min: [-20, 0, -20], max: [20, 5, -19.5] },
+  { min: [-20, 0, 19.5], max: [20, 5, 20] },
+  { min: [2, 0, -4], max: [5, 0.4, 4] },
+]);
 
 function replay(): string {
   let state = createInitialState();
-
   for (let tick = 0; tick < 1_000; tick += 1) {
-    state = step(state, scriptedCmd(tick), TICK_DT);
+    const strafe = Math.floor(tick / 80) % 2 === 0 ? Buttons.Right : Buttons.Left;
+    const jump = tick % 43 === 0 ? Buttons.Jump : 0;
+    state = step(
+      state,
+      cmd(tick, Buttons.Forward | strafe | jump, tick * 1.3),
+      TICK_DT,
+      { world, params: SCOUTZ },
+    );
   }
-
   return JSON.stringify(state);
 }
 
 describe("simulation replay determinism", () => {
-  it("produces bit-exact state over 1,000 scripted ticks", () => {
+  it("produces bit-exact pmove state over 1,000 scripted strafe-jump ticks", () => {
     expect(replay()).toBe(replay());
   });
 });

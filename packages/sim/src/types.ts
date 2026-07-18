@@ -30,6 +30,9 @@ export interface PlayerState {
   readonly velocity: Vec3;
   readonly viewYaw: number;
   readonly viewPitch: number;
+  readonly grounded: boolean;
+  readonly jumpBufferTicks: number;
+  readonly jumpButtonDown: boolean;
 }
 
 export interface State {
