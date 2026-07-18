@@ -23,17 +23,18 @@ the canvas.
 | 3 | **Arc** | Quake Lightning Gun | continuous hitscan beam, DPS-while-tracking | The pure tracking test. In low gravity, tracking a floating enemy with a crackling beam is hypnotic. |
 | 4 | **Peacemaker** | Quake Rocket Launcher | projectile, ~25 m/s, 3 m splash + falloff, knockback (self-knockback ON) | The most beloved FPS weapon of all time — and the mid-match twist: **rocket jumps unlock here**. Low gravity × splash knockback = flight. The match's tempo visibly changes at tier 4. |
 | 5 | **Discus** | Tribes Spinfusor | fast flat disc ~40 m/s, direct-hit bonus, small splash | The airshot instrument, in the game literally named for airshots. Leading a floating target with a disc across a 2-second hangtime is our signature moment, distilled. |
-| 6 | **Longshot** | Quake 3 Rail × AWP | heavy one-shot hitscan, slow refire, visible beam + ding | Rail culture is scout culture graduated. After two projectile tiers, snapping back to instant-hit discipline is the skill whiplash that makes ladders fun. |
+| 6 | **Deadeye** | CS 1.6 Scout perfected (× Halo CE sniper) | scoped rifle: 1-shot HEADSHOT / 2-shot body, fast handling, full scout-style mobility while scoped | The scout, more satisfying (owner directive): precision with a skill condition rather than a free one-shot — which keeps tier 7 as the ladder's only one-shot-anywhere gun. Quickscope-honest timing, the ding on headshots. |
 | 7 | **Goldie** | GoldenEye Golden Gun | one-shot-kill pistol, ONE round, 1.2 s reload | The original party-game finisher. One bullet means every engagement is a duel with a held breath. Peak tension exactly where a ladder should peak. |
-| 8 | **The Bar** | Half-Life crowbar | melee finish, bonk | The humiliation finish, GoldSrc dialect. Melee-kill demote rule applies all match (getting Bar'd sends you down a tier). First Bar kill wins. |
+| 8 | **Knife** | CS knife culture | melee finish; knife-in-hands grants bonus move speed (dial, any tier) | The humiliation finish AND the hunt: the final-tier player must close distance but has the legs for it. Melee-kill demote applies all match. First knife kill wins. |
 
 Escalation logic: aim → meat → tracking → movement → prediction → precision →
-nerve → humiliation. Tiers 4–5 are the emotional core; 6–8 tighten the screws.
+nerve → hunt. Tiers 4–5 are the emotional core; 6–8 tighten the screws — and only
+tier 7 is one-shot-anywhere (owner rule: never two one-shot weapons in a row).
 
 ## Engine honesty (what this costs)
 
 - Tiers 1–3, 6–8: existing hitscan/melee machinery. SSG = 20 traces with spread;
-  Arc = per-tick trace while held; Goldie = ammo-count state. Cheap.
+  Arc = per-tick trace while held; Goldie = ammo-count state; Deadeye = headshot-conditional damage + scoped-mobility flag; knife speed = a maxSpeed modifier while melee is in hands. Cheap.
 - **Tiers 4–5 require the minimal projectile system** — the one real scope add,
   and the reason this is a spec amendment: server-simulated projectiles as
   replicated entities (create/delete/generation bits already exist in the
