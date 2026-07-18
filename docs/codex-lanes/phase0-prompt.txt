@@ -1,0 +1,20 @@
+Role: Codex GPT-5.6 implementation lane for gungame Phase 0 (github.com/whatgoodarewords/gungame issue #2; spec = issue #1, local copy at docs/SPEC.md). You implement; the Prime (Claude Fable 5) reviews, integrates, and owns git — perform NO git operations (no add/commit/branch/push). Work only inside /Volumes/SD/gungame. Do not touch docs/process-ledger.md or docs/codex-lanes/.
+
+Task — Phase 0 scaffold, exactly per spec §3/§6 Phase 0:
+
+1. pnpm workspace (pnpm-workspace.yaml, root package.json private, "type":"module" everywhere, TypeScript 5.x strict, ESM only):
+   - packages/shared  → ids, math helpers (Vec3 ops as plain functions over Float64Array or {x,y,z} — pick one, justify in a code comment), constants, feel.ts placeholder
+   - packages/sim     → fixed 64 Hz tick skeleton: pure `step(state, cmd, dt)` with dt = 1/64 exactly; State/Cmd types per spec §3.2 cmd fields; deterministic (no Math.random/Date.now anywhere in sim)
+   - packages/protocol→ empty package with types stub (fleshed out in Phase 2)
+   - client/          → Vite + three.js (latest r18x, WebGPURenderer import from 'three/webgpu' with WebGL2 fallback), base '/gg/', renders a lit spinning cube + FPS counter; pnpm dev serves it
+   - server/          → Node 22, uWebSockets.js, esbuild bundle script; serves GET /gg/healthz → {"ok":true,"tick":0}; listens on PORT env (default 8787)
+   - tools/           → empty package stub
+2. sim replay determinism test (vitest): run 1,000 ticks of a scripted cmd sequence twice, assert bit-exact JSON-stringified state equality; this is the CI hard gate seed.
+3. CI: GitHub Actions workflow (.github/workflows/ci.yml): pnpm install, pnpm -r typecheck, pnpm -r test, size-limit on client bundle (<3 MB gzip budget, spec §4).
+4. Root scripts: dev (client), dev:server, typecheck, test. README section "Development" with the 3 commands.
+
+Constraints: no extra dependencies beyond three, uWebSockets.js, vite, vitest, esbuild, size-limit, typescript (+ their required plugins). No premature abstractions — Phase 0 is a walking skeleton, not architecture. Match spec naming (packages/sim etc.) exactly.
+
+Done means: `pnpm install && pnpm -r typecheck && pnpm -r test` exit 0; `pnpm dev` serves the cube at localhost:5173/gg/; `pnpm dev:server` answers /gg/healthz.
+
+Report (final message): conclusion; verification evidence (exact commands + output tails); material caveats; next action. Also APPEND the same report to docs/codex-lanes/phase0-report.md as you finish each Done criterion (durable partial output).
