@@ -1,0 +1,14 @@
+{
+  "steady": {
+    "seed": 424242,
+    "rttMs": 150,
+    "packetLossPercent": 2
+  },
+  "burst": {
+    "seed": 424242,
+    "rttMs": 150,
+    "burstLossPercent": 5,
+    "burstDurationMs": 500,
+    "periodMs": 5000
+  }
+}

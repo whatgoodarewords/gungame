@@ -4,6 +4,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  BoxGeometry,
   Color,
   DirectionalLight,
   Fog,
@@ -97,6 +98,11 @@ resize();
 let wasGrounded = true;
 let lastFrame = performance.now();
 let fpsSmoothed = 0;
+const remoteMeshes = new Map<number, Mesh>();
+const remoteMaterial = new MeshStandardMaterial({
+  color: 0xd75d5d,
+  roughness: 0.9,
+});
 
 renderer.setAnimationLoop(() => {
   const now = performance.now();
@@ -108,17 +114,21 @@ renderer.setAnimationLoop(() => {
   const f = input.sampleTick();
   sim.applyInput({
     buttons: f.buttons,
-    viewYaw: f.yaw * RAD2DEG,
-    viewPitch: f.pitch * RAD2DEG,
+    viewYaw: (f.fireFraction >= 0 ? f.firedYaw : f.yaw) * RAD2DEG,
+    viewPitch: (f.fireFraction >= 0 ? f.firedPitch : f.pitch) * RAD2DEG,
     fireFraction: f.fireFraction >= 0 ? f.fireFraction : 0,
   });
 
   const prev = sim.getPrevState().player;
   const curr = sim.getState().player;
   const a = sim.getAlpha();
-  const px = prev.position.x + (curr.position.x - prev.position.x) * a;
-  const py = prev.position.y + (curr.position.y - prev.position.y) * a;
-  const pz = prev.position.z + (curr.position.z - prev.position.z) * a;
+  const collisionPx = prev.position.x + (curr.position.x - prev.position.x) * a;
+  const collisionPy = prev.position.y + (curr.position.y - prev.position.y) * a;
+  const collisionPz = prev.position.z + (curr.position.z - prev.position.z) * a;
+  const renderPosition = sim.getRenderPosition(dtMs / 1_000);
+  const px = collisionPx + renderPosition.x - curr.position.x;
+  const py = collisionPy + renderPosition.y - curr.position.y;
+  const pz = collisionPz + renderPosition.z - curr.position.z;
 
   if (curr.grounded && !wasGrounded && curr.velocity.y <= 0) fpsCam.onLand();
   wasGrounded = curr.grounded;
@@ -130,6 +140,22 @@ renderer.setAnimationLoop(() => {
   const vx = curr.velocity.x;
   const vz = curr.velocity.z;
   panel.update(Math.hypot(vx, vz), fpsSmoothed, renderer.info.render.drawCalls);
+
+  const visibleRemotes = new Set<number>();
+  for (const remote of sim.getRemotePlayers(now)) {
+    visibleRemotes.add(remote.id);
+    let mesh = remoteMeshes.get(remote.id);
+    if (mesh === undefined) {
+      mesh = new Mesh(new BoxGeometry(0.8, 1.8, 0.8), remoteMaterial);
+      remoteMeshes.set(remote.id, mesh);
+      scene.add(mesh);
+    }
+    mesh.position.set(remote.position.x, remote.position.y + 0.9, remote.position.z);
+    mesh.visible = remote.alive;
+  }
+  for (const [id, mesh] of remoteMeshes) {
+    if (!visibleRemotes.has(id)) mesh.visible = false;
+  }
 
   void renderer.render(scene, fpsCam.camera);
 });

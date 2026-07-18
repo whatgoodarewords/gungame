@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "transport": "ws",
+  "byteBoundary": "WebSocket binary payload (TCP payload before framing/TLS overhead)",
+  "profile": "burst",
+  "seed": 424242,
+  "bots": 12,
+  "durationSeconds": 600,
+  "predictionCorrectionP95M": 0.024414050579782354,
+  "remoteEntityStallP95Ms": 2.8856470000000627,
+  "reconnectCount": 0,
+  "protocolErrors": 0,
+  "meanSnapshotBytes": 384.7274098870277,
+  "maxSnapshotBytes": 427,
+  "snapshots": 460644,
+  "movementMirrored": true
+}

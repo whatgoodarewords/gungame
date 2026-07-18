@@ -1,0 +1,65 @@
+x-base: &base
+  build:
+    context: ../..
+    dockerfile: tools/netsim/Dockerfile.netem
+  working_dir: /workspace
+  volumes:
+    - ./reports:/workspace/tools/netsim/reports
+  cap_add:
+    - NET_ADMIN
+  environment:
+    COREPACK_HOME: /workspace/.corepack
+    ALLOW_HEADLESS_BOTS: "1"
+    BUILD_HASH: dev
+    NETSIM_SEED: "424242"
+
+services:
+  server-steady:
+    <<: *base
+    profiles: [steady]
+    environment:
+      ALLOW_HEADLESS_BOTS: "1"
+      BUILD_HASH: dev
+      NETSIM_PROFILE: steady
+      NETSIM_SEED: "424242"
+    command:
+      - bash
+      - -lc
+      - bash tools/netsim/netem-entry.sh bash tools/netsim/tcp-payload-counter.sh steady /workspace/tools/netsim/reports/steady-tcp.json 12 pnpm dev:server
+
+  bots-steady:
+    <<: *base
+    profiles: [steady]
+    depends_on: [server-steady]
+    environment:
+      NETSIM_PROFILE: steady
+      NETSIM_SEED: "424242"
+    command:
+      - bash
+      - -lc
+      - sleep 8 && bash tools/netsim/netem-entry.sh pnpm --filter @gungame/tools bots --bots 12 --duration ${NETSIM_DURATION:-600} --url ws://server-steady:8787/gg/ws --profile steady --seed 424242 --output /workspace/tools/netsim/reports/steady.json
+
+  server-burst:
+    <<: *base
+    profiles: [burst]
+    environment:
+      ALLOW_HEADLESS_BOTS: "1"
+      BUILD_HASH: dev
+      NETSIM_PROFILE: burst
+      NETSIM_SEED: "424242"
+    command:
+      - bash
+      - -lc
+      - bash tools/netsim/netem-entry.sh bash tools/netsim/tcp-payload-counter.sh burst /workspace/tools/netsim/reports/burst-tcp.json 12 pnpm dev:server
+
+  bots-burst:
+    <<: *base
+    profiles: [burst]
+    depends_on: [server-burst]
+    environment:
+      NETSIM_PROFILE: burst
+      NETSIM_SEED: "424242"
+    command:
+      - bash
+      - -lc
+      - sleep 8 && bash tools/netsim/netem-entry.sh pnpm --filter @gungame/tools bots --bots 12 --duration ${NETSIM_DURATION:-600} --url ws://server-burst:8787/gg/ws --profile burst --seed 424242 --output /workspace/tools/netsim/reports/burst.json

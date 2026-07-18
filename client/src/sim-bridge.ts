@@ -7,12 +7,18 @@ import {
 import {
   CollisionWorld,
   createInitialState,
-  DEFAULT,
-  step as stepSimulation,
   type Cmd,
   type MoveParams,
   type State,
+  DEFAULT,
+  SCOUTZ,
 } from "../../packages/sim/src/index.js";
+import { GameMode, GravityVariant } from "../../packages/protocol/src/index.js";
+import {
+  NetworkSession,
+  PredictionReconciler,
+  type InterpolatedEntity,
+} from "./net/index.js";
 
 export interface FrameInput {
   readonly buttons: number;
@@ -29,6 +35,8 @@ export interface SimHandle {
   getState(): State;
   /** State one tick behind, for render interpolation. */
   getPrevState(): State;
+  getRenderPosition(dtSeconds: number): State["player"]["position"];
+  getRemotePlayers(nowMs: number): readonly InterpolatedEntity[];
   /** Fraction [0,1) of the current tick elapsed, for render interpolation. */
   getAlpha(): number;
   setParams(params: MoveParams): void;
@@ -52,6 +60,9 @@ export function createPlayground(
   let state = createInitialState();
   let prevState = state;
   let world: CollisionWorld | undefined;
+  let prediction: PredictionReconciler | undefined;
+  let network: NetworkSession | undefined;
+  let nextSeq = 1;
   let params: MoveParams = DEFAULT;
   let feel: FeelParams = DEFAULT_FEEL;
   let input = EMPTY_INPUT;
@@ -60,7 +71,7 @@ export function createPlayground(
     if (world === undefined) return;
     prevState = state;
     const cmd: Cmd = {
-      seq: state.tick + 1,
+      seq: nextSeq,
       tick: state.tick,
       buttons: input.buttons,
       viewYaw: input.viewYaw,
@@ -70,23 +81,27 @@ export function createPlayground(
       interpTargetTick: input.interpTargetTick ?? 0,
       interpTargetFraction: input.interpTargetFraction ?? 0,
     };
-    state = stepSimulation(state, cmd, TICK_DT, {
-      world,
-      params,
-      bufferMs: feel.jumpBufferMs,
-    });
+    nextSeq += 1;
+    if (prediction === undefined) return;
+    state = prediction.predict(cmd);
+    network?.sendCommand(cmd, performance.now());
   };
 
   const sim: SimHandle = {
     step: tick,
     getState: () => state,
     getPrevState: () => prevState,
+    getRenderPosition: (dtSeconds) =>
+      prediction?.renderPosition(dtSeconds) ?? state.player.position,
+    getRemotePlayers: (nowMs) => network?.remoteEntities(nowMs) ?? [],
     getAlpha: () => Math.min(1, accumulator / TICK_DT),
     setParams: (nextParams) => {
       params = { ...nextParams };
+      prediction?.configure(params, feel);
     },
     setFeel: (nextFeel) => {
       feel = { ...nextFeel };
+      prediction?.configure(params, feel);
     },
     applyInput: (frameInput) => {
       input = { ...frameInput };
@@ -110,6 +125,36 @@ export function createPlayground(
           },
         };
       }
+      prediction = new PredictionReconciler(state, world);
+      prediction.configure(params, feel);
+      network = new NetworkSession({
+        onWelcome: (mode, variant) => {
+          params =
+            mode === GameMode.Scoutzknivez || variant === GravityVariant.Scoutz
+              ? SCOUTZ
+              : DEFAULT;
+          prediction?.configure(params, feel);
+        },
+        onSnapshot: ({ frame, entities, resetPrediction }) => {
+          const self = entities.find((entity) => entity.id === network?.selfId);
+          if (self === undefined || prediction === undefined) return;
+          const authoritative: State = {
+            tick: frame.tick,
+            player: {
+              ...prediction.state.player,
+              position: self.position,
+              velocity: self.velocity,
+              viewYaw: self.viewYaw,
+              viewPitch: self.viewPitch,
+              grounded: self.grounded,
+            },
+          };
+          prevState = prediction.state;
+          if (resetPrediction) prediction.resetForEpoch(authoritative);
+          else prediction.reconcile(authoritative, frame.lastProcessedCmdSeq);
+          state = prediction.state;
+        },
+      });
     })
     .catch((error: unknown) => {
       console.error(error);

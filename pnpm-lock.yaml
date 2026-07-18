@@ -20,18 +20,37 @@ importers:
 
   client:
     dependencies:
+      '@gungame/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
+      '@gungame/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
+      '@gungame/sim':
+        specifier: workspace:*
+        version: link:../packages/sim
       three:
         specifier: 0.185.1
         version: 0.185.1
     devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
       '@types/three':
         specifier: 0.185.1
         version: 0.185.1
       vite:
         specifier: 8.1.5
         version: 8.1.5(@types/node@24.10.1)(esbuild@0.28.1)(tsx@4.20.6)
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@24.10.1)(vite@8.1.5(@types/node@24.10.1)(esbuild@0.28.1)(tsx@4.20.6))
 
-  packages/protocol: {}
+  packages/protocol:
+    devDependencies:
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@24.10.1)(vite@8.1.5(@types/node@24.10.1)(esbuild@0.28.1)(tsx@4.20.6))
 
   packages/shared: {}
 
@@ -56,19 +75,40 @@ importers:
 
   server:
     dependencies:
+      '@gungame/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
+      '@gungame/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
+      '@gungame/sim':
+        specifier: workspace:*
+        version: link:../packages/sim
       uWebSockets.js:
         specifier: github:uNetworking/uWebSockets.js#v20.64.0
         version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca
     devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@24.10.1)(vite@8.1.5(@types/node@24.10.1)(esbuild@0.28.1)(tsx@4.20.6))
 
   tools:
     dependencies:
+      '@gungame/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
       '@gungame/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      '@gungame/sim':
+        specifier: workspace:*
+        version: link:../packages/sim
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -815,7 +855,7 @@ packages:
     hasBin: true
 
   uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca}
+    resolution: {gitHosted: true, integrity: sha512-dP27GqvOmeaKr5wubeyvD2XFG6dPEAOr4YaJG9hPrfFUFse71FzSI+dXAYBY4LBOrhDGGtjTrLjh2PyngBco+g==, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca}
     version: 20.64.0
 
   undici-types@7.16.0:

@@ -1,0 +1,9 @@
+{
+  "profile": "steady",
+  "boundary": "TCP payload bytes from server port 8787 (includes retransmissions and WS framing)",
+  "clients": 12,
+  "activeDurationSeconds": 15.498511,
+  "aggregateDownBytes": 4470875,
+  "aggregateDownKBps": 288.471260,
+  "perClientDownKBps": 24.039272
+}

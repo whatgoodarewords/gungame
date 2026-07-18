@@ -9,12 +9,18 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "pnpm run build && node dist/index.js",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@gungame/protocol": "workspace:*",
+    "@gungame/shared": "workspace:*",
+    "@gungame/sim": "workspace:*",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.64.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.1"
+    "@types/node": "24.10.1",
+    "esbuild": "0.28.1",
+    "vitest": "4.1.10"
   }
 }

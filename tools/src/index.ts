@@ -1,2 +1,1 @@
-// Netsim and bot tooling lands in Phase 2.
-export {};
+export * from "../netsim/bot.js";

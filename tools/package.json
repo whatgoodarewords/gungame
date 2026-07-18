@@ -5,11 +5,16 @@
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": {
+    "bots": "tsx netsim/run-bots.ts",
     "mappipe": "tsx mappipe/cli.ts",
-    "test": "tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob",
+    "netsim:steady": "tsx netsim/run-bots.ts --bots 12 --duration 600 --output tools/netsim/reports/steady.json",
+    "smoke": "bash netsim/smoke-local.sh",
+    "test": "tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob && tsx netsim/fixture.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p mappipe/tsconfig.json"
   },
   "dependencies": {
+    "@gungame/protocol": "workspace:*",
+    "@gungame/sim": "workspace:*",
     "@gungame/shared": "workspace:*"
   },
   "devDependencies": {

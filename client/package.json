@@ -7,14 +7,20 @@
     "build": "vite build",
     "dev": "vite",
     "size": "size-limit",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@gungame/protocol": "workspace:*",
+    "@gungame/shared": "workspace:*",
+    "@gungame/sim": "workspace:*",
     "three": "0.185.1"
   },
   "devDependencies": {
+    "@types/node": "24.10.1",
     "@types/three": "0.185.1",
-    "vite": "8.1.5"
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
   },
   "size-limit": [
     {
