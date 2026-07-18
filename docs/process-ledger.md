@@ -73,3 +73,7 @@ Owner prompts so far: ~14 messages (1 substantial voice-note brief + short steer
 4. **Cross-model adversarial audit works.** Codex and Claude independently converged on the same top defects three rounds running (netsim TCP-loss modeling; WS interp buffer vs lag-comp clamp) — convergence = signal; their disjoint findings (Codex: Fly multi-Machine trap, interpTargetTick cheat vector; Claude: GPL clean-room wording, gate threshold gaps) = coverage.
 5. **Overthinking guard is load-bearing.** Round 2 folded 30 findings but trimmed 3 and killed 1 by simplification (deleted a feature instead of speccing it). Severity valve from round 4 prevents cosmetic-nit death spirals.
 6. **Durability plumbing matters.** Codex runs in detached tmux with pipe-pane logs + incremental findings files (survives orchestrator session death); smoke-test the transport before spending an xhigh run; the orchestrator's sandbox blocked codex config reads — tmux (whose server lives outside the sandbox) was the fix.
+
+## Provider quota incident (2026-07-18 ~22:42)
+
+Codex credits exhausted mid-project — provider reports refill/retry at **Jul 25, 04:24** (or immediate on credit purchase). The Phase 3 lane died at launch (zero work produced, zero tokens burned on the attempt; phases 0-2d and all 7 audit rounds completed before exhaustion). Lesson recorded: the CLAUDEX quota-preflight rule existed for exactly this and was not applied to the Codex side after r7. Phase 3 lane prompt is committed and ready to relaunch unchanged.
