@@ -1,0 +1,25 @@
+Role: Codex GPT-5.6 lane for gungame "Phase 4c — hardening + UX details + assets" (issues #7/#9 scope; NORMATIVE: docs/SPEC.md, docs/ux-details.md ENTIRE punch list, and the review findings below). You write all code; NO git operations. Do not touch docs/, deploy/.
+
+PART A — Verified review findings (sim/protocol adversarial review 2026-07-19; each has file:line and was code-verified — implement exactly, add a regression test per item):
+P1-1 cmd-window backlog never drains → permanent ~110ms lag after a burst. packages/protocol/src/cmd-window.ts consume(): shed stale entries (advancing lastProcessedCmdSeq) until depth <= 2-tick jitter target before selecting. Test: 150ms outage burst → latency returns to baseline within 4 ticks (assert queue depth, not just consumption).
+P1-2 air-unduck missing fit check → hull embeds (wallhack/floor-sink). packages/sim/src/step.ts:258-262: gate airborne unduck on world.capsuleFits(standing hull at current position); stay ducked otherwise. Preserves jumpbug (feet-drop onto a fitting surface). Tests: vent unduck stays ducked; jumpbug still passes.
+P1-3 snapshot packer throws instead of degrading. packages/protocol/src/snapshot.ts packSnapshot + codec MAX_FRAME_BYTES probe: budget-aware packing — self+players mandatory, projectiles/events by priority, remainder deferred to later deltas; delta size probe must not throw. Test: 12 players + 48 projectiles + 64 events packs under ceiling with deferral, join succeeds.
+P1-4 non-monotonic interpTargetTick disconnects (spec: clamp, never kick). cmd-window.ts:51-52: delete that check; sim-side validateFireTarget clamp is the enforcement point. Test: regressed interpTargetTick (adaptive buffer deepening) → no disconnect, clamped rewind.
+P1-5 epoch races fatal (spec: non-fatal). packages/protocol/src/baseline.ts: valid reference epochs = set {installed + pending chain} until superseding ack; acknowledge idempotent for anything actually sent; error only on never-sent values. Tests: refocus-during-pending-promotion; duplicate ack; superseded-epoch ack — all non-fatal.
+P2-6 5th-rocket click eaten: evict owner's oldest live projectile (detonate as lifetime) instead of refusing (combat.ts:467).
+P2-7 EventJournal.seen unbounded: low-water-mark prune (ids monotonic).
+P2-8 kills during freeze/departed attacker mislabeled suicide (modes.ts:95): return actual suicide flag + separate counted:false.
+P2-9 grazing sweep iteration-exhaustion clip (collision.ts:190-217): register hit when exhausted while separation < radius+2*skin.
+
+PART B — docs/ux-details.md: implement ALL 29 items, ship order as listed (P0 cluster first: macOS-safe duck binding Shift-primary + wheel-jump + rebinding; pointer-lock UX; first-click swallow; the crosshair system; projectile presence + end-to-end visibility test; reconnect auto-retry UX). Where 4b already implemented an item, verify and extend rather than duplicate.
+
+PART C — Asset integration (all CC0; buy list + verified URLs in docs/assets-plan.md — you HAVE network access this lane: download the packs yourself into assets/vendor/<pack>/ + write LICENSES.md; validate every archive (real zip/GLB, plausible sizes); any pack that resists headless download gets the documented procedural fallback + a FLAG line in your report for owner manual download):
+1. First-person: WRAD ARMS rig + Quaternius animated/ultimate gun models per-slot mapping (docs/arsenal-ladder.md identities; CLASSIC six too). PROCEDURAL viewmodel animation system (code-driven: sway from view velocity, fire kick w/ per-weapon recoil profile, reload/equip tilts, Goldie reload choreography) — no baked anim dependency; arms + weapon composed under the existing viewmodel camera layer.
+2. Third-person: Quaternius Universal Base Characters + Universal Animation Library — replace box remotes: rigged humanoid, run/strafe/jump/death clips driven by replicated velocity/grounded/alive state; duck squashes the rig honestly; enemy accent-emissive rim per ux-details #22.
+3. Audio: replace synth stubs where the vendored Kenney/michorvath sets fit (fire/impact/footsteps/UI); keep synth recipes for AIRSHOT sting + tier stings (they're distinctive); loudness-normalize (peak -6dB) at build.
+4. GLTF budget discipline: total vendored payload gzipped <= 4MB in the client bundle path (lazy-load character pack after join if needed); draw-call budget <=150 holds — instance shared geometries.
+Update size-limit budget honestly if assets require (document the new number; spec cap for code stays).
+
+Done means: pnpm -r typecheck && pnpm -r test green (all new regression tests incl. P1 suite); bot match visual test asserts projectile meshes + character rigs render; e2e style-switch survives on BOTH backends (extend the tools e2e probe into a proper test at tools/e2e/); cold-load budget re-measured and reported.
+
+Report: conclusion, evidence, caveats, next action. APPEND progressively to client/PHASE4C-REPORT.md.
