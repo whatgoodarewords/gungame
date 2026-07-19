@@ -58,42 +58,83 @@ let sets: Readonly<Record<"concrete" | "wall" | "metal" | "plaster", PbrTextureS
     metal: fallbackSet,
     plaster: fallbackSet,
   });
+let basicMaterialFallback = true;
 
-export async function initializeMaterialAssets(renderer: WebGPURenderer): Promise<void> {
+export async function initializeMaterialAssets(renderer: WebGPURenderer): Promise<boolean> {
   const loader = new KTX2Loader()
-    .setTranscoderPath("/basis/")
+    .setTranscoderPath(`${import.meta.env.BASE_URL}basis/`)
     .setWorkerLimit(2)
     .detectSupport(renderer);
-  const [
-    concreteDiffuse, concreteRoughness, concreteAo,
-    wallDiffuse, wallRoughness, wallAo,
-    metalDiffuse, metalRoughness, metalAo,
-    plasterDiffuse, plasterRoughness, plasterAo,
-  ] = await Promise.all([
-    loader.loadAsync(concreteDiffuseUrl), loader.loadAsync(concreteRoughUrl), loader.loadAsync(concreteAoUrl),
-    loader.loadAsync(wallDiffuseUrl), loader.loadAsync(wallRoughUrl), loader.loadAsync(wallAoUrl),
-    loader.loadAsync(metalDiffuseUrl), loader.loadAsync(metalRoughUrl), loader.loadAsync(metalAoUrl),
-    loader.loadAsync(plasterDiffuseUrl), loader.loadAsync(plasterRoughUrl), loader.loadAsync(plasterAoUrl),
-  ]);
-  sets = Object.freeze({
-    concrete: {
-      diffuse: configure(concreteDiffuse), roughness: configure(concreteRoughness),
-      ao: configure(concreteAo), scale: 0.22, metalness: 0,
-    },
-    wall: {
-      diffuse: configure(wallDiffuse), roughness: configure(wallRoughness),
-      ao: configure(wallAo), scale: 0.24, metalness: 0,
-    },
-    metal: {
-      diffuse: configure(metalDiffuse), roughness: configure(metalRoughness),
-      ao: configure(metalAo), scale: 0.28, metalness: 0.72,
-    },
-    plaster: {
-      diffuse: configure(plasterDiffuse), roughness: configure(plasterRoughness),
-      ao: configure(plasterAo), scale: 0.2, metalness: 0,
-    },
-  });
-  loader.dispose();
+  try {
+    const [
+      concreteDiffuse, concreteRoughness, concreteAo,
+      wallDiffuse, wallRoughness, wallAo,
+      metalDiffuse, metalRoughness, metalAo,
+      plasterDiffuse, plasterRoughness, plasterAo,
+    ] = await Promise.all([
+      loader.loadAsync(concreteDiffuseUrl).catch((error: unknown) => {
+        throw new Error("concrete diffuse KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(concreteRoughUrl).catch((error: unknown) => {
+        throw new Error("concrete roughness KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(concreteAoUrl).catch((error: unknown) => {
+        throw new Error("concrete AO KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(wallDiffuseUrl).catch((error: unknown) => {
+        throw new Error("wall diffuse KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(wallRoughUrl).catch((error: unknown) => {
+        throw new Error("wall roughness KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(wallAoUrl).catch((error: unknown) => {
+        throw new Error("wall AO KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(metalDiffuseUrl).catch((error: unknown) => {
+        throw new Error("metal diffuse KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(metalRoughUrl).catch((error: unknown) => {
+        throw new Error("metal roughness KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(metalAoUrl).catch((error: unknown) => {
+        throw new Error("metal AO KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(plasterDiffuseUrl).catch((error: unknown) => {
+        throw new Error("plaster diffuse KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(plasterRoughUrl).catch((error: unknown) => {
+        throw new Error("plaster roughness KTX2 load failed", { cause: error });
+      }),
+      loader.loadAsync(plasterAoUrl).catch((error: unknown) => {
+        throw new Error("plaster AO KTX2 load failed", { cause: error });
+      }),
+    ]);
+    sets = Object.freeze({
+      concrete: {
+        diffuse: configure(concreteDiffuse), roughness: configure(concreteRoughness),
+        ao: configure(concreteAo), scale: 0.22, metalness: 0,
+      },
+      wall: {
+        diffuse: configure(wallDiffuse), roughness: configure(wallRoughness),
+        ao: configure(wallAo), scale: 0.24, metalness: 0,
+      },
+      metal: {
+        diffuse: configure(metalDiffuse), roughness: configure(metalRoughness),
+        ao: configure(metalAo), scale: 0.28, metalness: 0.72,
+      },
+      plaster: {
+        diffuse: configure(plasterDiffuse), roughness: configure(plasterRoughness),
+        ao: configure(plasterAo), scale: 0.2, metalness: 0,
+      },
+    });
+    basicMaterialFallback = false;
+    return true;
+  } catch (error) {
+    basicMaterialFallback = true;
+    throw error;
+  } finally {
+    loader.dispose();
+  }
 }
 
 export function textureSetForMap(mapId?: number): PbrTextureSet {
@@ -101,4 +142,12 @@ export function textureSetForMap(mapId?: number): PbrTextureSet {
   if (mapId === MapId.Duna) return sets.wall;
   if (mapId === MapId.Cascade) return sets.concrete;
   return sets.metal;
+}
+
+export function activateBasicMaterialFallback(): void {
+  basicMaterialFallback = true;
+}
+
+export function usingBasicMaterialFallback(): boolean {
+  return basicMaterialFallback;
 }
