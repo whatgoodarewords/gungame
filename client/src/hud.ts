@@ -1,6 +1,9 @@
 import { RoundState, type ScoreboardEntry } from "../../packages/protocol/src/index.js";
+import type { MatchStats } from "../../packages/protocol/src/index.js";
 import type { HudState } from "./hud-state.js";
 import type { CrosshairSettings } from "./settings.js";
+import type { MatchStatKey } from "./match-stats.js";
+import { MATCH_STAT_KEYS, formatMatchStats } from "./match-stats.js";
 
 export interface HudStatus {
   readonly health: number;
@@ -27,8 +30,10 @@ export class MatchHud {
   private readonly scoreboardBody: HTMLElement;
   private readonly death: HTMLElement;
   private readonly win: HTMLElement;
+  private readonly matchStats: HTMLElement;
   private readonly system: HTMLElement;
   private readonly systemText: HTMLElement;
+  private readonly systemTelemetry: HTMLElement;
   private readonly reloadButton: HTMLButtonElement;
   private readonly invite: HTMLElement;
   private readonly pointerOverlay: HTMLButtonElement;
@@ -36,7 +41,10 @@ export class MatchHud {
   private readonly banner: HTMLElement;
   private readonly ping: HTMLElement;
   private readonly afk: HTMLElement;
+  private readonly trialTimer: HTMLElement;
   private readonly damageNumbers: HTMLElement;
+  private readonly clipToast: HTMLElement;
+  private readonly killClip: HTMLButtonElement;
   private selfId = 0;
   private rejoin: (() => void) | undefined;
   private resume: (() => void) | undefined;
@@ -61,14 +69,17 @@ export class MatchHud {
       <div class="zoom-overlay"><span class="scope-reticle"></span></div>
       <div class="spawn-fade"></div>
       <div class="death-overlay"><strong>eliminated</strong><small>respawning…</small></div>
-      <div class="win-overlay"><strong>round complete</strong><small>scoreboard frozen</small></div>
+      <div class="win-overlay"><strong>round complete</strong><div class="match-stats-screen"><div class="match-stats-values"></div><button type="button">share</button></div></div>
       <div class="tier-banner"></div>
       <div class="how-to-toast"></div>
       <div class="afk-warning"></div>
+      <div class="trial-timer"></div>
+      <div class="clip-toast"><span></span><button type="button">clip</button></div>
+      <button type="button" class="kill-clip">clip · f8</button>
       <ol class="killfeed" aria-label="kill feed"></ol>
       <div class="scoreboard"><header><h2>scoreboard</h2><button type="button" class="scoreboard-invite">copy invite</button></header><div class="scoreboard-meta"></div><div class="scoreboard-head"><span>player</span><span>k / d</span><span>ping</span><span>tier</span></div><div class="scoreboard-body"></div></div>
       <button type="button" class="resume-overlay">click to re-enter</button>
-      <div class="system-overlay"><strong></strong><button type="button">reload client</button><button type="button" class="rejoin-button">rejoin</button></div>
+      <div class="system-overlay"><strong></strong><small class="connection-telemetry"></small><button type="button">reload client</button><button type="button" class="rejoin-button">rejoin</button></div>
       <button type="button" class="invite-copy">copy invite link</button>`;
     parent.appendChild(root);
     this.root = root;
@@ -79,6 +90,8 @@ export class MatchHud {
     this.speed = root.querySelector(".hud-speed strong")!;
     this.hitmarker = root.querySelector(".hitmarker")!;
     this.damageNumbers = root.querySelector(".damage-numbers")!;
+    this.clipToast = root.querySelector(".clip-toast")!;
+    this.killClip = root.querySelector(".kill-clip")!;
     this.damageDirection = root.querySelector(".damage-direction")!;
     this.zoomOverlay = root.querySelector(".zoom-overlay")!;
     this.killfeed = root.querySelector(".killfeed")!;
@@ -86,8 +99,10 @@ export class MatchHud {
     this.scoreboardBody = root.querySelector(".scoreboard-body")!;
     this.death = root.querySelector(".death-overlay")!;
     this.win = root.querySelector(".win-overlay")!;
+    this.matchStats = root.querySelector(".match-stats-screen")!;
     this.system = root.querySelector(".system-overlay")!;
     this.systemText = root.querySelector(".system-overlay strong")!;
+    this.systemTelemetry = root.querySelector(".connection-telemetry")!;
     this.reloadButton = root.querySelector(".system-overlay button")!;
     this.invite = root.querySelector(".invite-copy")!;
     this.pointerOverlay = root.querySelector(".resume-overlay")!;
@@ -95,6 +110,7 @@ export class MatchHud {
     this.banner = root.querySelector(".tier-banner")!;
     this.ping = root.querySelector(".hud-ping")!;
     this.afk = root.querySelector(".afk-warning")!;
+    this.trialTimer = root.querySelector(".trial-timer")!;
     this.reloadButton.onclick = () => location.reload();
     root.querySelector<HTMLButtonElement>(".rejoin-button")!.onclick = () => this.rejoin?.();
     this.pointerOverlay.onclick = () => this.resume?.();
@@ -112,6 +128,7 @@ export class MatchHud {
   setState(state: HudState): void {
     this.death.classList.toggle("visible", state === "dead");
     this.win.classList.toggle("visible", state === "win");
+    if (state !== "win") this.matchStats.classList.remove("visible");
     const system = state === "server-restarting" || state === "connection-lost" || state === "version-mismatch";
     this.system.classList.toggle("visible", system);
     this.reloadButton.hidden = state !== "version-mismatch";
@@ -124,6 +141,26 @@ export class MatchHud {
         : state === "version-mismatch"
           ? "client update required"
           : "";
+  }
+
+  showMatchStats(
+    stats: MatchStats,
+    personalBests: ReadonlySet<MatchStatKey>,
+    onShare: () => void,
+  ): void {
+    const values = this.matchStats.querySelector<HTMLElement>(".match-stats-values")!;
+    values.replaceChildren(...formatMatchStats(stats).map(([label, value], index) => {
+      const item = document.createElement("span");
+      const noun = document.createElement("small");
+      noun.textContent = label;
+      const number = document.createElement("strong");
+      number.textContent = value;
+      item.classList.toggle("personal-best", personalBests.has(MATCH_STAT_KEYS[index]!));
+      item.append(noun, number);
+      return item;
+    }));
+    this.matchStats.querySelector<HTMLButtonElement>("button")!.onclick = onShare;
+    this.matchStats.classList.add("visible");
   }
 
   setSelfId(id: number): void {
@@ -199,9 +236,38 @@ export class MatchHud {
     setTimeout(() => this.banner.classList.remove("visible"), 600);
   }
 
+  showAccolade(chain: number): void {
+    this.banner.textContent = chain === 2 ? "impressive" : `impressive · ${chain}`;
+    this.banner.classList.remove("demotion");
+    this.banner.classList.add("accolade", "visible");
+    setTimeout(() => this.banner.classList.remove("visible", "accolade"), 500);
+  }
+
   setAfkWarning(visible: boolean): void {
     this.afk.textContent = "move or be kicked in 10 s";
     this.afk.classList.toggle("visible", visible);
+  }
+
+  setTrialTimer(visible: boolean, elapsedMs: number, bestMs?: number): void {
+    this.trialTimer.classList.toggle("visible", visible);
+    if (!visible) return;
+    const elapsed = (elapsedMs / 1_000).toFixed(3);
+    this.trialTimer.textContent = bestMs === undefined
+      ? elapsed
+      : `${elapsed} · best ${(bestMs / 1_000).toFixed(3)}`;
+  }
+
+  showClipSuggestion(label: string, onClip: () => void): void {
+    this.clipToast.querySelector("span")!.textContent = label.toLowerCase();
+    this.clipToast.querySelector<HTMLButtonElement>("button")!.onclick = onClip;
+    this.clipToast.classList.add("visible");
+    setTimeout(() => this.clipToast.classList.remove("visible"), 5_000);
+  }
+
+  showKillClip(onClip: () => void): void {
+    this.killClip.onclick = onClip;
+    this.killClip.classList.add("visible");
+    setTimeout(() => this.killClip.classList.remove("visible"), 2_400);
   }
 
   showSpawnFade(): void {
@@ -218,6 +284,11 @@ export class MatchHud {
   setReconnectCountdown(seconds: number): void {
     this.system.classList.add("visible");
     this.systemText.textContent = `reconnecting… ${seconds}`;
+  }
+
+  setConnectionTelemetry(code: number, reason: string): void {
+    const cleanReason = reason.trim() === "" ? "no reason" : reason.trim().toLowerCase();
+    this.systemTelemetry.textContent = `ws ${code} · ${cleanReason}`;
   }
 
   setScoreboard(
@@ -241,7 +312,13 @@ export class MatchHud {
       const row = document.createElement("div");
       row.classList.toggle("self", entry.playerId === this.selfId);
       const player = document.createElement("span");
-      player.textContent = `P${entry.playerId}${entry.team === 0 ? "" : ` · T${entry.team}`}`;
+      player.textContent = `${entry.name ?? `P${entry.playerId}`}${entry.team === 0 ? "" : ` · T${entry.team}`}`;
+      if (entry.bot === true) {
+        const dot = document.createElement("i");
+        dot.className = "bot-dot";
+        dot.setAttribute("aria-label", "bot");
+        player.append(" ", dot);
+      }
       const score = document.createElement("span");
       score.textContent = `${entry.kills} / ${entry.deaths}`;
       const ping = document.createElement("span");

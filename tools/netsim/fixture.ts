@@ -87,7 +87,7 @@ for (let roomIndex = 0; roomIndex < 4; roomIndex += 1) {
     reconnectToken: new Uint8Array(),
   }, peer, 0);
   if ("refusal" in created) throw new Error(created.refusal);
-  for (let player = 1; player < 12; player += 1) {
+  for (let player = created.room.players.size; player < 12; player += 1) {
     const joined = created.room.add(peer, 0, `Bot_${roomIndex}_${player}`);
     if (joined === undefined) throw new Error("fixture room fill failed");
   }

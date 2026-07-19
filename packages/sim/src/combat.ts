@@ -1,5 +1,6 @@
 import {
   MAX_HEALTH,
+  NEAR_MISS_DIALS,
   RESPAWN_TICKS,
   TICK_DT,
   WEAPONS,
@@ -429,7 +430,7 @@ export interface ProjectileDetonation {
   readonly reason: "impact" | "target" | "kill-volume" | "lifetime";
 }
 
-function segmentPointDistance(from: Vec3, to: Vec3, point: Vec3): number {
+export function segmentPointDistance(from: Vec3, to: Vec3, point: Vec3): number {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const dz = to.z - from.z;
@@ -444,11 +445,40 @@ function segmentPointDistance(from: Vec3, to: Vec3, point: Vec3): number {
   );
 }
 
+export interface NearMissGeometry {
+  readonly distance: number;
+  readonly closingSpeed: number;
+}
+
+export function nearMissGeometry(
+  from: Vec3,
+  to: Vec3,
+  velocity: Vec3,
+  head: Vec3,
+): NearMissGeometry {
+  const distance = segmentPointDistance(from, to, head);
+  const offset = {
+    x: from.x - head.x,
+    y: from.y - head.y,
+    z: from.z - head.z,
+  };
+  const length = Math.max(1e-6, Math.hypot(offset.x, offset.y, offset.z));
+  const closingSpeed = Math.max(0,
+    -(offset.x * velocity.x + offset.y * velocity.y + offset.z * velocity.z) / length);
+  return { distance, closingSpeed };
+}
+
 export class ProjectileSystem {
   private readonly live = new Map<number, ProjectileState>();
   private readonly generations = new Map<number, number>();
   private readonly pendingDetonations: ProjectileDetonation[] = [];
   private nextId = 0x8000;
+  private readonly nearMissSeen = new Set<string>();
+  private pendingNearMisses: Array<{
+    projectile: ProjectileState;
+    targetId: number;
+    closingSpeed: number;
+  }> = [];
 
   get projectiles(): readonly ProjectileState[] {
     return [...this.live.values()].sort((left, right) => left.id - right.id);
@@ -504,6 +534,15 @@ export class ProjectileSystem {
 
   delete(id: number): void {
     this.live.delete(id);
+    for (const key of this.nearMissSeen) if (key.startsWith(`${id}:`)) this.nearMissSeen.delete(key);
+  }
+
+  drainNearMisses(): readonly {
+    projectile: ProjectileState;
+    targetId: number;
+    closingSpeed: number;
+  }[] {
+    return this.pendingNearMisses.splice(0);
   }
 
   tick(tick: number, world: ProjectileWorld | undefined, targets: readonly ProjectileTarget[]): readonly ProjectileDetonation[] {
@@ -533,6 +572,7 @@ export class ProjectileSystem {
       }
       let direct: ProjectileTarget | undefined;
       let distance = Infinity;
+      const nearMisses: Array<{ target: ProjectileTarget; closingSpeed: number }> = [];
       for (const target of targets) {
         if (!target.alive) continue;
         if (target.id === projectile.ownerId && tick - projectile.spawnTick <= 2) continue;
@@ -546,12 +586,32 @@ export class ProjectileSystem {
         if (hitDistance <= CAPSULE_RADIUS + weapon.projectileRadius && hitDistance < distance) {
           direct = target;
           distance = hitDistance;
+        } else {
+          const head = {
+            x: target.position.x,
+            y: target.position.y + height - CAPSULE_RADIUS * 0.5,
+            z: target.position.z,
+          };
+          const geometry = nearMissGeometry(projectile.position, next, velocity, head);
+          if (geometry.distance <= NEAR_MISS_DIALS.radius && geometry.closingSpeed > 0) {
+            nearMisses.push({ target, closingSpeed: geometry.closingSpeed });
+          }
         }
       }
       if (direct !== undefined) {
         this.live.delete(projectile.id);
         detonations.push({ projectile, point: next, directTargetId: direct.id, reason: "target" });
         continue;
+      }
+      for (const nearMiss of nearMisses) {
+        const key = `${projectile.id}:${nearMiss.target.id}`;
+        if (this.nearMissSeen.has(key)) continue;
+        this.nearMissSeen.add(key);
+        this.pendingNearMisses.push({
+          projectile,
+          targetId: nearMiss.target.id,
+          closingSpeed: nearMiss.closingSpeed,
+        });
       }
       this.live.set(projectile.id, { ...projectile, position: next, velocity });
     }

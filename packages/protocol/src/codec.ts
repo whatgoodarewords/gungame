@@ -1,6 +1,7 @@
 import {
   EntityFlags,
   EntityKind,
+  EventKind,
   FrameType,
   MAX_BUILD_HASH_BYTES,
   MAX_ENTITY_DELTAS,
@@ -226,10 +227,12 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
     writer.u8(mode.scoreboard.length, "modeState.scoreboardCount");
     for (const entry of mode.scoreboard) {
       writer.u16(entry.playerId, "scoreboard.playerId");
+      writer.ascii(entry.name ?? `P${entry.playerId}`, MAX_PLAYER_NAME_BYTES, "scoreboard.name");
       writer.u16(entry.kills, "scoreboard.kills");
       writer.u16(entry.deaths, "scoreboard.deaths");
       writer.u8(entry.team, "scoreboard.team");
       writer.u8(entry.tier, "scoreboard.tier");
+      writer.u8(entry.bot === true ? 1 : 0, "scoreboard.bot");
     }
   }
   for (const entity of frame.entities) writeEntity(writer, entity);
@@ -242,6 +245,17 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
     writer.u16(event.amount, "event.amount");
     writer.u8(event.weaponId, "event.weaponId");
     writer.u8(event.flags, "event.flags");
+    if (event.kind === EventKind.ModeEnd) {
+      if (event.stats === undefined) throw new ProtocolError("mode-end event missing stats");
+      writer.u16(event.stats.airshots, "event.stats.airshots");
+      writer.u16(event.stats.topSpeedDeci, "event.stats.topSpeedDeci");
+      writer.u16(event.stats.longestHopChain, "event.stats.longestHopChain");
+      writer.u16(event.stats.flicksLanded, "event.stats.flicksLanded");
+      writer.u16(event.stats.knifeKills, "event.stats.knifeKills");
+      writer.u16(event.stats.accuracyPercent, "event.stats.accuracyPercent");
+    } else if (event.stats !== undefined) {
+      throw new ProtocolError("stats only valid on mode-end event");
+    }
   }
   return writer.finish();
 }
@@ -360,7 +374,7 @@ function readEntity(reader: Reader): EntityDelta {
     ? undefined
     : dequantizePitch(reader.i16());
   const status = (flags & EntityFlags.Status) === 0 ? undefined : reader.u8();
-  if (status !== undefined && (status & ~3) !== 0) throw new ProtocolError("unknown status bits");
+  if (status !== undefined && (status & ~7) !== 0) throw new ProtocolError("unknown status bits");
   let kind: EntityDelta["kind"];
   let health: number | undefined;
   let weaponTier: number | undefined;
@@ -499,10 +513,12 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
     for (let index = 0; index < scoreboardCount; index += 1) {
       scoreboard.push({
         playerId: reader.u16(),
+        name: reader.ascii(MAX_PLAYER_NAME_BYTES, "scoreboard.name"),
         kills: reader.u16(),
         deaths: reader.u16(),
         team: reader.u8(),
         tier: reader.u8(),
+        bot: reader.u8() === 1,
       });
     }
     modeState = { mode, ladder, mapId, roundState, winnerId, restartTicksRemaining, teamScores, scoreboard };
@@ -511,7 +527,7 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
   for (let index = 0; index < entityCount; index += 1) entities.push(readEntity(reader));
   const events = [];
   for (let index = 0; index < eventCount; index += 1) {
-    events.push({
+    const event = {
       id: reader.u32(),
       tick: reader.u32(),
       kind: reader.u8(),
@@ -520,7 +536,20 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
       amount: reader.u16(),
       weaponId: reader.u8(),
       flags: reader.u8(),
-    });
+    };
+    events.push(event.kind === EventKind.ModeEnd
+      ? {
+          ...event,
+          stats: {
+            airshots: reader.u16(),
+            topSpeedDeci: reader.u16(),
+            longestHopChain: reader.u16(),
+            flicksLanded: reader.u16(),
+            knifeKills: reader.u16(),
+            accuracyPercent: reader.u16(),
+          },
+        }
+      : event);
   }
   reader.done();
   return {

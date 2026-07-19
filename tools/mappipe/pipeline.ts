@@ -94,6 +94,8 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
       secrets.push({ kind: MapSecretKind.DunaGraffitiRoom, bounds: nodeAabb(node) });
     } else if (node.name.startsWith("secret_cascade_waterfall_room")) {
       secrets.push({ kind: MapSecretKind.CascadeWaterfallRoom, bounds: nodeAabb(node) });
+    } else if (node.name.startsWith("secret_race_spot")) {
+      secrets.push({ kind: MapSecretKind.RaceSpot, bounds: nodeAabb(node) });
     } else if (node.name.startsWith("bounds_")) {
       if (bounds !== undefined) throw new Error("map declares more than one bounds_ node");
       bounds = nodeAabb(node);
@@ -138,6 +140,12 @@ export function validateMap(
   if (modeCounts.size === 0) throw new Error("map must declare at least one spawn mode");
   for (const [mode, count] of modeCounts) {
     if (count < 8) throw new Error(`mode ${mode} has ${count} spawns; at least 8 required`);
+  }
+  if (expectedMap !== undefined) {
+    const raceSpots = map.secrets.filter((secret) => secret.kind === MapSecretKind.RaceSpot).length;
+    if (raceSpots < 1 || raceSpots > 2) {
+      throw new Error(`${expectedMap} must declare one or two secret_race_spot nodes`);
+    }
   }
   if (map.killVolumes.length < 1) throw new Error("map must declare at least one kill_ volume");
   if (expectedMap === "spire") {

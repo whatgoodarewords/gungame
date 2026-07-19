@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { GameMode, GravityVariant, Ladder, MapPreference } from "@gungame/protocol";
 import { loadGameplayMap } from "@gungame/shared";
@@ -9,6 +9,7 @@ import { HeadlessBot } from "../netsim/bot.js";
 const ROOT = new URL("../../", import.meta.url);
 const { chromium } = await import("playwright");
 const STYLE_IDS = ["dev-grid", "ink-duotone", "toon-cel", "brutalist-approx"] as const;
+const SYSTEM_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 function start(command: readonly string[], environment: NodeJS.ProcessEnv = {}): ChildProcess {
   return spawn(command[0]!, command.slice(1), {
@@ -79,6 +80,9 @@ try {
   const browser = await chromium.launch({
     headless: true,
     timeout: 30_000,
+    ...(process.env.PLAYWRIGHT_BROWSERS_PATH === undefined && existsSync(SYSTEM_CHROME)
+      ? { executablePath: SYSTEM_CHROME }
+      : {}),
     args: [
       "--enable-unsafe-webgpu",
       "--enable-features=Vulkan",
@@ -103,6 +107,17 @@ try {
         }).__GG_VISUAL_DEBUG__;
         return (debug?.projectileMeshes ?? 0) > 0 && (debug?.characterRigs ?? 0) > 0;
       }, undefined, { timeout: 30_000 });
+      await page.locator(".resume-overlay").click();
+      await page.waitForFunction(() => {
+        const scope = globalThis as unknown as {
+          document: {
+            pointerLockElement: unknown;
+            querySelector(selector: string): unknown;
+          };
+        };
+        return scope.document.pointerLockElement ===
+          scope.document.querySelector("#app canvas:last-of-type");
+      }, undefined, { timeout: 10_000 });
       await page.click("#settings-toggle");
       for (const style of STYLE_IDS) {
         await page.selectOption("#gg-style", style);
@@ -111,10 +126,39 @@ try {
             .__GG_VISUAL_DEBUG__?.style === expected, style);
         await page.waitForTimeout(80);
       }
+      if (backend === "webgpu") {
+        const beforeIdle = await page.evaluate(() => {
+          const debug = (globalThis as unknown as {
+            __GG_VISUAL_DEBUG__?: { playerX?: number; playerZ?: number };
+          }).__GG_VISUAL_DEBUG__;
+          return { x: debug?.playerX ?? 0, z: debug?.playerZ ?? 0 };
+        });
+        await page.waitForTimeout(45_000);
+        await page.selectOption("#gg-style", "dev-grid");
+        await page.waitForFunction(() =>
+          (globalThis as unknown as { __GG_VISUAL_DEBUG__?: { style?: string } })
+            .__GG_VISUAL_DEBUG__?.style === "dev-grid");
+        await page.waitForTimeout(45_000);
+        await page.keyboard.down("KeyW");
+        await page.waitForTimeout(350);
+        await page.keyboard.up("KeyW");
+        await page.waitForFunction(({ x, z }) => {
+          const debug = (globalThis as unknown as {
+            __GG_VISUAL_DEBUG__?: {
+              connected?: number;
+              playerX?: number;
+              playerZ?: number;
+            };
+          }).__GG_VISUAL_DEBUG__;
+          return debug?.connected === 1 &&
+            Math.hypot((debug.playerX ?? x) - x, (debug.playerZ ?? z) - z) > 0.01;
+        }, beforeIdle, { timeout: 10_000 });
+      }
       const debug = await page.evaluate(() =>
         (globalThis as unknown as { __GG_VISUAL_DEBUG__?: Record<string, number | string> })
           .__GG_VISUAL_DEBUG__);
       if (errors.length !== 0) throw new Error(`${backend} page errors: ${errors.join(" | ")}`);
+      if (debug?.connected !== 1) throw new Error(`${backend} session did not survive probe`);
       console.log(JSON.stringify({ backend, styles: STYLE_IDS.length, ...debug }));
       await page.close();
     }

@@ -14,6 +14,7 @@ import {
   ProjectileSystem,
   applyDamage,
   fireDirection,
+  nearMissGeometry,
   resolveHitscan,
   resolveSplash,
   respawnPlayer,
@@ -24,6 +25,24 @@ import {
 } from "../src/index.js";
 
 describe("fire contract and rewind", () => {
+  it("triggers the 1.5 m near-miss geometry only for a closing no-hit pass", () => {
+    const closing = nearMissGeometry(
+      { x: -4, y: 1.7, z: 1.4 },
+      { x: 4, y: 1.7, z: 1.4 },
+      { x: 40, y: 0, z: 0 },
+      { x: 0, y: 1.7, z: 0 },
+    );
+    expect(closing.distance).toBeCloseTo(1.4);
+    expect(closing.closingSpeed).toBeGreaterThan(0);
+    const receding = nearMissGeometry(
+      { x: 4, y: 1.7, z: 1.4 },
+      { x: 8, y: 1.7, z: 1.4 },
+      { x: 40, y: 0, z: 0 },
+      { x: 0, y: 1.7, z: 0 },
+    );
+    expect(receding.closingSpeed).toBe(0);
+  });
+
   it("clamps forged targets to the estimate and bounds forged fractions", () => {
     const forged = validateFireTarget({
       executionTick: 100,

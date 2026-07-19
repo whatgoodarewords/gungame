@@ -32,7 +32,8 @@ export type ControlAction =
   | "right"
   | "jump"
   | "duck"
-  | "melee";
+  | "melee"
+  | "clip";
 
 export type ControlBindings = Readonly<Record<ControlAction, readonly string[]>>;
 
@@ -46,6 +47,7 @@ export const DEFAULT_CONTROL_BINDINGS: ControlBindings = Object.freeze({
   // Shift is primary because macOS commonly consumes Ctrl+Space.
   duck: Object.freeze(["ShiftLeft", "KeyC", "ControlLeft"]),
   melee: Object.freeze(["KeyF"]),
+  clip: Object.freeze(["F8"]),
 });
 
 const ACTION_BUTTON: Readonly<Record<ControlAction, number>> = Object.freeze({
@@ -56,12 +58,13 @@ const ACTION_BUTTON: Readonly<Record<ControlAction, number>> = Object.freeze({
   jump: Button.Jump,
   duck: Button.Duck,
   melee: Button.Melee,
+  clip: 0,
 });
 
 const CONTROL_ACTIONS = Object.keys(DEFAULT_CONTROL_BINDINGS) as ControlAction[];
 
 function safeBindingCode(value: unknown): value is string {
-  return typeof value === "string" && /^(?:Key[A-Z]|Digit[0-9]|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight|AltLeft|AltRight|Tab)$/.test(value);
+  return typeof value === "string" && /^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2])|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight|AltLeft|AltRight|Tab)$/.test(value);
 }
 
 export function loadControlBindings(
@@ -146,29 +149,29 @@ export class RawInput {
   private keyButtons = new Map<string, number>();
   private lockListeners = new Set<(locked: boolean) => void>();
   private activityMs = performance.now();
-
-  private el: HTMLElement;
+  private readonly resolveConfiguredElement: () => HTMLElement;
 
   /**
    * @param cm360 centimeters of mouse travel per full turn (the competitive standard)
    * @param dpi   mouse counts per inch
    */
-  constructor(el: HTMLElement, cm360 = 30, dpi = 800, tickRate = 64) {
-    this.el = el;
+  constructor(el: HTMLElement | (() => HTMLElement), cm360 = 30, dpi = 800, tickRate = 64) {
+    this.resolveConfiguredElement = typeof el === "function" ? el : () => el;
     this.radPerCount = RawInput.radPerCount(cm360, dpi);
     this.tickMs = 1000 / tickRate;
     this.bindings = loadControlBindings(localStorage);
     this.rebuildKeyButtons();
-    el.addEventListener("pointerdown", (event) => {
+    document.addEventListener("pointerdown", (event) => {
+      if (event.target !== this.liveElement()) return;
       this.markActivity();
       if (event.button !== 0 || this.locked) return;
       // Preserve the gesture as an actual shot while it also acquires lock.
       this.latchFire();
       this.requestLock();
       event.preventDefault();
-    });
+    }, { capture: true });
     document.addEventListener("pointerlockchange", () => {
-      this.locked = document.pointerLockElement === el;
+      this.locked = document.pointerLockElement === this.liveElement();
       if (!this.locked) {
         this.buttons = 0;
         this.queuedJump = false;
@@ -198,7 +201,7 @@ export class RawInput {
     });
     document.addEventListener("keydown", (e) => {
       const b = this.keyButtons.get(e.code);
-      if (b !== undefined && this.locked) {
+      if (b !== undefined && b !== 0 && this.locked) {
         this.buttons |= b;
         this.markActivity();
         e.preventDefault();
@@ -208,13 +211,16 @@ export class RawInput {
       const b = this.keyButtons.get(e.code);
       if (b !== undefined) this.buttons &= ~b;
     });
-    el.addEventListener("wheel", (event) => {
+    document.addEventListener("wheel", (event) => {
+      if (event.target !== this.liveElement()) return;
       if (!this.locked || event.deltaY <= 0) return;
       this.queuedJump = true;
       this.markActivity();
       event.preventDefault();
     }, { passive: false });
-    el.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("contextmenu", (event) => {
+      if (event.target === this.liveElement()) event.preventDefault();
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) this.buttons |= Button.Background;
       else this.buttons &= ~Button.Background;
@@ -251,9 +257,22 @@ export class RawInput {
 
   requestLock(): void {
     // unadjustedMovement gives raw counts; fall back where unsupported.
-    const p = this.el.requestPointerLock({ unadjustedMovement: true } as PointerLockOptions);
-    if (p && typeof (p as Promise<void>).catch === "function") {
-      (p as Promise<void>).catch(() => this.el.requestPointerLock());
+    const element = this.liveElement();
+    if (!element.isConnected || element.ownerDocument !== document) {
+      console.warn("pointer lock skipped: live canvas is not mounted");
+      return;
+    }
+    try {
+      const pending = element.requestPointerLock({ unadjustedMovement: true } as PointerLockOptions);
+      if (pending && typeof (pending as Promise<void>).catch === "function") {
+        void (pending as Promise<void>).catch(() => {
+          const fallback = this.liveElement();
+          if (fallback.isConnected && fallback.ownerDocument === document) fallback.requestPointerLock();
+        });
+      }
+    } catch {
+      const fallback = this.liveElement();
+      if (fallback.isConnected && fallback.ownerDocument === document) fallback.requestPointerLock();
     }
   }
 
@@ -301,5 +320,11 @@ export class RawInput {
 
   private markActivity(): void {
     this.activityMs = performance.now();
+  }
+
+  private liveElement(): HTMLElement {
+    const configured = this.resolveConfiguredElement();
+    if (configured.isConnected && configured.ownerDocument === document) return configured;
+    return document.querySelector<HTMLElement>("#app canvas:last-of-type") ?? configured;
   }
 }

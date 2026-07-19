@@ -107,14 +107,27 @@ export interface SnapshotEvent {
   readonly amount: number;
   readonly weaponId: number;
   readonly flags: number;
+  readonly stats?: MatchStats;
+}
+
+export interface MatchStats {
+  readonly airshots: number;
+  /** Decimeters per second, preserving one displayed decimal. */
+  readonly topSpeedDeci: number;
+  readonly longestHopChain: number;
+  readonly flicksLanded: number;
+  readonly knifeKills: number;
+  readonly accuracyPercent: number;
 }
 
 export interface ScoreboardEntry {
   readonly playerId: number;
+  readonly name?: string;
   readonly kills: number;
   readonly deaths: number;
   readonly team: number;
   readonly tier: number;
+  readonly bot?: boolean;
 }
 
 export interface SnapshotModeState {

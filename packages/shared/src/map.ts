@@ -14,6 +14,7 @@ export const MapSecretKind = {
   FoundrySigil: 2,
   DunaGraffitiRoom: 3,
   CascadeWaterfallRoom: 4,
+  RaceSpot: 5,
 } as const;
 
 export type MapSecretKindValue = typeof MapSecretKind[keyof typeof MapSecretKind];

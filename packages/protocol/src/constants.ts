@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 5 as const;
+export const PROTOCOL_VERSION = 6 as const;
 export const MAX_FRAME_BYTES = 2_048 as const;
 export const MAX_HELLO_BYTES = 256 as const;
 export const SNAPSHOT_SIZE_CEILING = 1_100 as const;
@@ -87,6 +87,9 @@ export const EventKind = {
   HitConfirm: 3,
   Airshot: 4,
   SecretTriggered: 5,
+  Impressive: 6,
+  NearMiss: 7,
+  ModeEnd: 8,
 } as const;
 
 export const EventFlags = {
@@ -95,6 +98,7 @@ export const EventFlags = {
   Melee: 1 << 2,
   Direct: 1 << 3,
   Posthumous: 1 << 4,
+  HitscanNearMiss: 1 << 5,
 } as const;
 
 export const RoundState = {

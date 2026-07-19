@@ -568,6 +568,61 @@ canvas {
   font-size: clamp(1.8rem, 6vw, 4.5rem);
 }
 
+.match-stats-screen {
+  display: none;
+  width: min(58rem, calc(100vw - 2rem));
+}
+
+.match-stats-screen.visible {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.match-stats-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(8rem, 1fr));
+  gap: 1px;
+  background: rgb(255 255 255 / 14%);
+}
+
+.match-stats-values > span {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  background: rgb(5 10 18 / 92%);
+}
+
+.match-stats-values small {
+  color: rgb(255 255 255 / 58%);
+}
+
+.match-stats-values strong {
+  font-size: clamp(1.25rem, 3vw, 2.2rem);
+}
+
+.match-stats-values .personal-best::after {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.65rem;
+  left: 1rem;
+  height: 1px;
+  background: #65d4ff;
+  content: "";
+}
+
+.match-stats-screen button {
+  justify-self: center;
+  padding: 0.7rem 1.1rem;
+  color: #071018;
+  font: inherit;
+  font-weight: 800;
+  background: #65d4ff;
+  border: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .system-overlay { pointer-events: auto; z-index: 20; }
 .system-overlay button,
 .invite-copy {
@@ -578,6 +633,12 @@ canvas {
   background: #65d4ff;
   border: 0;
   cursor: pointer;
+}
+
+.connection-telemetry {
+  color: rgb(255 255 255 / 58%);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
 }
 
 .killfeed {
@@ -620,6 +681,11 @@ canvas {
 
 .tier-banner.demotion { color: #ff6259; }
 .tier-banner.visible { animation: banner-flourish 600ms ease both; }
+.tier-banner.accolade {
+  color: #fff;
+  letter-spacing: 0.16em;
+  animation-duration: 500ms;
+}
 
 @keyframes banner-flourish {
   0% { opacity: 0; transform: translate(-50%, 8px); }
@@ -647,6 +713,62 @@ canvas {
 }
 
 .afk-warning.visible { opacity: 1; }
+
+.trial-timer {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  display: none;
+  padding: 0.4rem 0.6rem;
+  color: rgb(255 255 255 / 82%);
+  font-variant-numeric: tabular-nums;
+  background: rgb(5 10 18 / 54%);
+  transform: translateX(-50%);
+}
+
+.trial-timer.visible { display: block; }
+
+.clip-toast {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  color: rgb(255 255 255 / 68%);
+  background: rgb(5 10 18 / 72%);
+  border-left: 1px solid rgb(101 212 255 / 58%);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.2,.8,.2,1);
+}
+
+.clip-toast.visible {
+  opacity: 1;
+  transform: none;
+}
+
+.clip-toast button,
+.kill-clip {
+  padding: 0.35rem 0.5rem;
+  color: #65d4ff;
+  font: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.kill-clip {
+  position: absolute;
+  top: calc(22% + 4rem);
+  left: 50%;
+  display: none;
+  transform: translateX(-50%);
+}
+
+.kill-clip.visible { display: block; }
 
 .scoreboard {
   position: absolute;
@@ -707,6 +829,16 @@ canvas {
   background: rgb(101 212 255 / 8%);
 }
 
+.bot-dot {
+  display: inline-block;
+  width: 0.38rem;
+  height: 0.38rem;
+  background: currentColor;
+  border-radius: 50%;
+  opacity: 0.42;
+  vertical-align: 0.08rem;
+}
+
 .resume-overlay {
   position: absolute;
   inset: 0;
@@ -738,6 +870,7 @@ canvas {
 }
 
 .enemy-nameplate.visible { display: block; }
+.enemy-nameplate.bot { border-color: rgba(255, 255, 255, .26); }
 
 .invite-copy {
   position: absolute;

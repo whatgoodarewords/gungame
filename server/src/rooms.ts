@@ -28,6 +28,7 @@ import {
   LadderId,
   MapSecretKind,
   MAX_HEALTH,
+  NEAR_MISS_DIALS,
   RESPAWN_TICKS,
   TICK_DT,
   WeaponId,
@@ -48,6 +49,7 @@ import {
   SCOUTZ,
   createInitialState,
   fireDirection,
+  nearMissGeometry,
   resolveHitscan,
   resolveMelee,
   resolveSplash,
@@ -63,6 +65,15 @@ import {
 } from "@gungame/sim";
 
 import { FixedRing } from "./ring.js";
+import {
+  BOT_AIM_ERROR_DEGREES,
+  BOT_NAMES,
+  BOT_REACTION_TICKS,
+  ImpressiveTracker,
+  MatchStatTracker,
+  angularDeltaDegrees,
+  desiredBotCount,
+} from "./godtier.js";
 
 const MAX_PLAYERS = 12;
 const RECONNECT_HOLD_MS = 45_000;
@@ -100,6 +111,9 @@ export interface PlayerSlot {
   readonly epochs: ServerBaselineEpochs;
   readonly hulls: FixedRing<HullSample>;
   readonly sentSnapshotTicks: FixedRing<number>;
+  readonly isBot: boolean;
+  readonly stats: MatchStatTracker;
+  readonly impressive: ImpressiveTracker;
   state: State;
   generation: number;
   health: number;
@@ -124,6 +138,9 @@ export interface PlayerSlot {
   airborneSinceTick: number;
   backgroundSinceMs: number;
   protectedUntilTick: number;
+  botSeq: number;
+  botAimYaw: number;
+  lastShotYaw: number;
 }
 
 export interface JoinSuccess {
@@ -260,6 +277,7 @@ export class Room {
   private mapRotationIndex: number;
   private activeMapId: typeof MapId[keyof typeof MapId];
   private secretTriggered = false;
+  private modeEndEmitted = false;
   private lastServerTick = 0;
 
   constructor(
@@ -307,6 +325,15 @@ export class Room {
   }
 
   add(peer: PlayerPeer, nowMs: number, rawName = "Player"): JoinSuccess | undefined {
+    return this.addSlot(peer, nowMs, rawName, false);
+  }
+
+  private addSlot(
+    peer: PlayerPeer | undefined,
+    nowMs: number,
+    rawName: string,
+    isBot: boolean,
+  ): JoinSuccess | undefined {
     this.expireHolds(nowMs);
     if (this.isFull) return undefined;
     const name = validatePlayerName(rawName);
@@ -359,6 +386,12 @@ export class Room {
       airborneSinceTick: 0,
       backgroundSinceMs: 0,
       protectedUntilTick: this.lastServerTick + SPAWN_PROTECTION_TICKS,
+      isBot,
+      stats: new MatchStatTracker(),
+      impressive: new ImpressiveTracker(),
+      botSeq: 1,
+      botAimYaw: 0,
+      lastShotYaw: 0,
     };
     this.players.set(id, slot);
     this.lastNonEmptyMs = nowMs;
@@ -380,6 +413,7 @@ export class Room {
       slot.backgroundSinceMs = 0;
       superseded?.disconnect(4001, "superseded");
       this.lastNonEmptyMs = nowMs;
+      this.rebalanceBots(nowMs);
       return { room: this, slot, token: rotated.slice(), resumed: true };
     }
     return undefined;
@@ -390,6 +424,7 @@ export class Room {
     if (slot === undefined || (peer !== undefined && slot.peer !== peer)) return;
     slot.peer = undefined;
     slot.holdUntilMs = nowMs + RECONNECT_HOLD_MS;
+    this.rebalanceBots(nowMs);
     if (this.connectedCount === 0) this.lastNonEmptyMs = nowMs;
   }
 
@@ -444,8 +479,14 @@ export class Room {
       const movementStart = { ...slot.state.player.position };
       let frame: CmdFrame | undefined;
       let fresh = false;
+      if (slot.isBot && slot.alive && !this.rules.frozen) {
+        frame = this.botCommand(slot, serverTick);
+        fresh = true;
+      }
       try {
-        const consumed = slot.cmdWindow.consume((epoch) => slot.epochs.classifyReference(epoch));
+        const consumed = slot.isBot
+          ? undefined
+          : slot.cmdWindow.consume((epoch) => slot.epochs.classifyReference(epoch));
         if (consumed !== undefined) {
           frame = consumed.cmd;
           fresh = true;
@@ -508,6 +549,10 @@ export class Room {
       }
       if (slot.state.player.grounded) slot.airborneSinceTick = 0;
       else if (slot.airborneSinceTick === 0) slot.airborneSinceTick = serverTick;
+      slot.stats.observeMovement(
+        Math.hypot(slot.state.player.velocity.x, slot.state.player.velocity.z),
+        slot.state.player.grounded,
+      );
       slot.hulls.push({
         tick: serverTick,
         generation: slot.generation,
@@ -532,6 +577,14 @@ export class Room {
         ducked: slot.state.player.ducked,
       })),
     );
+    for (const nearMiss of this.projectiles.drainNearMisses()) {
+      this.broadcastEvent({
+        id: this.nextEvent(), tick: serverTick, kind: EventKind.NearMiss,
+        actorId: nearMiss.projectile.ownerId, targetId: nearMiss.targetId,
+        amount: clampU16(nearMiss.closingSpeed * 10),
+        weaponId: nearMiss.projectile.weaponId, flags: 0,
+      });
+    }
     for (const detonation of detonations) this.detonate(detonation, serverTick);
     this.sendSnapshots(serverTick);
   }
@@ -582,6 +635,7 @@ export class Room {
       slot.state.player.ducked,
     );
     if (weapon.kind === "projectile") {
+      slot.stats.recordShot(false, 0);
       this.projectiles.spawn(
         slot.id,
         slot.generation,
@@ -629,6 +683,48 @@ export class Room {
         point: hit.point,
       });
     }
+    if (weapon.kind !== "melee") {
+      const direction = fireDirection(cmd.viewYaw, cmd.viewPitch);
+      const end = {
+        x: eye.x + direction.x * weapon.range,
+        y: eye.y + direction.y * weapon.range,
+        z: eye.z + direction.z * weapon.range,
+      };
+      const rayVelocity = {
+        x: direction.x * 343,
+        y: direction.y * 343,
+        z: direction.z * 343,
+      };
+      for (const target of this.players.values()) {
+        if (target.id === slot.id || !target.alive || aggregate.has(target.id)) continue;
+        const height = target.state.player.ducked ? 0.9 : 1.8;
+        const head = {
+          x: target.state.player.position.x,
+          y: target.state.player.position.y + height - 0.15,
+          z: target.state.player.position.z,
+        };
+        const geometry = nearMissGeometry(eye, end, rayVelocity, head);
+        if (geometry.distance > NEAR_MISS_DIALS.radius || geometry.closingSpeed <= 0) continue;
+        this.broadcastEvent({
+          id: this.nextEvent(), tick: serverTick, kind: EventKind.NearMiss,
+          actorId: slot.id, targetId: target.id,
+          amount: clampU16(geometry.closingSpeed * 10),
+          weaponId: weapon.id, flags: EventFlags.HitscanNearMiss,
+        });
+      }
+    }
+    const hit = aggregate.size > 0;
+    const flickDegrees = angularDeltaDegrees(cmd.viewYaw, slot.lastShotYaw);
+    slot.lastShotYaw = cmd.viewYaw;
+    slot.stats.recordShot(hit, flickDegrees);
+    const impressiveChain = slot.impressive.recordShot(weapon.id, hit);
+    if (impressiveChain !== undefined) {
+      this.broadcastEvent({
+        id: this.nextEvent(), tick: serverTick, kind: EventKind.Impressive,
+        actorId: slot.id, targetId: 0, amount: impressiveChain,
+        weaponId: weapon.id, flags: 0,
+      });
+    }
     for (const [targetId, hit] of aggregate) {
       const target = this.players.get(targetId);
       if (target === undefined) continue;
@@ -654,6 +750,14 @@ export class Room {
     const owner = this.players.get(detonation.projectile.ownerId);
     const posthumous = owner === undefined || !owner.alive ||
       owner.generation !== detonation.projectile.ownerGeneration;
+    const hitOpponent = effects.some((effect) => {
+      const target = this.players.get(effect.targetId);
+      return target !== undefined && target.alive &&
+        target.id !== detonation.projectile.ownerId && effect.damage > 0 &&
+        !(owner !== undefined && this.config.mode === GameMode.Scoutzknivez &&
+          owner.team === target.team);
+    });
+    if (hitOpponent) owner?.stats.recordHit();
     for (const effect of effects) {
       const target = this.players.get(effect.targetId);
       if (target === undefined || !target.alive) continue;
@@ -726,11 +830,18 @@ export class Room {
       targetId: target.id, amount: 0, weaponId: weapon.id, flags: killFlags,
     });
     if (airborne && !actualSuicide && attacker !== undefined) {
+      attacker.stats.recordAirshot();
       this.broadcastEvent({
         id: this.nextEvent(), tick, kind: EventKind.Airshot,
         actorId: attackerId, targetId: target.id, amount: 0,
         weaponId: weapon.id, flags: killFlags,
       });
+    }
+    if (!actualSuicide && attacker !== undefined && weapon.kind === "melee") {
+      attacker.stats.recordKnifeKill();
+    }
+    if (this.rules.frozen && this.rules.snapshot.winnerId !== 0 && !this.modeEndEmitted) {
+      this.broadcastModeEnd(tick);
     }
   }
 
@@ -751,6 +862,7 @@ export class Room {
     slot.reloadTick = 0;
     slot.protectedUntilTick = tick + SPAWN_PROTECTION_TICKS;
     slot.airborneSinceTick = 0;
+    slot.impressive.resetLife();
     const spawn = this.spawnFor(slot.id, slot.team, slot.generation);
     const initial = createInitialState(`player-${slot.id}`);
     slot.state = {
@@ -781,9 +893,13 @@ export class Room {
     }
     this.rules.restart();
     this.secretTriggered = false;
+    this.modeEndEmitted = false;
     this.syncRuleState();
     for (const projectile of this.projectiles.projectiles) this.projectiles.delete(projectile.id);
-    for (const slot of this.players.values()) this.respawn(slot, tick, true);
+    for (const slot of this.players.values()) {
+      slot.stats.reset();
+      this.respawn(slot, tick, true);
+    }
   }
 
   private syncRuleState(): void {
@@ -851,10 +967,12 @@ export class Room {
         .sort((left, right) => right.kills - left.kills || left.deaths - right.deaths || left.id - right.id)
         .map((slot) => ({
           playerId: slot.id,
+          name: slot.name,
           kills: clampU16(slot.kills),
           deaths: clampU16(slot.deaths),
           team: slot.team,
           tier: slot.tier,
+          bot: slot.isBot,
         })),
     };
   }
@@ -912,19 +1030,92 @@ export class Room {
   }
 
   private kickAfk(nowMs: number): void {
+    let removedHuman = false;
     for (const slot of [...this.players.values()]) {
+      if (slot.isBot) continue;
       const backgroundExpired = slot.backgroundSinceMs !== 0 &&
         nowMs - slot.backgroundSinceMs >= AFK_MS;
       const droughtExpired = slot.backgroundSinceMs === 0 && nowMs - slot.lastInputMs >= AFK_MS;
       if (!backgroundExpired && !droughtExpired) continue;
       slot.peer?.disconnect(4004, "afk");
       this.removePlayer(slot.id);
+      removedHuman = true;
     }
+    if (removedHuman) this.rebalanceBots(nowMs);
   }
 
   private expireHolds(nowMs: number): void {
     for (const slot of [...this.players.values()]) {
+      if (slot.isBot) continue;
       if (slot.peer === undefined && slot.holdUntilMs <= nowMs) this.removePlayer(slot.id);
+    }
+  }
+
+  rebalanceBots(nowMs: number): void {
+    const humans = [...this.players.values()]
+      .filter((slot) => !slot.isBot && slot.peer !== undefined).length;
+    const target = desiredBotCount(humans);
+    const bots = [...this.players.values()].filter((slot) => slot.isBot);
+    while (bots.length > target) {
+      const bot = bots.pop();
+      if (bot !== undefined) this.removePlayer(bot.id);
+    }
+    while (bots.length < target && !this.isFull) {
+      const name = BOT_NAMES[(this.nextPlayerId + bots.length) % BOT_NAMES.length] ?? "Ari";
+      const joined = this.addSlot(undefined, nowMs, name, true);
+      if (joined === undefined) break;
+      joined.slot.holdUntilMs = Number.POSITIVE_INFINITY;
+      bots.push(joined.slot);
+    }
+  }
+
+  private botCommand(slot: PlayerSlot, tick: number): CmdFrame {
+    const candidates = [...this.players.values()].filter((target) =>
+      target.id !== slot.id && target.alive &&
+      !(this.config.mode === GameMode.Scoutzknivez && target.team === slot.team));
+    const target = candidates.sort((left, right) => {
+      const leftDistance = Math.hypot(
+        left.state.player.position.x - slot.state.player.position.x,
+        left.state.player.position.z - slot.state.player.position.z,
+      );
+      const rightDistance = Math.hypot(
+        right.state.player.position.x - slot.state.player.position.x,
+        right.state.player.position.z - slot.state.player.position.z,
+      );
+      return leftDistance - rightDistance || left.id - right.id;
+    })[0];
+    if (target !== undefined && tick % BOT_REACTION_TICKS === slot.id % BOT_REACTION_TICKS) {
+      const dx = target.state.player.position.x - slot.state.player.position.x;
+      const dz = target.state.player.position.z - slot.state.player.position.z;
+      const error = Math.sin((tick + slot.id * 17) * 0.19) * BOT_AIM_ERROR_DEGREES;
+      slot.botAimYaw = Math.atan2(-dx, -dz) * 180 / Math.PI + error;
+    }
+    const seq = slot.botSeq++;
+    return {
+      type: FrameType.Cmd,
+      seq,
+      tick,
+      buttons: Buttons.Forward | Buttons.Zoom |
+        (target === undefined ? 0 : Buttons.Fire) |
+        (tick % 53 === slot.id % 53 ? Buttons.Jump : 0),
+      viewYaw: slot.botAimYaw,
+      viewPitch: 0,
+      fireFraction: (tick * 29 + slot.id * 13) & 0xff,
+      lastSnapshotTick: Math.max(0, tick - 1),
+      interpTargetTick: Math.max(0, tick - 5),
+      interpTargetFraction: 0,
+      baselineEpoch: 0,
+    };
+  }
+
+  private broadcastModeEnd(tick: number): void {
+    this.modeEndEmitted = true;
+    for (const slot of this.players.values()) {
+      this.broadcastEvent({
+        id: this.nextEvent(), tick, kind: EventKind.ModeEnd,
+        actorId: slot.id, targetId: this.rules.snapshot.winnerId,
+        amount: 0, weaponId: 0, flags: 0, stats: slot.stats.snapshot,
+      });
     }
   }
 }
@@ -970,7 +1161,10 @@ export class RoomManager {
     if (hello.joinKind === JoinKind.Resume && hello.reconnectToken.length === 16) {
       const requested = this.rooms.get(hello.roomId);
       const resumed = requested?.resume(hello.reconnectToken, peer, nowMs);
-      if (resumed !== undefined) return resumed;
+      if (resumed !== undefined) {
+        resumed.room.rebalanceBots(nowMs);
+        return resumed;
+      }
       if (requested !== undefined) return this.freshJoin(requested, hello, peer, nowMs);
     }
     if (hello.joinKind === JoinKind.Invite || hello.joinKind === JoinKind.Resume) {
@@ -987,7 +1181,7 @@ export class RoomManager {
         ladder: hello.ladder === Ladder.Arsenal ? Ladder.Arsenal : Ladder.Classic,
         mapPreference: this.normalizeMapPreference(hello.mode, hello.mapPreference),
       }, nowMs);
-      return room.add(peer, nowMs, hello.name) ?? { refusal: "room-full" };
+      return this.addHuman(room, peer, nowMs, hello.name);
     }
     const candidates = [...this.rooms.values()]
       .filter((room) => !room.isFull)
@@ -1002,7 +1196,7 @@ export class RoomManager {
         mapPreference: MapPreference.AutoRotate,
       }, nowMs);
     }
-    return room.add(peer, nowMs, hello.name) ?? { refusal: "room-full" };
+    return this.addHuman(room, peer, nowMs, hello.name);
   }
 
   tick(serverTick: number, nowMs: number): void {
@@ -1014,7 +1208,14 @@ export class RoomManager {
 
   private freshJoin(room: Room, hello: HelloFrame, peer: PlayerPeer, nowMs: number): JoinResult {
     if (validatePlayerName(hello.name) === undefined) return { refusal: "invalid-name" };
-    return room.add(peer, nowMs, hello.name) ?? { refusal: "room-full" };
+    return this.addHuman(room, peer, nowMs, hello.name);
+  }
+
+  private addHuman(room: Room, peer: PlayerPeer, nowMs: number, name: string): JoinResult {
+    const joined = room.add(peer, nowMs, name);
+    if (joined === undefined) return { refusal: "room-full" };
+    room.rebalanceBots(nowMs);
+    return joined;
   }
 
   private create(config: RoomConfig, nowMs: number): Room {

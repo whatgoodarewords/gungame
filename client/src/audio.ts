@@ -1,4 +1,4 @@
-import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
+import { NEAR_MISS_DIALS, WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
 import { AUDIO_SAMPLE_URLS } from "./asset-manifest.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
@@ -89,6 +89,7 @@ export class GameAudio {
   private master: GainNode | undefined;
   private windGain: GainNode | undefined;
   private ambienceGain: GainNode | undefined;
+  private captureDestination: MediaStreamAudioDestinationNode | undefined;
   private seed = 1;
   private volume = 0.8;
   private muted = false;
@@ -115,6 +116,27 @@ export class GameAudio {
         0.015,
       );
     }
+  }
+
+  get captureStream(): MediaStream | undefined {
+    return this.captureDestination?.stream;
+  }
+
+  setListener(
+    position: { x: number; y: number; z: number },
+    forward: { x: number; y: number; z: number },
+  ): void {
+    if (this.context === undefined) return;
+    const listener = this.context.listener;
+    listener.positionX.value = position.x;
+    listener.positionY.value = position.y;
+    listener.positionZ.value = position.z;
+    listener.forwardX.value = forward.x;
+    listener.forwardY.value = forward.y;
+    listener.forwardZ.value = forward.z;
+    listener.upX.value = 0;
+    listener.upY.value = 1;
+    listener.upZ.value = 0;
   }
 
   playFire(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
@@ -154,6 +176,12 @@ export class GameAudio {
   airshot(): void {
     this.tone(1_380, 0.2, 0.12);
     this.tone(1_840, 0.16, 0.09, 0.055);
+  }
+
+  impressive(chain: number): void {
+    const lift = Math.min(3, Math.max(0, chain / 2 - 1)) * 18;
+    this.voicedTone(294 + lift, 0.19, 0.075);
+    this.voicedTone(440 + lift, 0.25, 0.065, 0.105);
   }
 
   foundrySigil(): void {
@@ -207,6 +235,22 @@ export class GameAudio {
       position,
       Math.max(0.15, 1 - distance / 7),
     );
+  }
+
+  nearMiss(
+    position: { x: number; y: number; z: number },
+    closingSpeed: number,
+    hitscan: boolean,
+  ): void {
+    const speed = Math.max(0, closingSpeed);
+    const doppler = 1 + Math.min(0.7, speed / 70 * NEAR_MISS_DIALS.dopplerAmount);
+    if (hitscan) {
+      this.play(recipe(0.075, 0.82, 1_050, 7_200, NEAR_MISS_DIALS.hitscanGain, 0.06),
+        position);
+      return;
+    }
+    this.play(recipe(0.16, 0.58, 175 * doppler, 4_600,
+      NEAR_MISS_DIALS.projectileGain, 0.14), position);
   }
 
   uiClick(): void {
@@ -342,6 +386,27 @@ export class GameAudio {
     oscillator.stop(start + duration);
   }
 
+  private voicedTone(frequency: number, duration: number, gainValue: number, delay = 0): void {
+    if (this.context === undefined) return;
+    this.ensureMaster();
+    const start = this.context.currentTime + delay;
+    const oscillator = this.context.createOscillator();
+    const formant = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    oscillator.type = "sawtooth";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.94, start + duration);
+    formant.type = "bandpass";
+    formant.frequency.value = frequency < 400 ? 760 : 1_180;
+    formant.Q.value = 3.8;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(formant).connect(gain).connect(this.master!);
+    oscillator.start(start);
+    oscillator.stop(start + duration);
+  }
+
   private ensureLoops(): void {
     if (this.context === undefined || this.windGain !== undefined) return;
     const makeNoiseLoop = (filterHz: number): { source: AudioBufferSourceNode; gain: GainNode } => {
@@ -364,7 +429,9 @@ export class GameAudio {
   private ensureMaster(): void {
     if (this.context === undefined || this.master !== undefined) return;
     this.master = this.context.createGain();
+    this.captureDestination = this.context.createMediaStreamDestination();
     this.master.gain.value = this.muted ? 0 : this.volume;
     this.master.connect(this.context.destination);
+    this.master.connect(this.captureDestination);
   }
 }

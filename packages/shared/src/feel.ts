@@ -8,6 +8,13 @@ export const DEFAULT_CORNER_NUDGE = 0.05 as const;
 export const DEFAULT_SLIDE_FRICTION_SCALE = 0.25 as const;
 export const DEFAULT_SLIDE_MS = 300 as const;
 
+export const NEAR_MISS_DIALS = Object.freeze({
+  radius: 1.5,
+  projectileGain: 0.18,
+  hitscanGain: 0.09,
+  dopplerAmount: 0.32,
+});
+
 export interface FeelParams {
   readonly jumpBufferMs: number;
   /** Optional only for the Phase 1 client's legacy jump-buffer-only setter. */

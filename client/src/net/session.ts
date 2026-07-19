@@ -314,6 +314,8 @@ export class NetworkSession {
 
   private closed(code: number, reason: string): void {
     if (this.pingTimer !== undefined) clearInterval(this.pingTimer);
+    const closeReason = reason.trim() === "" ? "no reason" : reason;
+    console.warn(`websocket closed · code ${code} · ${closeReason}`);
     if (this.fsm.state !== "closing") {
       try {
         this.fsm.transition("closing", performance.now());

@@ -141,8 +141,13 @@ type PackCandidate =
   | { readonly type: "event"; readonly priority: number; readonly event: SnapshotEvent };
 
 function eventPriority(event: SnapshotEvent): number {
+  if (event.kind === EventKind.ModeEnd) return 0;
   if (event.kind === EventKind.Kill) return 1;
-  if (event.kind === EventKind.HitConfirm || event.kind === EventKind.Airshot) return 2;
+  if (
+    event.kind === EventKind.HitConfirm ||
+    event.kind === EventKind.Airshot ||
+    event.kind === EventKind.Impressive
+  ) return 2;
   if (event.kind === EventKind.Damage) return 4;
   return 5;
 }

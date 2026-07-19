@@ -1,11 +1,14 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   Color,
   Line,
   LineBasicMaterial,
   Mesh,
+  MeshBasicNodeMaterial,
   PerspectiveCamera,
+  PlaneGeometry,
   Raycaster,
   RenderPipeline,
   Scene,
@@ -41,7 +44,9 @@ import {
 } from "../../packages/protocol/src/index.js";
 import { DEFAULT, SCOUTZ } from "../../packages/sim/src/index.js";
 import { GameAudio, type SurfaceMaterial } from "./audio.js";
+import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
+import { ClipThat } from "./clip-capture.js";
 import { ProjectileVisualSystem, RemoteCharacterSystem } from "./combat-visuals.js";
 import { MatchHud } from "./hud.js";
 import { HudStateMachine } from "./hud-state.js";
@@ -54,6 +59,7 @@ import {
   type MenuController,
   type MenuSelection,
 } from "./menu.js";
+import { matchStatsShareText, updatePersonalBest } from "./match-stats.js";
 import { DevPanel } from "./panel.js";
 import {
   clearReconnectAttempts,
@@ -104,13 +110,19 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight, userSettings.fov);
   fpsCam.camera.layers.enable(1);
   scene.add(fpsCam.camera);
-  const input = new RawInput(canvas);
+  const input = new RawInput(() =>
+    canvas.isConnected ? canvas : root.querySelector<HTMLCanvasElement>("canvas:last-of-type") ?? canvas);
   const hud = new MatchHud(root);
   const hudState = new HudStateMachine(true);
   hud.setState(hudState.state);
   const audio = new GameAudio();
+  let clipMapName = "map";
+  const clip = new ClipThat(canvas, () => clipMapName, () => audio.captureStream);
   audio.setMaster(userSettings.masterVolume, userSettings.muted);
-  const unlockAudio = (): void => audio.unlock();
+  const unlockAudio = (): void => {
+    audio.unlock();
+    clip.start();
+  };
   document.addEventListener("pointerdown", unlockAudio, { once: true });
   document.addEventListener("keydown", unlockAudio, { once: true });
   document.addEventListener("click", (event) => {
@@ -143,11 +155,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let materials: RenderMaterials | undefined;
   let rig: StyleRig | undefined;
   let mapMesh: Mesh | undefined;
+  let timeTrial: BhopTimeTrial | undefined;
+  let ghostMesh: Mesh | undefined;
+  let raceMarkers: Mesh[] = [];
   let viewmodel: WeaponViewmodel | undefined;
   let characters: RemoteCharacterSystem | undefined;
   let projectiles: ProjectileVisualSystem | undefined;
   let currentRoomId = "";
   let connectedAtMs = performance.now();
+  let networkClosed = false;
   let reconnectScheduled = false;
   let reconnectCountdownTimer: ReturnType<typeof setInterval> | undefined;
   const nameplates = new Map<number, HTMLElement>();
@@ -227,6 +243,82 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   ): void => {
     currentMap = map;
     currentMode = mode;
+    clipMapName = mapId === MapId.Spire
+      ? "spire"
+      : mapId === MapId.Duna
+        ? "duna"
+        : mapId === MapId.Cascade
+          ? "cascade"
+          : "foundry";
+    timeTrial = new BhopTimeTrial(BHOP_ROUTES[mapId], localStorage);
+    if (ghostMesh !== undefined) {
+      scene.remove(ghostMesh);
+      ghostMesh.geometry.dispose();
+    }
+    const ghostMaterial = new MeshBasicNodeMaterial({
+      color: currentStyle.palette.accent,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    });
+    ghostMesh = new Mesh(new SphereGeometry(0.42, 12, 8), ghostMaterial);
+    ghostMesh.name = "personal-best-ghost";
+    ghostMesh.visible = false;
+    scene.add(ghostMesh);
+    for (const marker of raceMarkers) {
+      scene.remove(marker);
+      marker.geometry.dispose();
+    }
+    raceMarkers = map.secrets
+      .filter((secret) => secret.kind === MapSecretKind.RaceSpot)
+      .map((secret, index) => {
+        const markerMaterial = new MeshBasicNodeMaterial({
+          color: currentStyle.palette.accent,
+          transparent: true,
+          opacity: 0.76,
+          depthWrite: false,
+        });
+        const marker = new Mesh(new SphereGeometry(0.18, 8, 6), markerMaterial);
+        marker.position.set(
+          (secret.bounds.min.x + secret.bounds.max.x) / 2,
+          (secret.bounds.min.y + secret.bounds.max.y) / 2,
+          (secret.bounds.min.z + secret.bounds.max.z) / 2,
+        );
+        marker.name = `race-spot-glint-${index + 1}`;
+        marker.userData.phase = index * Math.PI;
+        const receiptCanvas = document.createElement("canvas");
+        receiptCanvas.width = 256;
+        receiptCanvas.height = 128;
+        const receiptContext = receiptCanvas.getContext("2d");
+        if (receiptContext !== null) {
+          const accentCss = new Color(currentStyle.palette.accent).getStyle();
+          receiptContext.fillStyle = "#071018";
+          receiptContext.fillRect(0, 0, 256, 128);
+          receiptContext.strokeStyle = accentCss;
+          receiptContext.lineWidth = 5;
+          receiptContext.strokeRect(6, 6, 244, 116);
+          receiptContext.fillStyle = "#ffffff";
+          receiptContext.font = "800 52px ui-monospace, monospace";
+          receiptContext.fillText("gg", 18, 62);
+          receiptContext.fillStyle = accentCss;
+          receiptContext.font = "600 18px ui-monospace, monospace";
+          receiptContext.fillText("ari · noor · rowan", 18, 98);
+        }
+        const receipt = new Mesh(
+          new PlaneGeometry(1.45, 0.72),
+          new MeshBasicNodeMaterial({
+            map: new CanvasTexture(receiptCanvas),
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+          }),
+        );
+        receipt.position.y = 0.58;
+        receipt.userData.secretReceipt = "names-wall";
+        marker.add(receipt);
+        scene.add(marker);
+        return marker;
+      });
     if (mapMesh !== undefined) {
       scene.remove(mapMesh);
       mapMesh.geometry.dispose();
@@ -300,6 +392,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       reconnectScheduled = false;
       currentRoomId = roomId;
       connectedAtMs = performance.now();
+      networkClosed = false;
       audio.uiConfirm();
       hud.setState(hudState.dispatch({ type: "connected" }));
       frontDoor?.destroy();
@@ -323,8 +416,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
     },
     onClose: (code, reason) => {
+      networkClosed = true;
       const restarting = code === 1012 || reason.toLowerCase().includes("restart");
       if (restarting) showConnectionCard("server-restarting");
+      hud.setConnectionTelemetry(code, reason);
       hud.setState(hudState.dispatch({ type: restarting ? "server-restarting" : "connection-lost" }));
       scheduleReconnect();
     },
@@ -383,6 +478,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
 
   let scoreboardHeld = false;
   document.addEventListener("keydown", (event) => {
+    if (event.code === input.controlBindings.clip[0]) {
+      clip.export();
+      event.preventDefault();
+      return;
+    }
     if (event.code !== "Tab") return;
     scoreboardHeld = true;
     event.preventDefault();
@@ -519,6 +619,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     } else {
       fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs, duck);
     }
+    audio.setListener(
+      fpsCam.camera.position,
+      fpsCam.camera.getWorldDirection(new Vector3()),
+    );
 
     const zoomCapable = combat.weaponId === 4 || combat.weaponId === 11;
     const zoomed = zoomCapable && (frame.buttons & Button.Zoom) !== 0 && combat.alive;
@@ -539,6 +643,24 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     );
 
     const horizontalSpeed = Math.hypot(curr.velocity.x, curr.velocity.z);
+    const trial = timeTrial?.update(curr.position, now);
+    hud.setTrialTimer(
+      trial?.visible ?? false,
+      trial?.elapsedMs ?? 0,
+      trial?.bestMs,
+    );
+    if (ghostMesh !== undefined) {
+      ghostMesh.visible = trial?.ghost !== undefined;
+      if (trial?.ghost !== undefined) {
+        ghostMesh.position.set(trial.ghost.x, trial.ghost.y + 0.9, trial.ghost.z);
+      }
+    }
+    for (const marker of raceMarkers) {
+      const pulse = 1 + Math.sin(now * 0.004 + Number(marker.userData.phase ?? 0)) * 0.28;
+      marker.scale.setScalar(pulse);
+      marker.rotation.y += dtMs * 0.0018;
+      marker.lookAt(fpsCam.camera.position);
+    }
     const roundTripMs = sim.getPingMs();
     hud.setPing(roundTripMs, pingTone(roundTripMs));
     hud.setAfkWarning(now - input.lastActivityMs >= 20_000);
@@ -612,10 +734,12 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       if (label === undefined) {
         label = document.createElement("span");
         label.className = "enemy-nameplate";
-        label.textContent = `p${remote.id}`;
         hud.root.appendChild(label);
         nameplates.set(remote.id, label);
       }
+      const scoreEntry = combat.modeState?.scoreboard.find((entry) => entry.playerId === remote.id);
+      label.textContent = scoreEntry?.name?.toLowerCase() ?? `p${remote.id}`;
+      label.classList.toggle("bot", scoreEntry?.bot === true);
       const target = new Vector3(remote.position.x, remote.position.y + 1.9, remote.position.z);
       const fromCamera = target.clone().sub(fpsCam.camera.position);
       const distance = fromCamera.length();
@@ -693,6 +817,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       drawCalls: renderer.info.render.drawCalls,
       style: currentStyleId,
       backend: query.get("backend") === "webgl2" ? "webgl2" : "webgpu",
+      connected: networkClosed ? 0 : (combat.selfId === 0 ? 0 : 1),
+      playerX: curr.position.x,
+      playerZ: curr.position.z,
     };
 
     const mode = combat.modeState;
@@ -782,10 +909,12 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
       if (event.kind === EventKind.Kill) {
         const suicide = (event.flags & EventFlags.Suicide) !== 0;
-        hud.addKillfeed(suicide
+        const killLine = suicide
           ? `P${event.targetId} suicide`
-          : `P${event.actorId} → P${event.targetId}${headshot ? " [HEAD]" : ""}`,
-        event.actorId === combat.selfId || event.targetId === combat.selfId);
+          : `P${event.actorId} → P${event.targetId}${headshot ? " [HEAD]" : ""}`;
+        hud.addKillfeed(killLine,
+          event.actorId === combat.selfId || event.targetId === combat.selfId);
+        clip.recordKillfeed(killLine);
         if (event.targetId === combat.selfId) {
           const attacker = remotes.find((remote) => remote.id === event.actorId);
           lastKiller = {
@@ -798,13 +927,41 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           killStreak += 1;
           audio.killConfirm(killStreak);
           hud.flashHit(true);
+          hud.showKillClip(() => clip.export());
+          if (killStreak >= 2) hud.showClipSuggestion("multikill ready", () => clip.export());
           hud.dismissHowTo();
           localStorage.setItem("gg:how-to-seen", "1");
         }
       }
       if (event.kind === EventKind.Airshot && event.actorId === combat.selfId) {
         hud.addKillfeed(`AIRSHOT · P${event.targetId}`);
+        clip.recordKillfeed(`airshot · p${event.targetId}`);
+        hud.showClipSuggestion("airshot ready", () => clip.export());
         audio.airshot();
+      }
+      if (event.kind === EventKind.Impressive && event.actorId === combat.selfId) {
+        hud.showAccolade(event.amount);
+        audio.impressive(event.amount);
+      }
+      if (event.kind === EventKind.NearMiss && event.targetId === combat.selfId) {
+        const source = remotes.find((remote) => remote.id === event.actorId)?.position ?? curr.position;
+        audio.nearMiss(
+          source,
+          event.amount / 10,
+          (event.flags & EventFlags.HitscanNearMiss) !== 0,
+        );
+      }
+      if (
+        event.kind === EventKind.ModeEnd &&
+        event.actorId === combat.selfId &&
+        event.stats !== undefined
+      ) {
+        const mapName = mapMesh?.name ?? "map";
+        const stats = event.stats;
+        const personalBests = updatePersonalBest(localStorage, mapName.toLowerCase(), stats);
+        hud.showMatchStats(stats, personalBests, () => {
+          void navigator.clipboard.writeText(matchStatsShareText(stats, mapName, location.href));
+        });
       }
       if (event.kind === EventKind.SecretTriggered) {
         hud.addKillfeed(`P${event.actorId} found the gg sigil`);

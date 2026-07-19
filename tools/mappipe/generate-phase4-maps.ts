@@ -203,6 +203,8 @@ function spire(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     { name: "col_secret_room_east", geometry: box(30.5, 17, -32, 31, 23, -25) },
     { name: "col_names_wall_texture_hook", geometry: box(21, 18, -31.45, 30, 22, -31.35) },
     { name: "secret_spire_room_names_wall", geometry: box(20.6, 17, -31.4, 30.4, 22.8, -25.1) },
+    { name: "col_race_spot_spire_lip", geometry: box(-18, 12.6, 20.5, -12, 13, 24) },
+    { name: "secret_race_spot_spire_names_wall", geometry: box(-15.3, 13.05, 22, -14.7, 13.65, 22.6) },
   ];
 
   // Three stepped tiers at each end: 10, 11, and 12 m, four spawns each.
@@ -292,6 +294,8 @@ function foundry(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   meshes.push(
     { name: "col_foundry_gg_sigil", geometry: box(-12.55, 5.2, -10.2, -10.45, 7.3, -10.05) },
     { name: "secret_foundry_sigil_gg", geometry: box(-12.55, 5.2, -10.2, -10.45, 7.3, -10.05) },
+    { name: "col_race_spot_foundry_lip", geometry: box(15.5, 8.6, -21.5, 21, 9, -17.5) },
+    { name: "secret_race_spot_foundry_graffiti", geometry: box(18, 9.05, -20, 18.6, 9.65, -19.4) },
   );
 
   const positions: Array<readonly [number, number, number]> = [
@@ -350,6 +354,8 @@ function duna(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     { name: "col_duna_graffiti_room_floor", geometry: box(4, 4.4, 7, 15, 4.8, 14) },
     { name: "col_duna_graffiti_room_back", geometry: box(4, 4.8, 13.5, 15, 10, 14) },
     { name: "secret_duna_graffiti_room", geometry: box(4.1, 4.8, 7.1, 14.9, 10, 13.4) },
+    { name: "col_race_spot_duna_lip", geometry: box(-18, 8.4, 15, -11, 8.8, 20) },
+    { name: "secret_race_spot_duna_names_wall", geometry: box(-14.8, 8.85, 17, -14.2, 9.45, 17.6) },
   ];
 
   const positions: Array<readonly [number, number, number]> = [
@@ -442,6 +448,8 @@ function cascade(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     { name: "col_cascade_waterfall_room_floor", geometry: box(-29, 8.7, -5, -22, 9.1, 2) },
     { name: "col_cascade_waterfall_room_back", geometry: box(-29, 9.1, -5, -28.5, 15, 2) },
     { name: "secret_cascade_waterfall_room", geometry: box(-28.4, 9.1, -4.9, -22.1, 15, 1.9) },
+    { name: "col_race_spot_cascade_lip", geometry: box(21, 11.6, 13, 27, 12, 18) },
+    { name: "secret_race_spot_cascade_sigil", geometry: box(23.7, 12.05, 15.2, 24.3, 12.65, 15.8) },
   );
 
   const spawns: SpawnEntry[] = [];
