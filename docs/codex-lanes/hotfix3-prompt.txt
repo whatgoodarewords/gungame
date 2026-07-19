@@ -1,0 +1,4 @@
+Role: Codex GPT-5.6 lane "hotfix3 — retro-audit findings" (NORMATIVE: docs/codex-lanes/retroaudit-report.md ALL 7 findings — implement each concrete fix exactly, regression test each, incl. the report's own reproduction cases: two-hold rebalance boundary, one-candidate spawn, forced consume-error bookkeeping). You write all code; NO git ops; don't touch docs/, deploy/.
+Also verify (don't reimplement) phase7's landed work compiles with these fixes; where phase7 already fixed an overlapping site, reconcile rather than duplicate.
+Done: pnpm -r typecheck && test green; the three reproduction probes from the report pass as tests.
+Report → client/HOTFIX3-REPORT.md progressively.
