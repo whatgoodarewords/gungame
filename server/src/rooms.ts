@@ -68,6 +68,7 @@ const MAX_PLAYERS = 12;
 const RECONNECT_HOLD_MS = 45_000;
 const EMPTY_REAP_MS = 5 * 60_000;
 const AFK_MS = 30_000;
+export const SPAWN_PROTECTION_TICKS = Math.ceil(1.5 / TICK_DT);
 const HULL_RING_TICKS = Math.ceil(0.4 / TICK_DT) + 1;
 const SENT_TICK_RING = 64;
 
@@ -122,6 +123,7 @@ export interface PlayerSlot {
   lastAcceptedTargetExact: number | undefined;
   airborneSinceTick: number;
   backgroundSinceMs: number;
+  protectedUntilTick: number;
 }
 
 export interface JoinSuccess {
@@ -177,6 +179,7 @@ function playerEntity(slot: PlayerSlot): EntityState {
     viewPitch: slot.state.player.viewPitch,
     grounded: slot.state.player.grounded,
     alive: slot.alive,
+    ducked: slot.state.player.ducked,
     health: slot.health,
     weaponTier: slot.tier,
     ammo: slot.ammo,
@@ -355,6 +358,7 @@ export class Room {
       lastAcceptedTargetExact: undefined,
       airborneSinceTick: 0,
       backgroundSinceMs: 0,
+      protectedUntilTick: this.lastServerTick + SPAWN_PROTECTION_TICKS,
     };
     this.players.set(id, slot);
     this.lastNonEmptyMs = nowMs;
@@ -400,7 +404,7 @@ export class Room {
     const slot = this.players.get(slotId);
     if (slot === undefined) throw new ProtocolError("unknown player");
     slot.epochs.acknowledge(epoch, snapshotTick);
-    slot.ackedSnapshotTick = snapshotTick;
+    slot.ackedSnapshotTick = Math.max(slot.ackedSnapshotTick, snapshotTick);
     slot.events.acknowledgeBaseline(snapshotTick);
   }
 
@@ -408,10 +412,8 @@ export class Room {
     const slot = this.players.get(slotId);
     if (slot === undefined) throw new ProtocolError("unknown player");
     const entities = this.entities();
-    slot.snapshots.set(tick, entities);
-    slot.sentSnapshotTicks.push(tick);
     const epoch = slot.epochs.openFull(tick);
-    return packSnapshot({
+    const packed = packSnapshot({
       tick,
       lastProcessedCmdSeq: slot.cmdWindow.lastProcessedCmdSeq,
       cmdArrivalMargin: slot.cmdWindow.size - 2,
@@ -423,7 +425,11 @@ export class Room {
       events: slot.events.pendingAfter(0),
       modeState: this.modeState(tick),
       forceFull: true,
-    }).bytes;
+    });
+    slot.snapshots.set(tick, packed.baselineEntities);
+    slot.events.recordSnapshot(tick, packed.frame.events);
+    slot.sentSnapshotTicks.push(tick);
+    return packed.bytes;
   }
 
   tick(serverTick: number, nowMs: number): void {
@@ -682,6 +688,7 @@ export class Room {
     suicide: boolean,
   ): void {
     if (!target.alive || amount <= 0) return;
+    if (attackerId !== target.id && tick < target.protectedUntilTick) return;
     const applied = Math.min(target.health, Math.max(0, Math.round(amount)));
     target.health -= applied;
     this.broadcastEvent({
@@ -742,6 +749,7 @@ export class Room {
     slot.respawnTick = 0;
     slot.nextFireTick = tick;
     slot.reloadTick = 0;
+    slot.protectedUntilTick = tick + SPAWN_PROTECTION_TICKS;
     slot.airborneSinceTick = 0;
     const spawn = this.spawnFor(slot.id, slot.team, slot.generation);
     const initial = createInitialState(`player-${slot.id}`);
@@ -863,8 +871,6 @@ export class Room {
     const modeState = this.modeState(serverTick);
     for (const slot of this.players.values()) {
       if (slot.peer === undefined) continue;
-      slot.snapshots.set(serverTick, entities);
-      slot.sentSnapshotTicks.push(serverTick);
       if (slot.epochs.deltasSuspended) continue;
       const baseline = slot.snapshots.get(slot.ackedSnapshotTick) ?? [];
       const packed = packSnapshot({
@@ -880,7 +886,12 @@ export class Room {
         modeState,
       });
       if (packed.promotedToFull) slot.peer.sendBaseline(this.openBaseline(slot.id, serverTick));
-      else slot.peer.sendSnapshot(packed.bytes);
+      else {
+        slot.snapshots.set(serverTick, packed.baselineEntities);
+        slot.events.recordSnapshot(serverTick, packed.frame.events);
+        slot.sentSnapshotTicks.push(serverTick);
+        slot.peer.sendSnapshot(packed.bytes);
+      }
     }
   }
 

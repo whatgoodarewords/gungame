@@ -66,6 +66,7 @@ export interface EntityState {
   readonly viewPitch: number;
   readonly grounded: boolean;
   readonly alive: boolean;
+  readonly ducked?: boolean;
   readonly kind: ValueOf<typeof EntityKind>;
   readonly health: number;
   readonly weaponTier: number;
@@ -87,6 +88,7 @@ export interface EntityDelta {
   readonly viewPitch?: number;
   readonly grounded?: boolean;
   readonly alive?: boolean;
+  readonly ducked?: boolean;
   readonly kind?: ValueOf<typeof EntityKind>;
   readonly health?: number;
   readonly weaponTier?: number;

@@ -40,6 +40,8 @@ function harness(mode: 0 | 1, ladder: 0 | 1): Harness {
 
 function aimAndFire(value: Harness, melee: boolean): void {
   const { room, attacker, victim } = value;
+  attacker.protectedUntilTick = 0;
+  victim.protectedUntilTick = 0;
   attacker.state = { ...attacker.state, player: {
     ...attacker.state.player,
     position: { x: 0, y: 0, z: 0 },

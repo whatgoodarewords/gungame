@@ -59,10 +59,35 @@ function install(roomValue: Room, slotId: number): number {
   const slot = roomValue.players.get(slotId);
   if (slot === undefined) throw new Error("slot missing");
   roomValue.acknowledgeBaseline(slotId, slot.epochs.epoch, 0);
+  // Most combat tests isolate weapon behavior; spawn protection has its own
+  // contract test below.
+  slot.protectedUntilTick = 0;
   return slot.epochs.epoch;
 }
 
 describe("combat room", () => {
+  it("protects a fresh spawn from enemies for 1.5 seconds but not afterward", () => {
+    const value = room();
+    const shooter = value.add(new Peer(), 0, "Shooter")!.slot;
+    const target = value.add(new Peer(), 0, "Target")!.slot;
+    shooter.state = { ...shooter.state, player: {
+      ...shooter.state.player, position: { x: 0, y: 0, z: 0 },
+    } };
+    target.state = { ...target.state, player: {
+      ...target.state.player, position: { x: 0, y: 0, z: -1 },
+    } };
+    const epoch = install(value, shooter.id);
+    install(value, target.id);
+    target.protectedUntilTick = 96;
+    value.acceptCmd(shooter.id, command(1, epoch), 0);
+    value.tick(1, TICK_DT * 1_000);
+    expect(target.health).toBe(100);
+    shooter.nextFireTick = 0;
+    value.acceptCmd(shooter.id, command(2, epoch, { tick: 96 }), 96);
+    value.tick(96, 96 * TICK_DT * 1_000);
+    expect(target.health).toBeLessThan(100);
+  });
+
   it("kills through the fire contract, advances the ladder, then respawns with a new generation", () => {
     const value = room();
     const shooter = value.add(new Peer(), 0, "Shooter")!.slot;

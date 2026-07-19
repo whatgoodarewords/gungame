@@ -1,15 +1,16 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  BoxGeometry,
   Color,
   Line,
   LineBasicMaterial,
   Mesh,
   PerspectiveCamera,
+  Raycaster,
   RenderPipeline,
   Scene,
   SphereGeometry,
+  Vector3,
   WebGPURenderer,
   type Material,
 } from "three/webgpu";
@@ -41,11 +42,24 @@ import {
 import { DEFAULT, SCOUTZ } from "../../packages/sim/src/index.js";
 import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { FpsCamera } from "./camera.js";
+import { ProjectileVisualSystem, RemoteCharacterSystem } from "./combat-visuals.js";
 import { MatchHud } from "./hud.js";
 import { HudStateMachine } from "./hud-state.js";
-import { Button, RawInput } from "./input.js";
-import { showNameEntry, validPlayerName, type MenuController, type MenuSelection } from "./menu.js";
+import { Button, RawInput, rebindControl } from "./input.js";
+import {
+  likelyTouchOnly,
+  showMobileGate,
+  showNameEntry,
+  validPlayerName,
+  type MenuController,
+  type MenuSelection,
+} from "./menu.js";
 import { DevPanel } from "./panel.js";
+import {
+  clearReconnectAttempts,
+  nextReconnectAttempt,
+  RECONNECT_ATTEMPT_STORAGE_KEY,
+} from "./reconnect.js";
 import {
   RENDER_STYLES,
   RENDER_STYLE_IDS,
@@ -55,6 +69,14 @@ import {
   type StyleRig,
 } from "./render-style.js";
 import { createPlayground } from "./sim-bridge.js";
+import {
+  crosshairGapPixels,
+  loadUserSettings,
+  pingTone,
+  saveUserSettings,
+  weaponTypeIcon,
+  type UserSettings,
+} from "./settings.js";
 import { WeaponViewmodel } from "./viewmodels.js";
 import { RecoverableRenderPipeline, armRecoverableAnimationLoop } from "./render-runtime.js";
 import "./style.css";
@@ -78,7 +100,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const canvas = document.createElement("canvas");
   root.appendChild(canvas);
   const scene = new Scene();
-  const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight);
+  let userSettings: UserSettings = loadUserSettings(localStorage);
+  const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight, userSettings.fov);
   fpsCam.camera.layers.enable(1);
   scene.add(fpsCam.camera);
   const input = new RawInput(canvas);
@@ -86,7 +109,17 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const hudState = new HudStateMachine(true);
   hud.setState(hudState.state);
   const audio = new GameAudio();
-  canvas.addEventListener("pointerdown", () => audio.unlock(), { once: true });
+  audio.setMaster(userSettings.masterVolume, userSettings.muted);
+  const unlockAudio = (): void => audio.unlock();
+  document.addEventListener("pointerdown", unlockAudio, { once: true });
+  document.addEventListener("keydown", unlockAudio, { once: true });
+  document.addEventListener("click", (event) => {
+    if ((event.target as Element | null)?.closest("button, select, input") !== null) {
+      audio.uiClick();
+    }
+  });
+  input.onLockChange((locked) => hud.setPointerLock(locked));
+  hud.onResume(() => input.requestLock());
 
   const renderer = new WebGPURenderer({
     canvas,
@@ -95,7 +128,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   await renderer.init();
-  const showConnectionCard = (state: "server-restarting" | "version-mismatch" | "room-full"): void => {
+  const showConnectionCard = (
+    state: "server-restarting" | "version-mismatch" | "room-full" | "room-not-found",
+  ): void => {
     if (frontDoor === undefined) {
       frontDoor = showNameEntry(root, (selection) => location.assign(urlForSelection(selection)));
     }
@@ -109,8 +144,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let rig: StyleRig | undefined;
   let mapMesh: Mesh | undefined;
   let viewmodel: WeaponViewmodel | undefined;
-  const remoteMeshes = new Map<number, Mesh>();
-  const projectileMeshes = new Map<string, Mesh>();
+  let characters: RemoteCharacterSystem | undefined;
+  let projectiles: ProjectileVisualSystem | undefined;
+  let currentRoomId = "";
+  let connectedAtMs = performance.now();
+  let reconnectScheduled = false;
+  let reconnectCountdownTimer: ReturnType<typeof setInterval> | undefined;
+  const nameplates = new Map<number, HTMLElement>();
 
   const constructPipeline = (style: typeof currentStyle): RenderPipeline => {
     const scenePass = style.id === "toon-cel"
@@ -150,8 +190,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     materials = nextMaterials;
     if (currentMap !== undefined) {
       if (mapMesh !== undefined && nextMaterials !== undefined) mapMesh.material = nextMaterials.map;
-      for (const mesh of remoteMeshes.values()) if (nextMaterials !== undefined) mesh.material = nextMaterials.actor;
-      for (const mesh of projectileMeshes.values()) if (nextMaterials !== undefined) mesh.material = nextMaterials.projectile;
+      if (nextMaterials !== undefined) {
+        characters?.setMaterial(nextMaterials.actor);
+        projectiles?.setMaterial(nextMaterials.projectile);
+      }
     }
     viewmodel = nextViewmodel;
     pipeline.replace(nextPipeline, () => {
@@ -168,9 +210,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       viewmodel = previous.viewmodel;
       if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = true;
       if (mapMesh !== undefined && previous.materials !== undefined) mapMesh.material = previous.materials.map;
-      for (const mesh of remoteMeshes.values()) if (previous.materials !== undefined) mesh.material = previous.materials.actor;
-      for (const mesh of projectileMeshes.values()) if (previous.materials !== undefined) {
-        mesh.material = previous.materials.projectile;
+      if (previous.materials !== undefined) {
+        characters?.setMaterial(previous.materials.actor);
+        projectiles?.setMaterial(previous.materials.projectile);
       }
       const url = new URL(location.href);
       url.searchParams.set("style", previous.id);
@@ -194,6 +236,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     geometry.setIndex(new BufferAttribute(map.collision.indices, 1));
     geometry.computeVertexNormals();
     materials = currentStyle.materials(map);
+    characters ??= new RemoteCharacterSystem(scene, materials.actor);
+    projectiles ??= new ProjectileVisualSystem(scene, materials.projectile);
+    characters.setMaterial(materials.actor);
+    projectiles.setMaterial(materials.projectile);
     mapMesh = new Mesh(geometry, materials.map);
     mapMesh.name = mapId === MapId.Spire
       ? "Spire"
@@ -207,6 +253,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     viewmodel = new WeaponViewmodel(materials.viewmodel);
     fpsCam.camera.add(viewmodel.root);
     applyStyle(currentStyleId);
+    document.title = `gungame — ${mapMesh.name.toLowerCase()}`;
   };
 
   const mapUrlForMap = (mapId: typeof MapId[keyof typeof MapId]): string =>
@@ -220,17 +267,47 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const mapUrlForMode = (mode: typeof GameMode[keyof typeof GameMode]): string =>
     mapUrlForMap(mode === GameMode.Scoutzknivez ? MapId.Spire : MapId.Foundry);
 
+  const scheduleReconnect = (): void => {
+    if (reconnectScheduled) return;
+    reconnectScheduled = true;
+    const retry = nextReconnectAttempt(sessionStorage, Date.now());
+    if (!retry.allowed) {
+      hud.setReconnectCountdown(0);
+      return;
+    }
+    let remaining = retry.countdownSeconds;
+    hud.setReconnectCountdown(remaining);
+    reconnectCountdownTimer = setInterval(() => {
+      remaining -= 1;
+      hud.setReconnectCountdown(Math.max(0, remaining));
+      if (remaining > 0) return;
+      if (reconnectCountdownTimer !== undefined) clearInterval(reconnectCountdownTimer);
+      location.reload();
+    }, 1_000);
+  };
+  hud.onRejoin(() => {
+    sessionStorage.removeItem(RECONNECT_ATTEMPT_STORAGE_KEY);
+    if (currentRoomId !== "") sessionStorage.removeItem(`gg:reconnect:${currentRoomId}`);
+    location.reload();
+  });
+
   const { sim } = createPlayground(canvas, {
     mapUrlForMode,
     mapUrlForMap,
     onMapLoaded: installVisualMap,
     onWelcome: (_mode, _variant, _ladder, _mapId, roomId) => {
+      clearReconnectAttempts(sessionStorage);
+      reconnectScheduled = false;
+      currentRoomId = roomId;
+      connectedAtMs = performance.now();
+      audio.uiConfirm();
       hud.setState(hudState.dispatch({ type: "connected" }));
       frontDoor?.destroy();
       frontDoor = undefined;
       if (query.get("create") === "1") hud.showInvite(roomId);
     },
     onRefusal: (code) => {
+      audio.uiError();
       if (code === RefusalCode.VersionMismatch) {
         showConnectionCard("version-mismatch");
         hud.setState(hudState.dispatch({ type: "version-mismatch" }));
@@ -239,6 +316,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         hud.setState(hudState.dispatch({ type: "server-restarting" }));
       } else if (code === RefusalCode.RoomFull) {
         showConnectionCard("room-full");
+      } else if (code === RefusalCode.RoomNotFound) {
+        showConnectionCard("room-not-found");
       } else {
         hud.setState(hudState.dispatch({ type: "connection-lost" }));
       }
@@ -247,6 +326,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       const restarting = code === 1012 || reason.toLowerCase().includes("restart");
       if (restarting) showConnectionCard("server-restarting");
       hud.setState(hudState.dispatch({ type: restarting ? "server-restarting" : "connection-lost" }));
+      scheduleReconnect();
     },
   });
 
@@ -265,14 +345,24 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
     },
     presets: {
-      SCOUTZ: { ...SCOUTZ, jumpBufferMs: 80 },
-      DEFAULT: { ...DEFAULT, jumpBufferMs: 80 },
+      scoutz: { ...SCOUTZ, jumpBufferMs: 80 },
+      default: { ...DEFAULT, jumpBufferMs: 80 },
     },
     onPreset: (name) => {
-      Object.assign(params, name === "SCOUTZ" ? SCOUTZ : DEFAULT);
+      Object.assign(params, name === "scoutz" ? SCOUTZ : DEFAULT);
       sim.setParams(params);
     },
     onSensitivity: (cm360, dpi) => input.setSensitivity(cm360, dpi),
+    controls: input.controlBindings,
+    onControl: (action, code) => {
+      input.setBindings(rebindControl(input.controlBindings, action, code));
+    },
+    settings: userSettings,
+    onSettings: (settings) => {
+      userSettings = settings;
+      saveUserSettings(localStorage, settings);
+      audio.setMaster(settings.masterVolume, settings.muted);
+    },
     styles: RENDER_STYLE_IDS,
     activeStyle: currentStyleId,
     onStyle: (style) => {
@@ -308,7 +398,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       viewPitch: frame.pitch * RAD2DEG,
       fireFraction: 0,
     });
+    if (!document.hidden) hud.setPointerLock(input.isLocked, false);
   });
+  hud.setPointerLock(input.isLocked);
 
   const showTracer = (
     from: { x: number; y: number; z: number },
@@ -328,9 +420,28 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     impact.position.set(to.x, to.y + 0.95, to.z);
     scene.add(tracer, impact);
     setTimeout(() => {
-      scene.remove(tracer, impact);
+      scene.remove(tracer);
       geometry.dispose();
-    }, 90);
+    }, 40);
+    setTimeout(() => scene.remove(impact), 120);
+  };
+
+  const showAimTracer = (range: number): void => {
+    const origin = fpsCam.camera.getWorldPosition(new Vector3());
+    const direction = fpsCam.camera.getWorldDirection(new Vector3());
+    const end = origin.clone().addScaledVector(direction, range);
+    const geometry = new BufferGeometry().setFromPoints([origin, end]);
+    const tracer = new Line(geometry, new LineBasicMaterial({
+      color: currentStyle.palette.accent,
+      transparent: true,
+      opacity: 0.8,
+    }));
+    tracer.name = "hitscan-tracer";
+    scene.add(tracer);
+    setTimeout(() => {
+      scene.remove(tracer);
+      geometry.dispose();
+    }, 40);
   };
 
   const resize = (): void => {
@@ -352,6 +463,18 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let lastWeapon: WeaponIdValue | undefined;
   let nextLocalShotMs = 0;
   let nextFootstepMs = 0;
+  let nextWhooshMs = 0;
+  let lastYaw = input.yaw;
+  let lastPitch = input.pitch;
+  let lastTier = 1;
+  let wasAlive = true;
+  let deathAtMs = 0;
+  let deathPosition = { x: 0, y: 0, z: 0 };
+  let lastKiller = { name: "world", weapon: "unknown", health: 0 };
+  let killStreak = 0;
+  let howToShown = false;
+  const nameplateRaycaster = new Raycaster();
+  const nextRemoteFootstep = new Map<number, number>();
 
   const renderFrame = (): void => {
     const now = performance.now();
@@ -385,20 +508,45 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
     wasGrounded = curr.grounded;
     const duck = prev.duckProgress + (curr.duckProgress - prev.duckProgress) * alpha;
-    fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs, duck);
+    if (!combat.alive && now - deathAtMs < 1_000) {
+      const orbit = (now - deathAtMs) / 1_000 * Math.PI * 1.4;
+      fpsCam.camera.position.set(
+        deathPosition.x + Math.sin(orbit) * 3.2,
+        deathPosition.y + 2,
+        deathPosition.z + Math.cos(orbit) * 3.2,
+      );
+      fpsCam.camera.lookAt(deathPosition.x, deathPosition.y + 0.9, deathPosition.z);
+    } else {
+      fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs, duck);
+    }
 
     const zoomCapable = combat.weaponId === 4 || combat.weaponId === 11;
     const zoomed = zoomCapable && (frame.buttons & Button.Zoom) !== 0 && combat.alive;
-    fpsCam.camera.fov += ((zoomed ? 45 : 100) - fpsCam.camera.fov) * Math.min(1, dtMs / 80);
+    const targetFov = zoomed ? userSettings.fov * 0.45 : userSettings.fov;
+    fpsCam.camera.fov += (targetFov - fpsCam.camera.fov) * Math.min(1, dtMs / 80);
     fpsCam.camera.updateProjectionMatrix();
     hud.zoomOverlay.classList.toggle("visible", zoomed);
+    hud.setCrosshair(
+      userSettings.crosshair,
+      crosshairGapPixels(
+        userSettings.crosshair,
+        WEAPONS[combat.weaponId],
+        zoomed,
+        window.innerHeight,
+        fpsCam.camera.fov,
+      ),
+      zoomed,
+    );
 
     const horizontalSpeed = Math.hypot(curr.velocity.x, curr.velocity.z);
+    const roundTripMs = sim.getPingMs();
+    hud.setPing(roundTripMs, pingTone(roundTripMs));
+    hud.setAfkWarning(now - input.lastActivityMs >= 20_000);
     panel.update(fpsSmoothed, renderer.info.render.drawCalls);
     audio.setWindSpeed(horizontalSpeed);
     const surface: SurfaceMaterial = currentMode === GameMode.Scoutzknivez ? "stone" : "metal";
     if (curr.grounded && horizontalSpeed > 2.2 && now >= nextFootstepMs) {
-      audio.footstep(surface);
+      audio.footstep(surface, curr.position, true);
       nextFootstepMs = now + Math.max(180, 470 - horizontalSpeed * 10);
     }
     const secretRoom = currentMap?.secrets.find((secret) => secret.kind === MapSecretKind.SpireRoom);
@@ -411,27 +559,87 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if ((frame.buttons & Button.Fire) !== 0 && combat.alive && now >= nextLocalShotMs) {
       viewmodel?.onFire();
       audio.playFire(combat.weaponId);
+      const weapon = WEAPONS[combat.weaponId];
+      if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
+        showAimTracer(weapon.range);
+      }
       nextLocalShotMs = now + WEAPONS[combat.weaponId].refireTicks * TICK_DT * 1_000;
     }
-    viewmodel?.update(dtMs / 1_000, combat.ammo, combat.alive);
+    const seconds = Math.max(0.001, dtMs / 1_000);
+    viewmodel?.update(
+      seconds,
+      combat.ammo,
+      combat.alive,
+      (input.yaw - lastYaw) / seconds,
+      (input.pitch - lastPitch) / seconds,
+    );
+    lastYaw = input.yaw;
+    lastPitch = input.pitch;
 
     const remotes = sim.getRemotePlayers(now);
-    const visiblePlayers = new Set<number>();
-    for (const remote of remotes) {
-      if (remote.kind !== EntityKind.Player) continue;
-      visiblePlayers.add(remote.id);
-      let mesh = remoteMeshes.get(remote.id);
-      if (mesh === undefined && materials !== undefined) {
-        mesh = new Mesh(new BoxGeometry(0.8, 1.8, 0.8), materials.actor);
-        remoteMeshes.set(remote.id, mesh);
-        scene.add(mesh);
+    const remotePlayers = remotes.filter((remote) => remote.kind === EntityKind.Player);
+    if (query.get("visualtest") === "1" && remotePlayers.length === 0) {
+      remotePlayers.push({
+        id: 65_000,
+        generation: 1,
+        sourceTick: 0,
+        position: { x: curr.position.x + 2, y: curr.position.y, z: curr.position.z - 4 },
+        velocity: { x: 2.5, y: 0, z: 0 },
+        viewYaw: 0,
+        viewPitch: 0,
+        grounded: true,
+        alive: true,
+        ducked: false,
+        kind: EntityKind.Player,
+        health: 100,
+        weaponTier: 1,
+        ammo: 0,
+        ownerId: 0,
+        fireCmdSeq: 0,
+        weaponId: 0,
+      });
+    }
+    characters?.update(remotePlayers, now / 1_000);
+    const visiblePlayerIds = new Set(remotePlayers.map((remote) => remote.id));
+    for (const remote of remotePlayers) {
+      const speed = Math.hypot(remote.velocity.x, remote.velocity.z);
+      if (remote.grounded && remote.alive && speed > 2.2 &&
+        now >= (nextRemoteFootstep.get(remote.id) ?? 0)) {
+        audio.footstep(surface, remote.position, false);
+        nextRemoteFootstep.set(remote.id, now + Math.max(190, 460 - speed * 9));
       }
-      if (mesh !== undefined) {
-        mesh.position.set(remote.position.x, remote.position.y + 0.9, remote.position.z);
-        mesh.visible = remote.alive;
+      let label = nameplates.get(remote.id);
+      if (label === undefined) {
+        label = document.createElement("span");
+        label.className = "enemy-nameplate";
+        label.textContent = `p${remote.id}`;
+        hud.root.appendChild(label);
+        nameplates.set(remote.id, label);
+      }
+      const target = new Vector3(remote.position.x, remote.position.y + 1.9, remote.position.z);
+      const fromCamera = target.clone().sub(fpsCam.camera.position);
+      const distance = fromCamera.length();
+      let occluded = false;
+      if (mapMesh !== undefined && distance < 15) {
+        nameplateRaycaster.set(fpsCam.camera.position, fromCamera.normalize());
+        occluded = (nameplateRaycaster.intersectObject(mapMesh, false)[0]?.distance ?? Infinity) < distance - 0.2;
+      }
+      const projected = target.project(fpsCam.camera);
+      const visible = remote.alive && distance < 15 && !occluded &&
+        Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1 && projected.z < 1;
+      label.classList.toggle("visible", visible);
+      if (visible) {
+        label.style.left = `${(projected.x * 0.5 + 0.5) * window.innerWidth}px`;
+        label.style.top = `${(-projected.y * 0.5 + 0.5) * window.innerHeight}px`;
       }
     }
-    for (const [id, mesh] of remoteMeshes) if (!visiblePlayers.has(id)) mesh.visible = false;
+    for (const [id, label] of nameplates) {
+      if (!visiblePlayerIds.has(id)) {
+        label.remove();
+        nameplates.delete(id);
+        nextRemoteFootstep.delete(id);
+      }
+    }
 
     const projectileViews = new Map<string, { position: { x: number; y: number; z: number }; weaponId: number }>();
     for (const remote of remotes) {
@@ -451,47 +659,107 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         weaponId: predicted.weaponId,
       });
     }
-    for (const [key, projectile] of projectileViews) {
-      let mesh = projectileMeshes.get(key);
-      if (mesh === undefined && materials !== undefined) {
-        mesh = new Mesh(new SphereGeometry(projectile.weaponId === 9 ? 0.16 : 0.11, 8, 6), materials.projectile);
-        projectileMeshes.set(key, mesh);
-        scene.add(mesh);
-      }
-      mesh?.position.set(projectile.position.x, projectile.position.y, projectile.position.z);
+    const projectileList = [...projectileViews].map(([key, value]) => ({ key, ...value }));
+    if (query.get("visualtest") === "1" && projectileList.length === 0) {
+      projectileList.push({
+        key: "visual-test-rocket",
+        position: { x: curr.position.x + 1.5, y: curr.position.y + 1.2, z: curr.position.z - 3 },
+        weaponId: 9,
+      });
     }
-    for (const [key, mesh] of projectileMeshes) {
-      if (!projectileViews.has(key)) {
-        scene.remove(mesh);
-        projectileMeshes.delete(key);
+    projectiles?.update(projectileList);
+    if (now >= nextWhooshMs) {
+      const nearest = projectileList
+        .map((projectile) => ({
+          projectile,
+          distance: Math.hypot(
+            projectile.position.x - curr.position.x,
+            projectile.position.y - curr.position.y,
+            projectile.position.z - curr.position.z,
+          ),
+        }))
+        .sort((a, b) => a.distance - b.distance)[0];
+      if (nearest !== undefined && nearest.distance < 7) {
+        audio.projectileWhoosh(nearest.projectile.position, nearest.distance);
+        nextWhooshMs = now + 180;
       }
     }
+    const debugWindow = window as unknown as {
+      __GG_VISUAL_DEBUG__?: Record<string, number | string>;
+    };
+    debugWindow.__GG_VISUAL_DEBUG__ = {
+      projectileMeshes: projectileList.length,
+      characterRigs: remotePlayers.length,
+      drawCalls: renderer.info.render.drawCalls,
+      style: currentStyleId,
+      backend: query.get("backend") === "webgl2" ? "webgl2" : "webgpu",
+    };
 
     const mode = combat.modeState;
     const ladderLength = mode === undefined ? CLASSIC_LADDER.length : ladderWeapons(mode.ladder).length;
+    hud.setSelfId(combat.selfId);
     hud.setStatus({
       health: combat.health,
       tier: combat.tier,
       ladderLength,
       weapon: WEAPONS[combat.weaponId].displayName,
+      typeIcon: weaponTypeIcon(WEAPONS[combat.weaponId].kind),
       ...(WEAPONS[combat.weaponId].magazine === 0 ? {} : { ammo: [combat.ammo, WEAPONS[combat.weaponId].magazine] as const }),
       speed: horizontalSpeed,
     });
+    if (!howToShown && combat.selfId !== 0 && localStorage.getItem("gg:how-to-seen") !== "1") {
+      howToShown = true;
+      hud.showHowTo([
+        "wasd move · mouse aim · click fire",
+        `${input.controlBindings.jump.map((code) => code.toLowerCase()).join("/")} jump · wheel down jump`,
+        `${input.controlBindings.duck.map((code) => code.toLowerCase()).join("/")} duck · tab scores`,
+        "spawn protection 1.5 s",
+      ]);
+    }
+    if (combat.tier !== lastTier) {
+      const demoted = combat.tier < lastTier;
+      hud.showBanner(demoted ? `demoted · tier ${combat.tier}` : `tier ${combat.tier}`, demoted);
+      if (!demoted) {
+        audio.tierUp();
+        if (combat.tier === ladderLength) audio.lastTierWarning();
+      }
+      lastTier = combat.tier;
+    }
+    if (wasAlive && !combat.alive) {
+      deathAtMs = now;
+      deathPosition = { ...curr.position };
+      killStreak = 0;
+    } else if (!wasAlive && combat.alive) {
+      hud.showSpawnFade();
+    }
+    wasAlive = combat.alive;
+    if (!combat.alive) {
+      hud.setDeathDetails(
+        lastKiller.name,
+        lastKiller.weapon,
+        lastKiller.health,
+        Math.max(0, 2 - (now - deathAtMs) / 1_000),
+      );
+    }
     const frozen = mode?.roundState === RoundState.ScoreboardFreeze;
     hud.setState(hudState.dispatch({ type: "snapshot", alive: combat.alive, frozen }));
     if (mode !== undefined) {
       const heading = mode.mode === GameMode.Scoutzknivez
         ? `${mode.teamScores[0]} — ${mode.teamScores[1]}`
         : mode.winnerId === 0 ? "" : `P${mode.winnerId} wins`;
-      hud.setScoreboard(mode.scoreboard, scoreboardHeld, mode.roundState, heading);
+      hud.setScoreboard(mode.scoreboard, scoreboardHeld, mode.roundState, heading, {
+        room: currentRoomId,
+        elapsedSeconds: (now - connectedAtMs) / 1_000,
+        ping: roundTripMs,
+      });
     }
 
     for (const event of sim.drainCombatEvents()) {
       const headshot = (event.flags & EventFlags.Headshot) !== 0;
       if (event.kind === EventKind.HitConfirm && event.actorId === combat.selfId) {
         hud.hitmarker.classList.add("visible");
-        hud.damageNumber.textContent = String(event.amount);
-        hud.damageNumber.classList.add("visible");
+        hud.showDamageNumber(event.amount, headshot);
+        hud.flashHit(false);
         audio.hitmarker(event.amount);
         if (headshot) audio.headshot();
         const target = remotes.find((remote) => remote.id === event.targetId);
@@ -501,7 +769,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         }
         setTimeout(() => {
           hud.hitmarker.classList.remove("visible");
-          hud.damageNumber.classList.remove("visible");
         }, 120);
       }
       if (event.kind === EventKind.Damage && event.targetId === combat.selfId) {
@@ -517,8 +784,23 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         const suicide = (event.flags & EventFlags.Suicide) !== 0;
         hud.addKillfeed(suicide
           ? `P${event.targetId} suicide`
-          : `P${event.actorId} → P${event.targetId}${headshot ? " [HEAD]" : ""}`);
-        if (event.actorId === combat.selfId && !suicide) audio.killConfirm();
+          : `P${event.actorId} → P${event.targetId}${headshot ? " [HEAD]" : ""}`,
+        event.actorId === combat.selfId || event.targetId === combat.selfId);
+        if (event.targetId === combat.selfId) {
+          const attacker = remotes.find((remote) => remote.id === event.actorId);
+          lastKiller = {
+            name: suicide ? "yourself" : `p${event.actorId}`,
+            weapon: WEAPONS[event.weaponId as WeaponIdValue]?.displayName ?? "world",
+            health: attacker?.health ?? 0,
+          };
+        }
+        if (event.actorId === combat.selfId && !suicide) {
+          killStreak += 1;
+          audio.killConfirm(killStreak);
+          hud.flashHit(true);
+          hud.dismissHowTo();
+          localStorage.setItem("gg:how-to-seen", "1");
+        }
       }
       if (event.kind === EventKind.Airshot && event.actorId === combat.selfId) {
         hud.addKillfeed(`AIRSHOT · P${event.targetId}`);
@@ -623,5 +905,10 @@ async function startFrontDoor(): Promise<void> {
 }
 
 const requestedName = new URLSearchParams(location.search).get("name") ?? "";
-if (!validPlayerName(requestedName)) void startFrontDoor();
-else void startGame();
+if (likelyTouchOnly(navigator, matchMedia("(pointer: coarse)").matches)) {
+  showMobileGate(root);
+} else if (!validPlayerName(requestedName)) {
+  void startFrontDoor();
+} else {
+  void startGame();
+}

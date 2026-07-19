@@ -1,4 +1,5 @@
 import {
+  Box3,
   BoxGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -6,11 +7,14 @@ import {
   Mesh,
   SphereGeometry,
   TorusGeometry,
+  Vector3,
   type Material,
   type Object3D,
 } from "three/webgpu";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
+import { WEAPON_MODEL_URLS } from "./asset-manifest.js";
 
 type Silhouette = "pistol" | "smg" | "shotgun" | "rifle" | "scout" | "knife" |
   "arc" | "launcher" | "discus";
@@ -114,22 +118,48 @@ function buildSilhouette(config: ViewmodelConfig, material: Material): Group {
   return root;
 }
 
+const RECOIL_PROFILES: Readonly<Record<WeaponIdValue, readonly [number, number]>> = Object.freeze({
+  [WeaponId.Pistol]: [0.12, 0.13],
+  [WeaponId.Smg]: [0.07, 0.08],
+  [WeaponId.Shotgun]: [0.18, 0.2],
+  [WeaponId.Rifle]: [0.1, 0.11],
+  [WeaponId.Scout]: [0.2, 0.18],
+  [WeaponId.Knife]: [0.08, 0.04],
+  [WeaponId.Sidewinder]: [0.14, 0.14],
+  [WeaponId.Boomstick]: [0.24, 0.23],
+  [WeaponId.Arc]: [0.025, 0.035],
+  [WeaponId.Peacemaker]: [0.2, 0.21],
+  [WeaponId.Discus]: [0.11, 0.1],
+  [WeaponId.Deadeye]: [0.22, 0.19],
+  [WeaponId.Goldie]: [0.28, 0.24],
+});
+
+export interface WeaponViewmodelOptions {
+  readonly loadAssets?: boolean;
+}
+
 export class WeaponViewmodel {
   readonly root = new Group();
   private readonly material: Material;
+  private readonly loadAssets: boolean;
   private weaponId: WeaponIdValue | undefined;
   private model: Group | undefined;
+  private loadGeneration = 0;
   private equip = 1;
   private recoil = 0;
   private rack = 0;
   private goldieReload = 0;
   private previousAmmo = 1;
+  private swayYaw = 0;
+  private swayPitch = 0;
 
-  constructor(material: Material) {
+  constructor(material: Material, options: WeaponViewmodelOptions = {}) {
     this.material = material;
+    this.loadAssets = options.loadAssets ?? true;
     this.root.position.set(0.3, -0.28, -0.62);
     this.root.rotation.set(-0.08, -0.06, 0);
     this.root.layers.set(1);
+    this.addProceduralArms();
   }
 
   setWeapon(weaponId: WeaponIdValue): void {
@@ -140,6 +170,11 @@ export class WeaponViewmodel {
     if (config === undefined) throw new RangeError(`missing viewmodel for weapon ${weaponId}`);
     this.model = buildSilhouette(config, this.material);
     this.root.add(this.model);
+    const generation = ++this.loadGeneration;
+    const url = WEAPON_MODEL_URLS[weaponId];
+    if (this.loadAssets && url !== undefined) {
+      void this.loadVendoredModel(url, config, generation);
+    }
     this.equip = 0;
     this.recoil = 0;
     this.rack = 0;
@@ -151,7 +186,13 @@ export class WeaponViewmodel {
     if (VIEWMODEL_CONFIGS.find((entry) => entry.weaponId === this.weaponId)?.rack === true) this.rack = 1;
   }
 
-  update(dtSeconds: number, ammo: number, alive: boolean): void {
+  update(
+    dtSeconds: number,
+    ammo: number,
+    alive: boolean,
+    viewYawVelocity = 0,
+    viewPitchVelocity = 0,
+  ): void {
     this.equip = Math.min(1, this.equip + dtSeconds * 6.5);
     this.recoil = Math.max(0, this.recoil - dtSeconds * 9);
     this.rack = Math.max(0, this.rack - dtSeconds * 2.8);
@@ -162,16 +203,68 @@ export class WeaponViewmodel {
     const rackArc = Math.sin(this.rack * Math.PI);
     const goldiePhase = this.goldieReload / 1.2;
     const goldieArc = Math.sin(goldiePhase * Math.PI);
+    const swayBlend = Math.min(1, dtSeconds * 12);
+    this.swayYaw += (Math.max(-1, Math.min(1, viewYawVelocity * -0.018)) - this.swayYaw) * swayBlend;
+    this.swayPitch +=
+      (Math.max(-1, Math.min(1, viewPitchVelocity * 0.014)) - this.swayPitch) * swayBlend;
+    const [recoilPitch, recoilKick] =
+      RECOIL_PROFILES[this.weaponId ?? WeaponId.Pistol];
     this.root.visible = alive;
     this.root.position.set(
-      0.3 + rackArc * 0.045,
-      -0.28 - equipDrop * 0.46 - goldieArc * 0.06,
-      -0.62 + this.recoil * 0.13,
+      0.3 + rackArc * 0.045 + this.swayYaw * 0.045,
+      -0.28 - equipDrop * 0.46 - goldieArc * 0.06 + this.swayPitch * 0.035,
+      -0.62 + this.recoil * recoilKick,
     );
     this.root.rotation.set(
-      -0.08 + this.recoil * 0.12 + goldieArc * 0.5,
-      -0.06 + rackArc * 0.15,
-      goldieArc * -0.55,
+      -0.08 + this.recoil * recoilPitch + goldieArc * 0.5 + this.swayPitch * 0.055,
+      -0.06 + rackArc * 0.15 + this.swayYaw * 0.07,
+      goldieArc * -0.55 + this.swayYaw * -0.035,
     );
+  }
+
+  private addProceduralArms(): void {
+    const armGeometry = new CylinderGeometry(0.075, 0.1, 0.72, 8);
+    const left = new Mesh(armGeometry, this.material);
+    left.position.set(-0.2, -0.3, -0.05);
+    left.rotation.set(1.12, 0.12, -0.18);
+    const right = new Mesh(armGeometry, this.material);
+    right.position.set(0.2, -0.3, -0.05);
+    right.rotation.set(1.12, -0.12, 0.18);
+    left.name = "procedural-arm-left";
+    right.name = "procedural-arm-right";
+    left.layers.set(1);
+    right.layers.set(1);
+    this.root.add(left, right);
+  }
+
+  private async loadVendoredModel(
+    url: string,
+    config: ViewmodelConfig,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const gltf = await new GLTFLoader().loadAsync(url);
+      if (generation !== this.loadGeneration || this.weaponId !== config.weaponId) return;
+      const model = gltf.scene;
+      model.traverse((object: Object3D) => {
+        object.layers.set(1);
+        if (object instanceof Mesh) object.material = this.material;
+      });
+      const bounds = new Box3().setFromObject(model);
+      const size = bounds.getSize(new Vector3());
+      const center = bounds.getCenter(new Vector3());
+      const longest = Math.max(size.x, size.y, size.z, 0.001);
+      model.position.sub(center);
+      model.scale.setScalar(0.95 / longest);
+      model.rotation.set(0, Math.PI, 0);
+      const composed = new Group();
+      composed.add(model);
+      composed.scale.set(...config.scale);
+      this.model?.removeFromParent();
+      this.model = composed;
+      this.root.add(composed);
+    } catch (error) {
+      console.warn(`viewmodel asset unavailable; keeping procedural ${config.silhouette}`, error);
+    }
   }
 }

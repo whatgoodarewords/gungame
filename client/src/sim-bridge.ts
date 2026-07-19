@@ -57,6 +57,7 @@ export interface SimHandle {
   applyInput(frameInput: FrameInput): void;
   getCombatState(): CombatView;
   drainCombatEvents(): readonly SnapshotEvent[];
+  getPingMs(): number;
 }
 
 export interface CombatView {
@@ -173,6 +174,7 @@ export function createPlayground(
     },
     getCombatState: () => combat,
     drainCombatEvents: () => combatEvents.splice(0),
+    getPingMs: () => network?.clock.roundTripMs ?? 0,
   };
 
   let mapLoadSequence = 0;

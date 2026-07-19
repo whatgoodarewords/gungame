@@ -60,9 +60,32 @@ describe("baseline epochs", () => {
     expect(server.classifyReference(second)).toBe("current");
     expect(server.classifyReference(first)).toBe("valid-stale");
     expect(() => server.classifyReference(77)).toThrow("cross-epoch");
-    expect(() => server.acknowledge(second, 19)).toThrow("does not match");
+    expect(() => server.acknowledge(second, 19)).toThrow("never sent");
     server.acknowledge(second, 20);
     expect(() => server.classifyReference(first)).toThrow("cross-epoch");
+  });
+
+  it("keeps the installed plus pending chain valid across a refocus race", () => {
+    const server = new ServerBaselineEpochs();
+    const installed = server.openFull(10);
+    server.acknowledge(installed, 10);
+    const pending = server.openFull(20);
+    const refocus = server.openFull(21);
+    expect(server.classifyReference(installed)).toBe("valid-stale");
+    expect(server.classifyReference(pending)).toBe("valid-stale");
+    expect(server.classifyReference(refocus)).toBe("current");
+    server.acknowledge(refocus, 21);
+    expect(server.classifyReference(refocus)).toBe("current");
+  });
+
+  it("treats duplicate and superseded acknowledgements as idempotent", () => {
+    const server = new ServerBaselineEpochs();
+    const first = server.openFull(10);
+    const second = server.openFull(11);
+    server.acknowledge(second, 11);
+    expect(() => server.acknowledge(second, 11)).not.toThrow();
+    expect(() => server.acknowledge(first, 10)).not.toThrow();
+    expect(() => server.acknowledge(77, 10)).toThrow("never sent");
   });
 
   it("generation-fences client epoch traffic", () => {

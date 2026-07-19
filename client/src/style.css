@@ -20,6 +20,18 @@ canvas {
   display: block;
 }
 
+.mobile-gate {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  color: #dfe8f2;
+  font-size: 1rem;
+  text-align: center;
+  background: #0e131b;
+}
+
 .join-screen {
   position: fixed;
   inset: 0;
@@ -302,7 +314,7 @@ canvas {
 
 .crosshair,
 .hitmarker,
-.damage-number,
+.damage-numbers,
 .damage-direction {
   position: absolute;
   top: 50%;
@@ -311,27 +323,148 @@ canvas {
 }
 
 .crosshair {
-  color: rgb(255 255 255 / 75%);
-  font-size: 1.15rem;
+  --cross-color: #fff;
+  --cross-gap: 4px;
+  --cross-size: 6px;
+  --cross-stroke: 1px;
+  width: 1px;
+  height: 1px;
+  color: var(--cross-color);
+  text-shadow: none;
+}
+
+.crosshair[data-color="cyan"] { --cross-color: #70e7ff; }
+.crosshair[data-color="green"] { --cross-color: #7cff91; }
+.crosshair[data-color="amber"] { --cross-color: #ffd56a; }
+
+.hair {
+  position: absolute;
+  display: block;
+  background: var(--cross-color);
+  box-shadow:
+    0 0 0 1px #000,
+    0 0 2px 1px #000;
+}
+
+.hair-top,
+.hair-bottom {
+  left: 0;
+  width: var(--cross-stroke);
+  height: var(--cross-size);
+}
+
+.hair-left,
+.hair-right {
+  top: 0;
+  width: var(--cross-size);
+  height: var(--cross-stroke);
+}
+
+.hair-top { bottom: calc(var(--cross-gap) + 1px); }
+.hair-bottom { top: calc(var(--cross-gap) + 1px); }
+.hair-left { right: calc(var(--cross-gap) + 1px); }
+.hair-right { left: calc(var(--cross-gap) + 1px); }
+
+.cross-dot {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  display: none;
+  width: 3px;
+  height: 3px;
+  border: var(--cross-stroke) solid var(--cross-color);
+  box-shadow: 0 0 0 1px #000;
+}
+
+.crosshair.dot .cross-dot { display: block; }
+
+.crosshair.scoped .hair { display: none; }
+.crosshair.scoped .cross-dot {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  transform: translate(-0.5px, -0.5px);
+}
+
+.crosshair.hit-flash { --cross-color: #65d4ff; }
+.crosshair.kill-flash { --cross-color: #ffcf52; }
+
+.kill-x {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: none;
+}
+
+.kill-x::before,
+.kill-x::after {
+  position: absolute;
+  width: 14px;
+  height: var(--cross-stroke);
+  background: currentColor;
+  box-shadow: 0 0 0 1px #000;
+  content: "";
+}
+
+.kill-x::before { transform: translate(-7px, 0) rotate(45deg); }
+.kill-x::after { transform: translate(-7px, 0) rotate(-45deg); }
+.crosshair.kill-flash .kill-x { display: block; }
+
+.hud-ping {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.hud-ping[data-tone="amber"] { color: #ffc45f; }
+.hud-ping[data-tone="red"] { color: #ff6259; }
+
+.damage-numbers {
+  width: 1px;
+  height: 1px;
+}
+
+.damage-numbers > span {
+  position: absolute;
+  color: #fff;
+  font-weight: 800;
+  animation: damage-rise 400ms ease-out forwards;
+}
+
+.damage-numbers > span.critical {
+  color: #65d4ff;
+  font-size: 1.35rem;
+}
+
+@keyframes damage-rise {
+  from { opacity: 1; transform: translate(-50%, -2rem); }
+  to { opacity: 0; transform: translate(-50%, -4.5rem); }
 }
 
 .hitmarker {
-  color: #fff;
-  font-size: 2.4rem;
+  width: 28px;
+  height: 28px;
   opacity: 0;
 }
 
-.damage-number {
-  margin-top: -3rem;
-  color: #ffe16a;
-  font-weight: 800;
-  opacity: 0;
+.hitmarker::before,
+.hitmarker::after {
+  position: absolute;
+  top: 13px;
+  left: 3px;
+  width: 22px;
+  height: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #000;
+  content: "";
 }
 
-.hitmarker.visible,
-.damage-number.visible {
-  opacity: 1;
-}
+.hitmarker::before { transform: rotate(45deg); }
+.hitmarker::after { transform: rotate(-45deg); }
+.hitmarker.visible { opacity: 1; }
 
 .damage-direction {
   width: 15rem;
@@ -390,6 +523,29 @@ canvas {
   display: grid;
 }
 
+.death-overlay small {
+  max-width: 36rem;
+  color: #fff;
+  font-size: 0.9rem;
+  line-height: 1.8;
+}
+
+.spawn-fade {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+}
+
+.spawn-fade.visible {
+  animation: spawn-fade 200ms ease-out;
+}
+
+@keyframes spawn-fade {
+  from { opacity: 0.28; }
+  to { opacity: 0; }
+}
+
 .win-overlay,
 .system-overlay {
   position: absolute;
@@ -440,6 +596,58 @@ canvas {
   background: rgb(5 10 18 / 68%);
 }
 
+.killfeed li.self {
+  color: #65d4ff;
+  border-right: 2px solid currentColor;
+}
+
+.tier-banner,
+.how-to-toast,
+.afk-warning {
+  position: absolute;
+  left: 50%;
+  opacity: 0;
+  transform: translateX(-50%);
+}
+
+.tier-banner {
+  top: 22%;
+  color: #65d4ff;
+  font-size: clamp(1.25rem, 4vw, 2.8rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.tier-banner.demotion { color: #ff6259; }
+.tier-banner.visible { animation: banner-flourish 600ms ease both; }
+
+@keyframes banner-flourish {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  18%, 78% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -5px); }
+}
+
+.how-to-toast {
+  bottom: 8rem;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.7rem 0.9rem;
+  color: #fff;
+  background: rgb(5 10 18 / 78%);
+  border-left: 2px solid #65d4ff;
+}
+
+.how-to-toast.visible { opacity: 1; }
+
+.afk-warning {
+  top: 12%;
+  padding: 0.55rem 0.8rem;
+  color: #ffc45f;
+  background: rgb(5 10 18 / 82%);
+}
+
+.afk-warning.visible { opacity: 1; }
+
 .scoreboard {
   position: absolute;
   top: 12%;
@@ -460,12 +668,76 @@ canvas {
   margin: 0 0 0.75rem;
 }
 
+.scoreboard header,
+.scoreboard-head,
 .scoreboard-body > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) 5rem 4rem 4rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scoreboard header {
   display: flex;
   justify-content: space-between;
+}
+
+.scoreboard header button {
+  color: #65d4ff;
+  font: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  pointer-events: auto;
+}
+
+.scoreboard-meta,
+.scoreboard-head {
+  padding: 0.35rem 0;
+  color: rgb(255 255 255 / 62%);
+  font-size: 0.72rem;
+}
+
+.scoreboard-body > div {
   padding: 0.25rem 0;
   border-top: 1px solid rgb(255 255 255 / 10%);
 }
+
+.scoreboard-body > div.self {
+  color: #65d4ff;
+  background: rgb(101 212 255 / 8%);
+}
+
+.resume-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: none;
+  width: 100%;
+  color: #fff;
+  font: inherit;
+  background: rgb(5 10 18 / 55%);
+  border: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.resume-overlay.visible { display: block; }
+
+.enemy-nameplate {
+  position: fixed;
+  z-index: 12;
+  display: none;
+  transform: translate(-50%, -100%);
+  color: #fff;
+  background: rgba(4, 8, 12, .68);
+  border: 1px solid rgba(101, 212, 255, .72);
+  padding: 2px 5px;
+  font: 10px/1 ui-monospace, monospace;
+  text-transform: lowercase;
+  pointer-events: none;
+}
+
+.enemy-nameplate.visible { display: block; }
 
 .invite-copy {
   position: absolute;

@@ -195,7 +195,10 @@ export class CollisionWorld {
             trianglePoint,
             capsulePoint,
           );
-          if (separation <= CAPSULE_RADIUS + SKIN) {
+          const exhaustedGrazingCast =
+            iteration === CAST_ITERATIONS - 1 &&
+            separation < CAPSULE_RADIUS + 2 * SKIN;
+          if (separation <= CAPSULE_RADIUS + SKIN || exhaustedGrazingCast) {
             const normal = capsulePoint.clone().sub(trianglePoint);
             if (normal.lengthSq() <= COLLISION_EPSILON * COLLISION_EPSILON) {
               triangle.getNormal(triangleNormal);

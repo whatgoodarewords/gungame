@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "assets:audio": "node ../tools/audio/normalize.mjs",
+    "build": "pnpm assets:audio && vite build",
     "dev": "vite",
     "size": "size-limit",
     "test": "vitest run",
@@ -27,6 +28,12 @@
       "name": "client JavaScript (gzip)",
       "path": "dist/assets/*.js",
       "limit": "3 MB",
+      "gzip": true
+    },
+    {
+      "name": "client vendored media (gzip)",
+      "path": "dist/assets/*.{glb,ogg}",
+      "limit": "4 MB",
       "gzip": true
     }
   ]

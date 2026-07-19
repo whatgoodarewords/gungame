@@ -447,6 +447,7 @@ function segmentPointDistance(from: Vec3, to: Vec3, point: Vec3): number {
 export class ProjectileSystem {
   private readonly live = new Map<number, ProjectileState>();
   private readonly generations = new Map<number, number>();
+  private readonly pendingDetonations: ProjectileDetonation[] = [];
   private nextId = 0x8000;
 
   get projectiles(): readonly ProjectileState[] {
@@ -464,9 +465,20 @@ export class ProjectileSystem {
   ): ProjectileState | undefined {
     const weapon = WEAPONS[weaponId];
     if (weapon.kind !== "projectile") return undefined;
-    let owned = 0;
-    for (const projectile of this.live.values()) if (projectile.ownerId === ownerId) owned += 1;
-    if (owned >= weapon.projectileLiveCap) return undefined;
+    const owned = [...this.live.values()]
+      .filter((projectile) => projectile.ownerId === ownerId)
+      .sort((left, right) => left.spawnTick - right.spawnTick || left.id - right.id);
+    if (owned.length >= weapon.projectileLiveCap) {
+      const oldest = owned[0];
+      if (oldest !== undefined) {
+        this.live.delete(oldest.id);
+        this.pendingDetonations.push({
+          projectile: oldest,
+          point: oldest.position,
+          reason: "lifetime",
+        });
+      }
+    }
     const id = this.nextId;
     const generation = ((this.generations.get(id) ?? 0) + 1) & 0xffff || 1;
     this.generations.set(id, generation);
@@ -495,7 +507,7 @@ export class ProjectileSystem {
   }
 
   tick(tick: number, world: ProjectileWorld | undefined, targets: readonly ProjectileTarget[]): readonly ProjectileDetonation[] {
-    const detonations: ProjectileDetonation[] = [];
+    const detonations = this.pendingDetonations.splice(0);
     for (const projectile of this.projectiles) {
       const weapon = WEAPONS[projectile.weaponId];
       if (tick - projectile.spawnTick >= weapon.projectileLifetimeTicks) {

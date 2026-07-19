@@ -1,4 +1,5 @@
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
+import { AUDIO_SAMPLE_URLS } from "./asset-manifest.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
 
@@ -85,21 +86,54 @@ export function renderRecipe(
 
 export class GameAudio {
   private context: AudioContext | undefined;
+  private master: GainNode | undefined;
   private windGain: GainNode | undefined;
   private ambienceGain: GainNode | undefined;
   private seed = 1;
+  private volume = 0.8;
+  private muted = false;
+  private readonly samples = new Map<string, AudioBuffer>();
+  private preloadStarted = false;
+  private footstepIndex = 0;
 
   unlock(): void {
     this.context ??= new AudioContext();
+    this.ensureMaster();
     void this.context.resume();
     this.ensureLoops();
+    this.preloadSamples();
+  }
+
+  setMaster(volume: number, muted: boolean): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+    this.muted = muted;
+    this.ensureMaster();
+    if (this.context !== undefined && this.master !== undefined) {
+      this.master.gain.setTargetAtTime(
+        muted ? 0 : this.volume,
+        this.context.currentTime,
+        0.015,
+      );
+    }
   }
 
   playFire(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
+    const sampled = weaponId === WeaponId.Arc
+      ? AUDIO_SAMPLE_URLS.laserSmall
+      : weaponId === WeaponId.Peacemaker
+        ? AUDIO_SAMPLE_URLS.forceField
+        : weaponId === WeaponId.Discus
+          ? AUDIO_SAMPLE_URLS.laserRetro
+          : undefined;
+    if (sampled !== undefined && this.playSample(sampled, position, 0.55)) return;
     this.play(FIRE_RECIPES[weaponId], position);
   }
 
   playImpact(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
+    const sampled = weaponId === WeaponId.Peacemaker || weaponId === WeaponId.Discus
+      ? AUDIO_SAMPLE_URLS.explosion
+      : AUDIO_SAMPLE_URLS.impactGeneric;
+    if (this.playSample(sampled, position, 0.65)) return;
     this.play(IMPACT_RECIPES[weaponId], position);
   }
 
@@ -111,9 +145,10 @@ export class GameAudio {
     this.tone(1_120, 0.12, 0.095);
   }
 
-  killConfirm(): void {
-    this.tone(690, 0.15, 0.12);
-    this.tone(920, 0.11, 0.1, 0.045);
+  killConfirm(streak = 1): void {
+    const rise = Math.min(4, Math.max(0, streak - 1)) * 55;
+    this.tone(690 + rise, 0.15, 0.12);
+    this.tone(920 + rise, 0.11, 0.1, 0.045);
   }
 
   airshot(): void {
@@ -126,18 +161,70 @@ export class GameAudio {
       this.tone(frequency, 0.24, 0.09, index * 0.095));
   }
 
-  footstep(material: SurfaceMaterial): void {
+  tierUp(): void {
+    this.tone(520, 0.14, 0.08);
+    this.tone(780, 0.18, 0.09, 0.07);
+  }
+
+  lastTierWarning(): void {
+    this.tone(185, 0.28, 0.055);
+    this.tone(247, 0.32, 0.045, 0.11);
+  }
+
+  footstep(
+    material: SurfaceMaterial,
+    position?: { x: number; y: number; z: number },
+    own = true,
+  ): void {
+    const footstepUrl = AUDIO_SAMPLE_URLS.footstepConcrete[
+      this.footstepIndex++ % AUDIO_SAMPLE_URLS.footstepConcrete.length
+    ]!;
+    if (material !== "metal" && this.playSample(footstepUrl, position, own ? 0.24 : 0.44)) return;
+    if (material === "metal" && this.playSample(AUDIO_SAMPLE_URLS.impactMetal, position, own ? 0.1 : 0.2, 1.4)) {
+      return;
+    }
     const params = material === "metal"
       ? recipe(0.07, 0.62, 360, 5_500, 0.15, 0.12)
       : material === "stone"
         ? recipe(0.09, 0.82, 145, 2_500, 0.17, 0.25)
         : recipe(0.08, 0.75, 190, 3_200, 0.16, 0.2);
-    this.play(params);
+    this.play(params, position, own ? 0.55 : 1);
   }
 
   landing(material: SurfaceMaterial, speed: number): void {
+    const sample = material === "metal"
+      ? AUDIO_SAMPLE_URLS.impactMetal
+      : AUDIO_SAMPLE_URLS.impactGeneric;
+    if (this.playSample(sample, undefined, Math.min(0.44, 0.12 + speed * 0.018), 0.8)) return;
     const base = material === "metal" ? 240 : material === "stone" ? 105 : 140;
     this.play(recipe(0.12, 0.82, base, 2_200, Math.min(0.35, 0.12 + speed * 0.012), 0.3));
+  }
+
+  projectileWhoosh(position: { x: number; y: number; z: number }, distance: number): void {
+    if (distance > 7) return;
+    this.play(
+      recipe(0.09, 0.48, 180 + (7 - distance) * 24, 3_800, 0.13, 0.08),
+      position,
+      Math.max(0.15, 1 - distance / 7),
+    );
+  }
+
+  uiClick(): void {
+    if (!this.playSample(AUDIO_SAMPLE_URLS.uiClick, undefined, 0.35)) {
+      this.tone(360, 0.035, 0.045);
+    }
+  }
+
+  uiConfirm(): void {
+    if (!this.playSample(AUDIO_SAMPLE_URLS.uiConfirm, undefined, 0.42)) {
+      this.tone(720, 0.07, 0.06);
+    }
+  }
+
+  uiError(): void {
+    if (!this.playSample(AUDIO_SAMPLE_URLS.uiError, undefined, 0.42)) {
+      this.tone(180, 0.09, 0.06);
+    }
   }
 
   setWindSpeed(speed: number): void {
@@ -153,14 +240,21 @@ export class GameAudio {
     this.ambienceGain.gain.setTargetAtTime(active ? 0.055 : 0, this.context.currentTime, 0.35);
   }
 
-  private play(value: SynthRecipe, position?: { x: number; y: number; z: number }): void {
+  private play(
+    value: SynthRecipe,
+    position?: { x: number; y: number; z: number },
+    gainScale = 1,
+  ): void {
     if (this.context === undefined) return;
+    this.ensureMaster();
     const samples = renderRecipe(value, this.context.sampleRate, this.seed++);
     const buffer = this.context.createBuffer(1, samples.length, this.context.sampleRate);
     buffer.copyToChannel(samples, 0);
     const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    gain.gain.value = gainScale;
     source.buffer = buffer;
-    if (position === undefined) source.connect(this.context.destination);
+    if (position === undefined) source.connect(gain).connect(this.master!);
     else {
       const panner = this.context.createPanner();
       panner.panningModel = "HRTF";
@@ -170,20 +264,80 @@ export class GameAudio {
       panner.positionX.value = position.x;
       panner.positionY.value = position.y;
       panner.positionZ.value = position.z;
-      source.connect(panner).connect(this.context.destination);
+      source.connect(panner).connect(gain).connect(this.master!);
     }
     source.start();
   }
 
+  private playSample(
+    url: string,
+    position?: { x: number; y: number; z: number },
+    gainValue = 1,
+    playbackRate = 1,
+  ): boolean {
+    if (this.context === undefined) return false;
+    const buffer = this.samples.get(url);
+    if (buffer === undefined) return false;
+    this.ensureMaster();
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    source.buffer = buffer;
+    source.playbackRate.value = playbackRate;
+    gain.gain.value = gainValue;
+    if (position === undefined) source.connect(gain).connect(this.master!);
+    else {
+      const panner = this.context.createPanner();
+      panner.panningModel = "HRTF";
+      panner.distanceModel = "inverse";
+      panner.refDistance = 2;
+      panner.maxDistance = 90;
+      panner.positionX.value = position.x;
+      panner.positionY.value = position.y;
+      panner.positionZ.value = position.z;
+      source.connect(panner).connect(gain).connect(this.master!);
+    }
+    source.start();
+    return true;
+  }
+
+  private preloadSamples(): void {
+    if (this.preloadStarted || this.context === undefined) return;
+    this.preloadStarted = true;
+    const urls = new Set<string>([
+      ...AUDIO_SAMPLE_URLS.footstepConcrete,
+      AUDIO_SAMPLE_URLS.impactGeneric,
+      AUDIO_SAMPLE_URLS.impactMetal,
+      AUDIO_SAMPLE_URLS.uiClick,
+      AUDIO_SAMPLE_URLS.uiConfirm,
+      AUDIO_SAMPLE_URLS.uiError,
+      AUDIO_SAMPLE_URLS.explosion,
+      AUDIO_SAMPLE_URLS.forceField,
+      AUDIO_SAMPLE_URLS.laserLarge,
+      AUDIO_SAMPLE_URLS.laserRetro,
+      AUDIO_SAMPLE_URLS.laserSmall,
+    ]);
+    for (const url of urls) {
+      void fetch(url)
+        .then((response) => {
+          if (!response.ok) throw new Error(`audio HTTP ${response.status}`);
+          return response.arrayBuffer();
+        })
+        .then((bytes) => this.context!.decodeAudioData(bytes))
+        .then((buffer) => this.samples.set(url, buffer))
+        .catch((error: unknown) => console.warn("audio sample unavailable", error));
+    }
+  }
+
   private tone(frequency: number, duration: number, gainValue: number, delay = 0): void {
     if (this.context === undefined) return;
+    this.ensureMaster();
     const start = this.context.currentTime + delay;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
     oscillator.frequency.setValueAtTime(frequency, start);
     gain.gain.setValueAtTime(Math.max(0.0001, gainValue), start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    oscillator.connect(gain).connect(this.context.destination);
+    oscillator.connect(gain).connect(this.master!);
     oscillator.start(start);
     oscillator.stop(start + duration);
   }
@@ -199,11 +353,18 @@ export class GameAudio {
       source.buffer = buffer;
       source.loop = true;
       gain.gain.value = 0;
-      source.connect(gain).connect(this.context!.destination);
+      source.connect(gain).connect(this.master!);
       source.start();
       return { source, gain };
     };
     this.windGain = makeNoiseLoop(1_800).gain;
     this.ambienceGain = makeNoiseLoop(320).gain;
+  }
+
+  private ensureMaster(): void {
+    if (this.context === undefined || this.master !== undefined) return;
+    this.master = this.context.createGain();
+    this.master.gain.value = this.muted ? 0 : this.volume;
+    this.master.connect(this.context.destination);
   }
 }

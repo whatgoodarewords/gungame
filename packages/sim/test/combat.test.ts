@@ -62,6 +62,19 @@ describe("fire contract and rewind", () => {
     expect(result.tick + result.fraction / 256).toBeCloseTo(80.8, 2);
   });
 
+  it("clamps a regressed adaptive interpolation target instead of rejecting fire", () => {
+    const result = validateFireTarget({
+      executionTick: 110,
+      requestedTick: 92,
+      requestedFraction: 0,
+      estimateTick: 96,
+      estimateFraction: 128,
+      sentSnapshotTicks: [92, 93, 94, 95, 96],
+      lastAcceptedExactTick: 95,
+    });
+    expect(result).toMatchObject({ tick: 96, fraction: 128, usedEstimate: true });
+  });
+
   it("hits a moving target at its rewound position and uses E-1→E eye lerp", () => {
     expect(shooterEye(
       { x: 0, y: 0, z: 0 },
@@ -120,12 +133,17 @@ describe("health and projectile lifecycle", () => {
         { x: 0, y: 0.9, z: 0 }, fireDirection(0, 0), 0)).toBeDefined();
     }
     expect(system.spawn(1, 1, 99, WeaponId.Peacemaker,
-      { x: 0, y: 0.9, z: 0 }, fireDirection(0, 0), 0)).toBeUndefined();
+      { x: 0, y: 0.9, z: 0 }, fireDirection(0, 0), 1)).toBeDefined();
+    expect(system.projectiles).toHaveLength(WEAPONS[WeaponId.Peacemaker].projectileLiveCap);
+    expect(system.projectiles.some((projectile) => projectile.fireCmdSeq === 1)).toBe(false);
+    expect(system.projectiles.some((projectile) => projectile.fireCmdSeq === 99)).toBe(true);
 
     const targetHit = system.tick(1, undefined, [{
       id: 2, generation: 1, alive: true, ducked: false,
       position: { x: 0, y: 0, z: -0.4 },
     }]);
+    expect(targetHit.some((detonation) =>
+      detonation.reason === "lifetime" && detonation.projectile.fireCmdSeq === 1)).toBe(true);
     expect(targetHit.some((detonation) => detonation.directTargetId === 2)).toBe(true);
 
     const impactSystem = new ProjectileSystem();
@@ -189,7 +207,27 @@ describe("mode rules", () => {
     player.tier = 3;
     const result = rules.recordKill({ attackerId: 1, victimId: 1, melee: false, suicide: true }, 1);
     expect(result.suicide).toBe(true);
+    expect(result.counted).toBe(false);
     expect(player.tier).toBe(3);
+  });
+
+  it("does not relabel freeze or departed-attacker kills as suicides", () => {
+    const departed = new ModeRules(CombatMode.GunGame, LadderId.Classic);
+    departed.addPlayer(1);
+    departed.addPlayer(2);
+    departed.removePlayer(1);
+    expect(departed.recordKill({
+      attackerId: 1, victimId: 2, melee: false, suicide: false,
+    }, 1)).toMatchObject({ suicide: false, counted: false });
+
+    const frozen = new ModeRules(CombatMode.GunGame, LadderId.Classic);
+    const attacker = frozen.addPlayer(1);
+    frozen.addPlayer(2);
+    attacker.tier = 6;
+    frozen.recordKill({ attackerId: 1, victimId: 2, melee: true, suicide: false }, 2);
+    expect(frozen.recordKill({
+      attackerId: 1, victimId: 2, melee: false, suicide: false,
+    }, 3)).toMatchObject({ suicide: false, counted: false });
   });
 
   it("uses trailing-parity minus one for late joins", () => {
@@ -221,4 +259,3 @@ describe("mode rules", () => {
     expect(rules.snapshot.winnerId).toBe(attacker.id);
   });
 });
-

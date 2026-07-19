@@ -30,6 +30,39 @@ function players(tick: number, idOffset = 0): readonly EntityState[] {
   }));
 }
 
+function projectiles(tick: number): readonly EntityState[] {
+  return Array.from({ length: 48 }, (_, index) => ({
+    id: 0x8000 + index,
+    generation: 1,
+    position: { x: index, y: 1, z: -tick - index },
+    velocity: { x: 0, y: 0, z: -25 },
+    viewYaw: 0,
+    viewPitch: 0,
+    grounded: false,
+    alive: true,
+    kind: EntityKind.Projectile,
+    health: 0,
+    weaponTier: 0,
+    ammo: 0,
+    ownerId: index % 12 + 1,
+    fireCmdSeq: tick * 100 + index,
+    weaponId: index % 2 === 0 ? 9 : 10,
+  }));
+}
+
+function events(tick: number) {
+  return Array.from({ length: 64 }, (_, index) => ({
+    id: tick * 100 + index + 1,
+    tick,
+    kind: index % 4 + 1,
+    actorId: index % 12 + 1,
+    targetId: (index + 1) % 12 + 1,
+    amount: 10 + index,
+    weaponId: index % 14 + 1,
+    flags: index % 2,
+  }));
+}
+
 describe("snapshot serializer", () => {
   it("fits 12 players under the portable ceiling with mandatory self first", () => {
     const packed = packSnapshot({
@@ -102,8 +135,66 @@ describe("snapshot serializer", () => {
     expect(server.pendingAfter(3)).toEqual([event]);
     expect(client.dedupe(server.pendingAfter(3))).toEqual([event]);
     expect(client.dedupe(server.pendingAfter(3))).toEqual([]);
+    server.recordSnapshot(4, [event]);
     server.acknowledgeBaseline(4);
     expect(server.pendingAfter(0)).toEqual([]);
+  });
+
+  it("budget-packs a saturated join and defers optional state without probing throws", () => {
+    const allEntities = [...players(1), ...projectiles(1)];
+    const allEvents = events(1);
+    const first = packSnapshot({
+      tick: 1,
+      lastProcessedCmdSeq: 0,
+      cmdArrivalMargin: 0,
+      baselineEpoch: 1,
+      baselineTick: 1,
+      selfId: 1,
+      entities: allEntities,
+      baselineEntities: [],
+      events: allEvents,
+      forceFull: true,
+    });
+    expect(first.bytes.length).toBeLessThanOrEqual(SNAPSHOT_SIZE_CEILING);
+    expect(first.frame.entities.filter((entity) =>
+      entity.kind === EntityKind.Player)).toHaveLength(12);
+    expect(first.deferredEntityIds.length + first.deferredEventIds.length).toBeGreaterThan(0);
+    expect(() => decodeFrame(first.bytes)).not.toThrow();
+
+    const deferredEvents = allEvents.filter((event) =>
+      first.deferredEventIds.includes(event.id));
+    const second = packSnapshot({
+      tick: 2,
+      lastProcessedCmdSeq: 0,
+      cmdArrivalMargin: 0,
+      baselineEpoch: 1,
+      baselineTick: 1,
+      selfId: 1,
+      entities: allEntities,
+      baselineEntities: first.baselineEntities,
+      events: deferredEvents,
+    });
+    expect(second.bytes.length).toBeLessThanOrEqual(SNAPSHOT_SIZE_CEILING);
+    expect(second.frame.entities.some((entity) =>
+      first.deferredEntityIds.includes(entity.id))).toBe(true);
+  });
+
+  it("prunes monotonic client event ids at the low-water mark", () => {
+    const journal = new EventJournal();
+    for (let start = 1; start <= 10_000; start += 100) {
+      journal.dedupe(Array.from({ length: 100 }, (_, offset) => ({
+        id: start + offset,
+        tick: start + offset,
+        kind: 1,
+        actorId: 1,
+        targetId: 2,
+        amount: 1,
+        weaponId: 1,
+        flags: 0,
+      })));
+    }
+    expect(journal.dedupeLowWaterMark).toBe(10_000);
+    expect(journal.dedupeTrackingSize).toBe(0);
   });
 
   it("round-trips projectile ownership, player combat state, events, and compact mode state", () => {

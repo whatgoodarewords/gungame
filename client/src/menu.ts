@@ -26,7 +26,8 @@ export type MenuConnectionState =
   | "connecting"
   | "server-restarting"
   | "version-mismatch"
-  | "room-full";
+  | "room-full"
+  | "room-not-found";
 
 export type CreateRoomAction =
   | { readonly type: "toggle" }
@@ -158,13 +159,13 @@ export function showNameEntry(
   shell.className = "join-screen";
   shell.innerHTML = `
     <form class="join-card" novalidate>
-      <div class="wordmark" aria-label="Gungame online"><span>GUNGAME</span><i></i></div>
+      <div class="wordmark" aria-label="gungame online"><span>gungame</span><i></i></div>
       <input class="name-field" name="name" maxlength="16" autocomplete="nickname"
         aria-label="Your name" placeholder="your name" autofocus>
-      <button class="play-button" type="submit"><span>PLAY</span></button>
+      <button class="play-button" type="submit"><span>play</span></button>
       <div class="menu-divider"></div>
       <button class="create-disclosure" type="button" aria-expanded="false">
-        <span class="chevron">›</span><span>Create room</span>
+        <span class="chevron">›</span><span>create room</span>
       </button>
       <div class="create-options" hidden></div>
       <div class="menu-message" aria-live="polite" hidden></div>
@@ -197,39 +198,39 @@ export function showNameEntry(
       createState = updateCreateRoomState(createState, action);
       renderCreateOptions();
     };
-    options.appendChild(segmentedRow("Mode", [
-      { value: "gungame", label: "GUN GAME" },
-      { value: "scoutz", label: "SCOUTZ" },
+    options.appendChild(segmentedRow("mode", [
+      { value: "gungame", label: "gun game" },
+      { value: "scoutz", label: "scoutz" },
     ], createState.mode, (value) => update({ type: "mode", value })));
     if (createState.mode === "gungame") {
-      options.appendChild(segmentedRow("Ladder", [
-        { value: "classic", label: "CLASSIC" },
-        { value: "arsenal", label: "ARSENAL" },
+      options.appendChild(segmentedRow("ladder", [
+        { value: "classic", label: "classic" },
+        { value: "arsenal", label: "arsenal" },
       ], createState.ladder, (value) => update({ type: "ladder", value })));
     }
-    options.appendChild(segmentedRow("Gravity", [
-      { value: "standard", label: "STANDARD" },
-      { value: "scoutz", label: "SCOUTZ" },
+    options.appendChild(segmentedRow("gravity", [
+      { value: "standard", label: "standard" },
+      { value: "scoutz", label: "scoutz" },
     ], createState.gravity, (value) => update({ type: "gravity", value })));
     const mapOptions: readonly SegmentOption<MenuMap>[] = createState.mode === "gungame"
       ? [
-          { value: "auto", label: "AUTO-ROTATE" },
-          { value: "foundry", label: "FOUNDRY" },
-          { value: "duna", label: "DUNA" },
-          { value: "cascade", label: "CASCADE" },
+          { value: "auto", label: "auto-rotate" },
+          { value: "foundry", label: "foundry" },
+          { value: "duna", label: "duna" },
+          { value: "cascade", label: "cascade" },
         ]
       : [
-          { value: "auto", label: "AUTO-ROTATE" },
-          { value: "spire", label: "SPIRE" },
+          { value: "auto", label: "auto-rotate" },
+          { value: "spire", label: "spire" },
         ];
-    options.appendChild(segmentedRow("Map", mapOptions, createState.map, (value) => {
+    options.appendChild(segmentedRow("map", mapOptions, createState.map, (value) => {
       update({ type: "map", value });
     }));
     const create = document.createElement("button");
     create.type = "submit";
     create.className = "create-button";
     create.dataset.action = "create";
-    create.textContent = "CREATE ROOM";
+    create.textContent = "create room";
     create.disabled = !validPlayerName(input.value) || connectionState === "connecting";
     options.appendChild(create);
   };
@@ -241,7 +242,7 @@ export function showNameEntry(
     play.classList.toggle("connecting", state === "connecting");
     play.innerHTML = state === "connecting"
       ? `<i class="spinner" aria-hidden="true"></i><span>finding a room…</span>`
-      : "<span>PLAY</span>";
+      : "<span>play</span>";
     if (state === "server-restarting") {
       message.className = "menu-message toast";
       message.textContent = "server restarting — reconnecting…";
@@ -251,7 +252,7 @@ export function showNameEntry(
       text.textContent = "version mismatch";
       const reload = document.createElement("button");
       reload.type = "button";
-      reload.textContent = "RELOAD";
+      reload.textContent = "reload";
       reload.onclick = () => location.reload();
       message.append(text, reload);
     } else if (state === "room-full") {
@@ -260,7 +261,24 @@ export function showNameEntry(
       text.textContent = "room full — quickplay instead?";
       const quickplay = document.createElement("button");
       quickplay.type = "button";
-      quickplay.textContent = "QUICKPLAY";
+      quickplay.textContent = "quickplay";
+      quickplay.onclick = () => onSelection({
+        name: input.value,
+        create: false,
+        mode: "gungame",
+        ladder: "classic",
+        gravity: "standard",
+        map: "auto",
+        quickplay: true,
+      });
+      message.append(text, quickplay);
+    } else if (state === "room-not-found") {
+      message.className = "menu-message inline-prompt";
+      const text = document.createElement("span");
+      text.textContent = "room not found";
+      const quickplay = document.createElement("button");
+      quickplay.type = "button";
+      quickplay.textContent = "quickplay";
       quickplay.onclick = () => onSelection({
         name: input.value,
         create: false,
@@ -313,4 +331,19 @@ export function showNameEntry(
     setConnectionState,
     destroy: () => shell.remove(),
   };
+}
+
+export function showMobileGate(parent: HTMLElement): HTMLElement {
+  const gate = document.createElement("main");
+  gate.className = "mobile-gate";
+  gate.textContent = "gungame needs a mouse + keyboard. grab a computer.";
+  parent.replaceChildren(gate);
+  return gate;
+}
+
+export function likelyTouchOnly(
+  navigatorLike: Pick<Navigator, "maxTouchPoints">,
+  coarsePointer: boolean,
+): boolean {
+  return coarsePointer && navigatorLike.maxTouchPoints > 0;
 }

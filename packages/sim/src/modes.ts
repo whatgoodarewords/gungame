@@ -31,6 +31,7 @@ export interface ModeKillResult {
   readonly victimDemoted: boolean;
   readonly winnerId: number;
   readonly suicide: boolean;
+  readonly counted: boolean;
 }
 
 export interface ModeSnapshot {
@@ -93,7 +94,13 @@ export class ModeRules {
     const victim = this.players.get(input.victimId);
     if (victim !== undefined) victim.deaths += 1;
     if (input.suicide || attacker === undefined || victim === undefined || this.frozen) {
-      return { attackerAdvanced: false, victimDemoted: false, winnerId: this.winner, suicide: true };
+      return {
+        attackerAdvanced: false,
+        victimDemoted: false,
+        winnerId: this.winner,
+        suicide: input.suicide,
+        counted: false,
+      };
     }
     attacker.kills += 1;
     if (this.mode === CombatMode.Scoutzknivez) {
@@ -111,6 +118,7 @@ export class ModeRules {
         victimDemoted: false,
         winnerId: this.winner,
         suicide: false,
+        counted: true,
       };
     }
     const ladderLength = ladderWeapons(this.ladder).length;
@@ -128,6 +136,7 @@ export class ModeRules {
       victimDemoted,
       winnerId: this.winner,
       suicide: false,
+      counted: true,
     };
   }
 

@@ -8,41 +8,48 @@ function nextEpoch(epoch: number): number {
 
 export class ServerBaselineEpochs {
   private installedEpoch = 0;
-  private pendingEpoch = 0;
-  private pendingTick = 0;
-  private priorEpoch = 0;
+  private readonly pending: Array<{ epoch: number; tick: number }> = [];
+  private readonly sent = new Map<number, Set<number>>();
 
   get epoch(): number {
-    return this.pendingEpoch || this.installedEpoch;
+    return this.pending.at(-1)?.epoch ?? this.installedEpoch;
   }
 
   get deltasSuspended(): boolean {
-    return this.pendingEpoch !== 0;
+    return this.pending.length !== 0;
   }
 
   openFull(snapshotTick: number): number {
     if (!Number.isInteger(snapshotTick) || snapshotTick < 0) {
       throw new ProtocolError("snapshotTick must be a non-negative integer");
     }
-    this.priorEpoch = this.pendingEpoch || this.installedEpoch;
-    this.pendingEpoch = nextEpoch(this.pendingEpoch || this.installedEpoch);
-    this.pendingTick = snapshotTick;
-    return this.pendingEpoch;
+    const epoch = nextEpoch(this.pending.at(-1)?.epoch ?? this.installedEpoch);
+    this.pending.push({ epoch, tick: snapshotTick });
+    const ticks = this.sent.get(epoch) ?? new Set<number>();
+    ticks.add(snapshotTick);
+    this.sent.set(epoch, ticks);
+    return epoch;
   }
 
   acknowledge(epoch: number, snapshotTick: number): void {
-    if (epoch !== this.pendingEpoch || snapshotTick !== this.pendingTick) {
-      throw new ProtocolError("baseline ack does not match open epoch");
+    if (this.sent.get(epoch)?.has(snapshotTick) !== true) {
+      throw new ProtocolError("baseline ack references a value never sent");
     }
+    const index = this.pending.findIndex(
+      (candidate) => candidate.epoch === epoch && candidate.tick === snapshotTick,
+    );
+    // Duplicate and superseded acknowledgements are harmless once the pair is
+    // known to have actually been transmitted.
+    if (index < 0) return;
     this.installedEpoch = epoch;
-    this.pendingEpoch = 0;
-    this.pendingTick = 0;
-    this.priorEpoch = 0;
+    this.pending.splice(0, index + 1);
   }
 
   classifyReference(epoch: number): EpochReference {
-    if (epoch === (this.pendingEpoch || this.installedEpoch)) return "current";
-    if (this.pendingEpoch !== 0 && epoch === this.priorEpoch) return "valid-stale";
+    if (epoch === this.epoch) return "current";
+    if (epoch === this.installedEpoch || this.pending.some((candidate) => candidate.epoch === epoch)) {
+      return "valid-stale";
+    }
     throw new ProtocolError("cross-epoch reference");
   }
 }

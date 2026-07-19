@@ -128,6 +128,25 @@ describe("GoldSrc-faithful duck", () => {
     expect(blocked.player.position.y).toBeCloseTo(-DEFAULT_FEEL.feetTuck, 8);
   });
 
+  it("stays ducked when an airborne unduck would embed in a vent", () => {
+    const vent = worldFromBoxes([
+      { min: [-3, 1.15, -3], max: [3, 1.35, 3] },
+    ]);
+    const airborne = withPlayer(createInitialState(), {
+      position: { x: 0, y: 0.2, z: 0 },
+      velocity: { x: 1, y: 0, z: 0 },
+      grounded: false,
+      ducked: true,
+      duckProgress: 1,
+    });
+    const blocked = step(airborne, cmd(0), TICK_DT, {
+      world: vent,
+      params: NO_GRAVITY,
+    });
+    expect(blocked.player.ducked).toBe(true);
+    expect(blocked.player.position.y).toBeCloseTo(0.2, 8);
+  });
+
   it("performs jumpbug on airborne duck release plus jump without friction", () => {
     const falling = withPlayer(createInitialState(), {
       position: { x: 0, y: 0.03, z: 0 },

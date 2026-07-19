@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 4 as const;
+export const PROTOCOL_VERSION = 5 as const;
 export const MAX_FRAME_BYTES = 2_048 as const;
 export const MAX_HELLO_BYTES = 256 as const;
 export const SNAPSHOT_SIZE_CEILING = 1_100 as const;

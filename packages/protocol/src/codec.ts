@@ -111,7 +111,11 @@ function entityFlags(entity: EntityDelta): number {
   if (entity.position !== undefined) flags |= EntityFlags.Position;
   if (entity.velocity !== undefined) flags |= EntityFlags.Velocity;
   if (entity.viewYaw !== undefined || entity.viewPitch !== undefined) flags |= EntityFlags.Angles;
-  if (entity.grounded !== undefined || entity.alive !== undefined) flags |= EntityFlags.Status;
+  if (
+    entity.grounded !== undefined ||
+    entity.alive !== undefined ||
+    entity.ducked !== undefined
+  ) flags |= EntityFlags.Status;
   if (
     entity.kind !== undefined || entity.health !== undefined || entity.weaponTier !== undefined ||
     entity.ammo !== undefined || entity.ownerId !== undefined || entity.fireCmdSeq !== undefined ||
@@ -158,10 +162,18 @@ function writeEntity(writer: Writer, entity: EntityDelta): void {
     writer.i16(quantizePitch(entity.viewPitch));
   }
   if ((flags & EntityFlags.Status) !== 0) {
-    if (entity.grounded === undefined || entity.alive === undefined) {
+    if (
+      entity.grounded === undefined ||
+      entity.alive === undefined ||
+      entity.ducked === undefined
+    ) {
       throw new ProtocolError("entity status missing");
     }
-    writer.u8((entity.grounded ? 1 : 0) | (entity.alive ? 2 : 0));
+    writer.u8(
+      (entity.grounded ? 1 : 0) |
+      (entity.alive ? 2 : 0) |
+      (entity.ducked ? 4 : 0),
+    );
   }
   if ((flags & EntityFlags.Combat) !== 0) {
     if (entity.kind === undefined) throw new ProtocolError("entity kind missing");
@@ -234,7 +246,7 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
   return writer.finish();
 }
 
-export function encodeFrame(frame: ProtocolFrame): Uint8Array {
+function encodeFrameUnchecked(frame: ProtocolFrame): Uint8Array {
   let bytes: Uint8Array;
   switch (frame.type) {
     case FrameType.Hello:
@@ -286,8 +298,22 @@ export function encodeFrame(frame: ProtocolFrame): Uint8Array {
       break;
     }
   }
+  return bytes;
+}
+
+export function encodeFrame(frame: ProtocolFrame): Uint8Array {
+  const bytes = encodeFrameUnchecked(frame);
   if (bytes.length > MAX_FRAME_BYTES) throw new ProtocolError("frame exceeds hard limit");
   return bytes;
+}
+
+/**
+ * Serializes a candidate solely for budget probing. Callers must discard any
+ * result above their negotiated ceiling; this deliberately avoids converting
+ * a recoverable packing decision into a MAX_FRAME_BYTES protocol exception.
+ */
+export function encodeFrameForSizeProbe(frame: ProtocolFrame): Uint8Array {
+  return encodeFrameUnchecked(frame);
 }
 
 function readEntity(reader: Reader): EntityDelta {
@@ -383,7 +409,11 @@ function readEntity(reader: Reader): EntityDelta {
     ...(viewPitch === undefined ? {} : { viewPitch }),
     ...(status === undefined
       ? {}
-      : { grounded: (status & 1) !== 0, alive: (status & 2) !== 0 }),
+      : {
+          grounded: (status & 1) !== 0,
+          alive: (status & 2) !== 0,
+          ducked: (status & 4) !== 0,
+        }),
     ...(kind === undefined ? {} : { kind }),
     ...(health === undefined ? {} : { health }),
     ...(weaponTier === undefined ? {} : { weaponTier }),

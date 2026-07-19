@@ -7,7 +7,7 @@ import {
   type CmdFrame,
 } from "../src/index.js";
 
-function cmd(seq: number, snapshot = seq, epoch = 1): CmdFrame {
+function cmd(seq: number, snapshot = seq, epoch = 1, interp = snapshot): CmdFrame {
   return {
     type: FrameType.Cmd,
     seq,
@@ -17,7 +17,7 @@ function cmd(seq: number, snapshot = seq, epoch = 1): CmdFrame {
     viewPitch: 0,
     fireFraction: 0,
     lastSnapshotTick: snapshot,
-    interpTargetTick: snapshot,
+    interpTargetTick: interp,
     interpTargetFraction: 0,
     baselineEpoch: epoch,
   };
@@ -31,8 +31,9 @@ describe("forward-sliding command window", () => {
     expect(window.lastProcessedCmdSeq).toBe(32);
     expect(window.accept(cmd(32))).toBe(false);
     const consumed = window.consume(() => "current");
-    expect(consumed?.cmd.seq).toBe(33);
-    expect(window.lastProcessedCmdSeq).toBe(33);
+    expect(consumed?.cmd.seq).toBe(39);
+    expect(window.lastProcessedCmdSeq).toBe(39);
+    expect(window.size).toBe(1);
   });
 
   it("validates snapshot monotonicity only during seq-ordered consumption", () => {
@@ -70,5 +71,30 @@ describe("forward-sliding command window", () => {
     }
     expect(resumedAt).toBeGreaterThan(0);
     expect(resumedAt).toBeLessThanOrEqual(4);
+  });
+
+  it("drains a 150 ms outage burst back to the two-tick jitter target", () => {
+    const window = new CmdAcceptanceWindow();
+    window.accept(cmd(1));
+    window.consume(() => "current");
+    for (let seq = 2; seq <= 11; seq += 1) window.accept(cmd(seq));
+    expect(window.size).toBe(8);
+
+    const depths: number[] = [];
+    for (let tick = 0; tick < 4; tick += 1) {
+      window.consume(() => "current");
+      depths.push(window.size);
+    }
+    expect(depths[0]).toBeLessThanOrEqual(1);
+    expect(depths[3]).toBe(0);
+    expect(window.lastProcessedCmdSeq).toBe(11);
+  });
+
+  it("accepts a regressed interpolation target when the adaptive buffer deepens", () => {
+    const window = new CmdAcceptanceWindow();
+    window.accept(cmd(1, 100, 1, 95));
+    window.accept(cmd(2, 101, 1, 92));
+    expect(window.consume(() => "current")?.cmd.interpTargetTick).toBe(95);
+    expect(() => window.consume(() => "current")).not.toThrow();
   });
 });

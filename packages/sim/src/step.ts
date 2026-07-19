@@ -256,9 +256,14 @@ export function step(
         hullChanged = true;
       }
     } else {
-      ducked = false;
-      duckProgress = 0;
-      hullChanged = true;
+      // Air ducking tucks the hull without moving the origin. Only restore the
+      // standing hull if it fits at that exact position; this still permits a
+      // jumpbug when the newly lowered feet meet a fitting surface.
+      if (world === undefined || world.capsuleFits(position)) {
+        ducked = false;
+        duckProgress = 0;
+        hullChanged = true;
+      }
     }
   } else if (!duckDown && !ducked) {
     duckProgress = 0;
