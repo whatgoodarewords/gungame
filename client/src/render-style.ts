@@ -1,4 +1,6 @@
 import {
+  ACESFilmicToneMapping,
+  AmbientLight,
   BackSide,
   Color,
   DataTexture,
@@ -6,7 +8,6 @@ import {
   Fog,
   FogExp2,
   Group,
-  HemisphereLight,
   MeshBasicNodeMaterial,
   MeshStandardNodeMaterial,
   MeshToonNodeMaterial,
@@ -28,13 +29,17 @@ import {
   positionWorld,
   screenSize,
   screenUV,
+  smoothstep,
   step,
+  texture,
   textureLoad,
+  toneMapping,
   vec3,
   vec4,
 } from "three/tsl";
 
 import type { GameplayMap } from "../../packages/shared/src/index.js";
+import { textureSetForMap } from "./material-assets.js";
 
 export const RENDER_STYLE_IDS = [
   "dev-grid",
@@ -75,27 +80,46 @@ export interface RenderStyle {
   readonly id: RenderStyleId;
   readonly label: string;
   readonly palette: RenderPalette;
-  materials(map: GameplayMap): RenderMaterials;
+  materials(map: GameplayMap, mapId?: number): RenderMaterials;
   postChain(source: Node<"vec4">): Node<"vec4">;
-  fogLightRig(scene: Scene): StyleRig;
+  fogLightRig(scene: Scene, map?: GameplayMap): StyleRig;
 }
 
 const makeRig = (
   scene: Scene,
   background: number,
   fog: Fog | FogExp2,
-  sky: number,
-  ground: number,
+  ambient: number,
   sun: number,
   intensity: number,
+  map?: GameplayMap,
 ): StyleRig => {
   scene.background = new Color(background);
   scene.fog = fog;
   const root = new Group();
   root.name = "render-style-rig";
-  root.add(new HemisphereLight(sky, ground, intensity * 0.55));
+  root.add(new AmbientLight(ambient, intensity * 0.28));
   const key = new DirectionalLight(sun, intensity);
   key.position.set(28, 54, 18);
+  key.castShadow = true;
+  const likelyMSeries = typeof navigator !== "undefined" &&
+    /Mac/.test(navigator.platform) && navigator.hardwareConcurrency >= 8;
+  const shadowSize = likelyMSeries ? 2048 : 1024;
+  key.shadow.mapSize.set(shadowSize, shadowSize);
+  key.shadow.bias = -0.00025;
+  key.shadow.normalBias = 0.018;
+  key.shadow.radius = 2.25;
+  if (map !== undefined) {
+    const extentX = Math.max(18, (map.bounds.max.x - map.bounds.min.x) * 0.55);
+    const extentZ = Math.max(18, (map.bounds.max.z - map.bounds.min.z) * 0.55);
+    key.shadow.camera.left = -extentX;
+    key.shadow.camera.right = extentX;
+    key.shadow.camera.top = extentZ;
+    key.shadow.camera.bottom = -extentZ;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
+    key.shadow.camera.updateProjectionMatrix();
+  }
   root.add(key);
   scene.add(root);
   return {
@@ -120,6 +144,36 @@ const standardMaterials = (palette: RenderPalette, roughness = 0.9): RenderMater
   return { map, actor, projectile, viewmodel };
 };
 
+function triplanarMapMaterial(
+  palette: RenderPalette,
+  mapId?: number,
+): MeshStandardNodeMaterial {
+  const set = textureSetForMap(mapId);
+  const material = new MeshStandardNodeMaterial({ roughness: 0.9, metalness: set.metalness });
+  const weightsRaw = normalWorld.abs();
+  const weights = weightsRaw.div(weightsRaw.x.add(weightsRaw.y).add(weightsRaw.z).max(0.0001));
+  const p = positionWorld.mul(set.scale);
+  const sample = (value: typeof set.diffuse) =>
+    texture(value, p.yz).rgb.mul(weights.x)
+      .add(texture(value, p.xz).rgb.mul(weights.y))
+      .add(texture(value, p.xy).rgb.mul(weights.z));
+  material.colorNode = sample(set.diffuse).mul(color(palette.surface).add(0.35));
+  material.roughnessNode = sample(set.roughness).r.mul(0.55).add(0.4);
+  material.aoNode = sample(set.ao).r.mul(0.45).add(0.55);
+  material.metalnessNode = float(set.metalness);
+  return material;
+}
+
+function tactilePost(source: Node<"vec4">): Node<"vec4"> {
+  const luminance = source.rgb.dot(vec3(0.2126, 0.7152, 0.0722));
+  const bloomMask = smoothstep(1.05, 1.8, luminance);
+  const bloomed = source.rgb.add(source.rgb.mul(bloomMask).mul(0.12));
+  const centered = screenUV.sub(0.5);
+  const vignette = float(1).sub(centered.dot(centered).mul(0.16)).clamp(0.91, 1);
+  const aces = toneMapping(ACESFilmicToneMapping, 1, bloomed.mul(vignette));
+  return vec4(aces, source.a);
+}
+
 const devPalette: RenderPalette = {
   background: 0x071018,
   surface: 0x253846,
@@ -132,9 +186,9 @@ const devGrid: RenderStyle = {
   id: "dev-grid",
   label: "Dev grid",
   palette: devPalette,
-  materials: (_map) => {
+  materials: (_map, mapId) => {
     const materials = standardMaterials(devPalette, 0.95);
-    const map = materials.map as MeshStandardNodeMaterial;
+    const map = triplanarMapMaterial(devPalette, mapId);
     const p = positionWorld.mul(0.5);
     const weights = normalWorld.abs();
     const planeXY = fract(p.xy).sub(0.5).abs();
@@ -150,15 +204,15 @@ const devGrid: RenderStyle = {
     map.colorNode = mix(color(devPalette.surface), color(devPalette.accent), grid.mul(0.72));
     return { ...materials, map };
   },
-  postChain: (source) => source,
-  fogLightRig: (scene) => makeRig(
+  postChain: tactilePost,
+  fogLightRig: (scene, map) => makeRig(
     scene,
     devPalette.background,
     new Fog(devPalette.background, 65, 165),
     0x9db4d4,
-    0x20282b,
     0xe9f4ff,
     1.35,
+    map,
   ),
 };
 
@@ -192,10 +246,9 @@ const inkDuotone: RenderStyle = {
   id: "ink-duotone",
   label: "Ink duotone",
   palette: inkPalette,
-  materials: (_map) => {
+  materials: (_map, mapId) => {
     const materials = standardMaterials(inkPalette, 1);
-    const map = materials.map as MeshStandardNodeMaterial;
-    map.colorNode = color(inkPalette.surface);
+    const map = triplanarMapMaterial(inkPalette, mapId);
     return { ...materials, map };
   },
   postChain: (source) => {
@@ -206,14 +259,14 @@ const inkDuotone: RenderStyle = {
     const duotone = mix(color(inkPalette.ink), color(inkPalette.background), bit);
     return vec4(duotone, source.a);
   },
-  fogLightRig: (scene) => makeRig(
+  fogLightRig: (scene, map) => makeRig(
     scene,
     inkPalette.background,
     new Fog(inkPalette.background, 70, 155),
     0xdde7ec,
-    0x8b9aa5,
     0xf8fbff,
     1.15,
+    map,
   ),
 };
 
@@ -246,14 +299,14 @@ const toonCel: RenderStyle = {
     const levels = float(4);
     return vec4(source.rgb.mul(levels).floor().div(levels), source.a);
   },
-  fogLightRig: (scene) => makeRig(
+  fogLightRig: (scene, map) => makeRig(
     scene,
     toonPalette.background,
     new Fog(toonPalette.background, 72, 170),
     0xaec6ff,
-    0x29304a,
     0xfff0bf,
     1.55,
+    map,
   ),
 };
 
@@ -269,16 +322,19 @@ const brutalist: RenderStyle = {
   id: "brutalist-approx",
   label: "Brutalist approx",
   palette: brutalistPalette,
-  materials: (_map) => standardMaterials(brutalistPalette, 0.98),
-  postChain: (source) => source,
-  fogLightRig: (scene) => makeRig(
+  materials: (_map, mapId) => ({
+    ...standardMaterials(brutalistPalette, 0.98),
+    map: triplanarMapMaterial(brutalistPalette, mapId),
+  }),
+  postChain: tactilePost,
+  fogLightRig: (scene, map) => makeRig(
     scene,
     brutalistPalette.background,
     new FogExp2(brutalistPalette.background, 0.012),
     0x8e9798,
-    0x222322,
     brutalistPalette.accent,
     1.05,
+    map,
   ),
 };
 

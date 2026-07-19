@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { FIRE_RECIPES, IMPACT_RECIPES, renderRecipe, validateRecipe } from "../src/audio.js";
+import {
+  FIRE_RECIPES,
+  GUNSHOT_LAYERS,
+  IMPACT_RECIPES,
+  MASTER_COMPRESSOR_DIALS,
+  renderRecipe,
+  validateRecipe,
+} from "../src/audio.js";
 
 describe("procedural audio recipes", () => {
   it("covers every weapon fire and impact identity with finite safe params", () => {
@@ -23,5 +30,12 @@ describe("procedural audio recipes", () => {
       }
       expect(peak).toBeLessThanOrEqual(1);
     }
+  });
+
+  it("defines the three tactile shot layers and gentle master compression", () => {
+    expect(GUNSHOT_LAYERS).toEqual(["mechanical", "body", "tail"]);
+    expect(MASTER_COMPRESSOR_DIALS.ratio).toBeLessThanOrEqual(3);
+    expect(MASTER_COMPRESSOR_DIALS.thresholdDb).toBeLessThan(0);
+    expect(MASTER_COMPRESSOR_DIALS.attackSeconds).toBeGreaterThan(0);
   });
 });

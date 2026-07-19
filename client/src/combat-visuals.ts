@@ -46,6 +46,11 @@ export class ProjectileVisualSystem {
   private readonly prior = new Map<string, Vector3>();
   private readonly lights: PointLight[] = [];
   private readonly capacity: number;
+  private readonly position = new Vector3();
+  private readonly smokePosition = new Vector3();
+  private readonly scale = new Vector3();
+  private readonly matrix = new Matrix4();
+  private readonly matrixScratch = new Matrix4();
 
   constructor(scene: Scene, material: Material, capacity = 48) {
     this.capacity = capacity;
@@ -101,40 +106,41 @@ export class ProjectileVisualSystem {
     let discs = 0;
     let trails = 0;
     let lights = 0;
-    const visible = new Set<string>();
-    for (const view of views.slice(0, this.capacity)) {
-      visible.add(view.key);
-      const position = new Vector3(view.position.x, view.position.y, view.position.z);
-      const matrix = new Matrix4().makeTranslation(position.x, position.y, position.z);
+    const visibleCount = Math.min(views.length, this.capacity);
+    for (let viewIndex = 0; viewIndex < visibleCount; viewIndex += 1) {
+      const view = views[viewIndex]!;
+      this.position.set(view.position.x, view.position.y, view.position.z);
+      this.matrix.makeTranslation(this.position.x, this.position.y, this.position.z);
       if (view.weaponId === WeaponId.Peacemaker) {
-        this.rocketCores.setMatrixAt(rockets++, matrix);
-        const previous = this.prior.get(view.key) ?? position;
-        const smokePosition = position.clone().lerp(previous, 0.6);
+        this.rocketCores.setMatrixAt(rockets++, this.matrix);
+        const previous = this.prior.get(view.key);
+        this.smokePosition.copy(this.position);
+        if (previous !== undefined) this.smokePosition.lerp(previous, 0.6);
+        this.scale.setScalar(1 + rockets * 0.025);
         this.smokePuffs.setMatrixAt(
           rockets - 1,
-          new Matrix4().compose(
-            smokePosition,
-            IDENTITY,
-            new Vector3(1 + rockets * 0.025, 1 + rockets * 0.025, 1 + rockets * 0.025),
-          ),
+          this.matrix.compose(this.smokePosition, IDENTITY, this.scale),
         );
         if (lights < this.lights.length) {
           const light = this.lights[lights++]!;
           light.visible = true;
-          light.position.copy(position);
+          light.position.copy(this.position);
         }
       } else {
-        matrix.multiply(new Matrix4().makeRotationX(Math.PI / 2));
-        this.discCores.setMatrixAt(discs++, matrix);
+        this.rotationMatrixX(this.matrix);
+        this.discCores.setMatrixAt(discs++, this.matrix);
       }
-      const previous = this.prior.get(view.key) ?? position;
+      const previous = this.prior.get(view.key);
       const offset = trails * 6;
-      this.trailPositions.set([
-        previous.x, previous.y, previous.z,
-        position.x, position.y, position.z,
-      ], offset);
+      this.trailPositions[offset] = previous?.x ?? this.position.x;
+      this.trailPositions[offset + 1] = previous?.y ?? this.position.y;
+      this.trailPositions[offset + 2] = previous?.z ?? this.position.z;
+      this.trailPositions[offset + 3] = this.position.x;
+      this.trailPositions[offset + 4] = this.position.y;
+      this.trailPositions[offset + 5] = this.position.z;
       trails += 1;
-      this.prior.set(view.key, position);
+      if (previous === undefined) this.prior.set(view.key, new Vector3().copy(this.position));
+      else previous.copy(this.position);
     }
     for (let index = rockets; index < this.capacity; index += 1) {
       this.rocketCores.setMatrixAt(index, HIDDEN);
@@ -143,7 +149,16 @@ export class ProjectileVisualSystem {
     for (let index = discs; index < this.capacity; index += 1) {
       this.discCores.setMatrixAt(index, HIDDEN);
     }
-    for (const [key] of this.prior) if (!visible.has(key)) this.prior.delete(key);
+    for (const [key] of this.prior) {
+      let visible = false;
+      for (let index = 0; index < visibleCount; index += 1) {
+        if (views[index]?.key === key) {
+          visible = true;
+          break;
+        }
+      }
+      if (!visible) this.prior.delete(key);
+    }
     for (let index = lights; index < this.lights.length; index += 1) {
       this.lights[index]!.visible = false;
     }
@@ -156,6 +171,21 @@ export class ProjectileVisualSystem {
     this.trailGeometry.setDrawRange(0, trails * 2);
     this.trailGeometry.attributes.position!.needsUpdate = true;
     this.trails.visible = trails !== 0;
+  }
+
+  private rotationMatrixX(matrix: Matrix4): void {
+    const c = 0;
+    const s = 1;
+    matrix.multiply(this.scaleMatrixElements(c, s));
+  }
+
+  private scaleMatrixElements(c: number, s: number): Matrix4 {
+    return this.matrixScratch.set(
+      1, 0, 0, 0,
+      0, c, -s, 0,
+      0, s, c, 0,
+      0, 0, 0, 1,
+    );
   }
 }
 
@@ -180,25 +210,31 @@ const PART_GEOMETRY: Readonly<Record<PartName, BoxGeometry | SphereGeometry>> = 
   rightLeg: new BoxGeometry(0.2, 0.72, 0.22),
 };
 
-function localPartMatrix(
-  offset: readonly [number, number, number],
-  rotation: Euler,
-  scaleY: number,
-): Matrix4 {
-  return new Matrix4().compose(
-    new Vector3(offset[0], offset[1] * scaleY, offset[2]),
-    new Quaternion().setFromEuler(rotation),
-    new Vector3(1, scaleY, 1),
-  );
-}
-
 export class RemoteCharacterSystem {
   readonly meshes: Readonly<Record<PartName, InstancedMesh>>;
   readonly rimTorso: InstancedMesh;
   readonly rimHead: InstancedMesh;
+  readonly footstepDust: InstancedMesh;
   private readonly capacity: number;
-  private readonly spawnKeys = new Map<number, string>();
+  private readonly generations = new Map<number, number>();
+  private readonly alive = new Map<number, boolean>();
   private readonly spawnedAt = new Map<number, number>();
+  private readonly diedAt = new Map<number, number>();
+  private readonly visibleIds = new Set<number>();
+  private readonly rootMatrix = new Matrix4();
+  private readonly localMatrix = new Matrix4();
+  private readonly resultMatrix = new Matrix4();
+  private readonly rootPosition = new Vector3();
+  private readonly localPosition = new Vector3();
+  private readonly scale = new Vector3();
+  private readonly rootEuler = new Euler();
+  private readonly localEuler = new Euler();
+  private readonly quaternion = new Quaternion();
+  private readonly dustLife = new Float32Array(32);
+  private readonly dustPosition = new Float32Array(32 * 3);
+  private readonly lastStep = new Map<number, number>();
+  private dustCursor = 0;
+  private lastElapsedSeconds = 0;
 
   constructor(scene: Scene, material: Material, capacity = 12) {
     this.capacity = capacity;
@@ -220,7 +256,21 @@ export class RemoteCharacterSystem {
     this.rimHead = new InstancedMesh(PART_GEOMETRY.head, rimMaterial, capacity);
     this.rimTorso.name = "enemy-accent-rim-torso";
     this.rimHead.name = "enemy-accent-rim-head";
-    scene.add(this.rimTorso, this.rimHead);
+    this.footstepDust = new InstancedMesh(
+      new SphereGeometry(0.09, 5, 3),
+      new MeshBasicNodeMaterial({
+        color: 0xb8aa92,
+        transparent: true,
+        opacity: 0.24,
+        depthWrite: false,
+      }),
+      32,
+    );
+    this.footstepDust.name = "character-footstep-dust";
+    scene.add(this.rimTorso, this.rimHead, this.footstepDust);
+    for (let index = 0; index < 32; index += 1) {
+      this.footstepDust.setMatrixAt(index, HIDDEN);
+    }
   }
 
   setMaterial(material: Material): void {
@@ -228,22 +278,28 @@ export class RemoteCharacterSystem {
   }
 
   update(states: readonly RemoteCharacterState[], elapsedSeconds: number): void {
-    const visible = states.slice(0, this.capacity);
-    const ids = new Set(visible.map((state) => state.id));
+    const visibleCount = Math.min(states.length, this.capacity);
+    this.visibleIds.clear();
     for (let index = 0; index < this.capacity; index += 1) {
-      const state = visible[index];
+      const state = index < visibleCount ? states[index] : undefined;
       if (state === undefined) {
-        for (const mesh of Object.values(this.meshes)) mesh.setMatrixAt(index, HIDDEN);
+        for (const part of PARTS) this.meshes[part].setMatrixAt(index, HIDDEN);
         this.rimTorso.setMatrixAt(index, HIDDEN);
         this.rimHead.setMatrixAt(index, HIDDEN);
         continue;
       }
+      this.visibleIds.add(state.id);
       const speed = Math.hypot(state.velocity.x, state.velocity.z);
-      const spawnKey = `${state.generation ?? 0}:${state.alive ? 1 : 0}`;
-      if (state.alive && this.spawnKeys.get(state.id) !== spawnKey) {
+      const generation = state.generation ?? 0;
+      const wasAlive = this.alive.get(state.id);
+      if (state.alive && (this.generations.get(state.id) !== generation || wasAlive !== true)) {
         this.spawnedAt.set(state.id, elapsedSeconds);
+        this.diedAt.delete(state.id);
+      } else if (!state.alive && wasAlive !== false) {
+        this.diedAt.set(state.id, elapsedSeconds);
       }
-      this.spawnKeys.set(state.id, spawnKey);
+      this.generations.set(state.id, generation);
+      this.alive.set(state.id, state.alive);
       const spawnAge = elapsedSeconds - (this.spawnedAt.get(state.id) ?? -10);
       const shimmer = state.alive && spawnAge < 1.5
         ? 1 + Math.sin(spawnAge * Math.PI * 12) * 0.035
@@ -256,44 +312,114 @@ export class RemoteCharacterSystem {
       const stride = state.grounded ? Math.sin(phase) * Math.min(0.72, speed * 0.09) : 0.34;
       const airborneTuck = state.grounded ? 0 : 0.48;
       const deathRoll = state.alive ? 0 : Math.PI / 2;
-      const root = new Matrix4().compose(
-        new Vector3(
-          state.position.x,
-          state.position.y + (state.alive ? 0 : 0.28),
-          state.position.z,
-        ),
-        new Quaternion().setFromEuler(new Euler(0, facing, deathRoll)),
-        new Vector3(shimmer, 1, shimmer),
+      const fade = state.alive
+        ? 1
+        : Math.max(0, 1 - (elapsedSeconds - (this.diedAt.get(state.id) ?? elapsedSeconds)) / 0.85);
+      this.rootPosition.set(
+        state.position.x,
+        state.position.y + (state.alive ? 0 : 0.28),
+        state.position.z,
       );
-      const matrices: Record<PartName, Matrix4> = {
-        torso: localPartMatrix([0, 1.08, 0], new Euler(0, 0, -state.velocity.x * 0.015), duckScale),
-        head: localPartMatrix([0, 1.62, 0], new Euler(0, 0, 0), duckScale),
-        leftArm: localPartMatrix([-0.38, 1.08, 0], new Euler(stride, 0, 0), duckScale),
-        rightArm: localPartMatrix([0.38, 1.08, 0], new Euler(-stride, 0, 0), duckScale),
-        leftLeg: localPartMatrix([-0.16, 0.42 + airborneTuck * 0.2, 0], new Euler(-stride + airborneTuck, 0, 0), duckScale),
-        rightLeg: localPartMatrix([0.16, 0.42 + airborneTuck * 0.2, 0], new Euler(stride + airborneTuck, 0, 0), duckScale),
-      };
-      for (const part of PARTS) {
-        this.meshes[part].setMatrixAt(index, root.clone().multiply(matrices[part]));
+      this.rootEuler.set(0, facing, deathRoll);
+      this.scale.set(shimmer * fade, fade, shimmer * fade);
+      this.rootMatrix.compose(
+        this.rootPosition,
+        this.quaternion.setFromEuler(this.rootEuler),
+        this.scale,
+      );
+      this.writePart(index, "torso", 0, 1.08, 0, 0, -state.velocity.x * 0.015, duckScale);
+      this.writePart(index, "head", 0, 1.62, 0, 0, 0, duckScale);
+      this.writePart(index, "leftArm", -0.38, 1.08, 0, stride, 0, duckScale);
+      this.writePart(index, "rightArm", 0.38, 1.08, 0, -stride, 0, duckScale);
+      this.writePart(index, "leftLeg", -0.16, 0.42 + airborneTuck * 0.2, 0,
+        -stride + airborneTuck, 0, duckScale);
+      this.writePart(index, "rightLeg", 0.16, 0.42 + airborneTuck * 0.2, 0,
+        stride + airborneTuck, 0, duckScale);
+      this.writeRim(index, "torso", 1.08);
+      this.writeRim(index, "head", 1.12);
+
+      const step = Math.floor(phase / Math.PI);
+      if (state.alive && state.grounded && speed > 2.2 && this.lastStep.get(state.id) !== step) {
+        this.lastStep.set(state.id, step);
+        this.spawnDust(state.position);
       }
-      this.rimTorso.setMatrixAt(
-        index,
-        root.clone().multiply(matrices.torso).scale(new Vector3(1.08, 1.08, 1.08)),
-      );
-      this.rimHead.setMatrixAt(
-        index,
-        root.clone().multiply(matrices.head).scale(new Vector3(1.12, 1.12, 1.12)),
-      );
     }
-    for (const mesh of [...Object.values(this.meshes), this.rimTorso, this.rimHead]) {
-      mesh.count = Math.max(1, visible.length);
+    for (const part of PARTS) {
+      const mesh = this.meshes[part];
+      mesh.count = Math.max(1, visibleCount);
       mesh.instanceMatrix.needsUpdate = true;
     }
-    for (const id of this.spawnKeys.keys()) {
-      if (!ids.has(id)) {
-        this.spawnKeys.delete(id);
+    this.rimTorso.count = Math.max(1, visibleCount);
+    this.rimHead.count = Math.max(1, visibleCount);
+    this.rimTorso.instanceMatrix.needsUpdate = true;
+    this.rimHead.instanceMatrix.needsUpdate = true;
+    this.updateDust(Math.max(0, elapsedSeconds - this.lastElapsedSeconds));
+    this.lastElapsedSeconds = elapsedSeconds;
+    for (const id of this.generations.keys()) {
+      if (!this.visibleIds.has(id)) {
+        this.generations.delete(id);
+        this.alive.delete(id);
         this.spawnedAt.delete(id);
+        this.diedAt.delete(id);
+        this.lastStep.delete(id);
       }
     }
+  }
+
+  private writePart(
+    index: number,
+    part: PartName,
+    x: number,
+    y: number,
+    z: number,
+    rotationX: number,
+    rotationZ: number,
+    scaleY: number,
+  ): void {
+    this.localPosition.set(x, y * scaleY, z);
+    this.localEuler.set(rotationX, 0, rotationZ);
+    this.scale.set(1, scaleY, 1);
+    this.localMatrix.compose(
+      this.localPosition,
+      this.quaternion.setFromEuler(this.localEuler),
+      this.scale,
+    );
+    this.resultMatrix.multiplyMatrices(this.rootMatrix, this.localMatrix);
+    this.meshes[part].setMatrixAt(index, this.resultMatrix);
+  }
+
+  private writeRim(index: number, part: "torso" | "head", scale: number): void {
+    const mesh = this.meshes[part];
+    mesh.getMatrixAt(index, this.resultMatrix);
+    this.scale.setScalar(scale);
+    this.resultMatrix.scale(this.scale);
+    (part === "torso" ? this.rimTorso : this.rimHead).setMatrixAt(index, this.resultMatrix);
+  }
+
+  private spawnDust(position: Readonly<{ x: number; y: number; z: number }>): void {
+    const index = this.dustCursor++ % this.dustLife.length;
+    const base = index * 3;
+    this.dustLife[index] = 0.34;
+    this.dustPosition[base] = position.x;
+    this.dustPosition[base + 1] = position.y + 0.06;
+    this.dustPosition[base + 2] = position.z;
+  }
+
+  private updateDust(dt: number): void {
+    for (let index = 0; index < this.dustLife.length; index += 1) {
+      const life = Math.max(0, this.dustLife[index]! - dt);
+      this.dustLife[index] = life;
+      if (life === 0) {
+        this.footstepDust.setMatrixAt(index, HIDDEN);
+        continue;
+      }
+      const base = index * 3;
+      this.dustPosition[base + 1] = this.dustPosition[base + 1]! + dt * 0.14;
+      this.rootPosition.fromArray(this.dustPosition, base);
+      this.scale.setScalar(0.7 + (1 - life / 0.34) * 1.8);
+      this.resultMatrix.compose(this.rootPosition, IDENTITY, this.scale);
+      this.footstepDust.setMatrixAt(index, this.resultMatrix);
+    }
+    this.footstepDust.instanceMatrix.needsUpdate = true;
   }
 }

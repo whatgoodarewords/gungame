@@ -1,10 +1,12 @@
 import {
   Box3,
   BoxGeometry,
+  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
   Group,
   Mesh,
+  MeshBasicNodeMaterial,
   SphereGeometry,
   TorusGeometry,
   Vector3,
@@ -14,7 +16,7 @@ import {
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { WEAPON_MODEL_URLS } from "./asset-manifest.js";
+import { WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
 
 type Silhouette = "pistol" | "smg" | "shotgun" | "rifle" | "scout" | "knife" |
   "arc" | "launcher" | "discus";
@@ -27,6 +29,92 @@ export interface ViewmodelConfig {
   readonly scale: readonly [number, number, number];
   readonly rack: boolean;
 }
+
+export interface ViewmodelHold {
+  readonly anchorNdc: readonly [number, number];
+  readonly position: readonly [number, number, number];
+  readonly rotationDeg: readonly [number, number, number];
+  readonly scale: number;
+  readonly foregrip: readonly [number, number, number];
+  readonly kickDeg: number;
+  readonly backpushM: number;
+  readonly backpushMs: number;
+  readonly rackMs: number;
+  readonly wristFlickDeg: number;
+  readonly humShakeM: number;
+  readonly twoHanded: boolean;
+}
+
+const hold = (
+  position: readonly [number, number, number],
+  rotationDeg: readonly [number, number, number],
+  scale: number,
+  foregrip: readonly [number, number, number],
+  kickDeg: number,
+  twoHanded: boolean,
+  extras: Partial<Pick<ViewmodelHold,
+    "backpushM" | "backpushMs" | "rackMs" | "wristFlickDeg" | "humShakeM">> = {},
+): ViewmodelHold => Object.freeze({
+  anchorNdc: [0.28, -0.32] as const,
+  position,
+  rotationDeg,
+  scale,
+  foregrip,
+  kickDeg,
+  backpushM: extras.backpushM ?? 0,
+  backpushMs: extras.backpushMs ?? 0,
+  rackMs: extras.rackMs ?? 0,
+  wristFlickDeg: extras.wristFlickDeg ?? 0,
+  humShakeM: extras.humShakeM ?? 0,
+  twoHanded,
+});
+
+/** The complete owner-facing hold dial surface. */
+export const VIEWMODEL_HOLDS: Readonly<Record<WeaponIdValue, ViewmodelHold>> = Object.freeze({
+  [WeaponId.Pistol]: hold([0.285, -0.315, -0.72], [-3.5, -2, -1], 0.82,
+    [-0.19, -0.04, -0.32], 1.8, false),
+  [WeaponId.Smg]: hold([0.29, -0.325, -0.78], [-3, -2, -1], 0.78,
+    [-0.2, -0.02, -0.42], 1.4, true),
+  [WeaponId.Shotgun]: hold([0.29, -0.335, -0.82], [-3, -2, -1], 0.72,
+    [-0.21, -0.015, -0.55], 5, true, { rackMs: 90 }),
+  [WeaponId.Rifle]: hold([0.29, -0.325, -0.82], [-3, -2, -1], 0.7,
+    [-0.2, -0.01, -0.58], 2.1, true),
+  [WeaponId.Scout]: hold([0.285, -0.33, -0.86], [-3.2, -2, -1], 0.66,
+    [-0.19, 0, -0.64], 3.2, true, { rackMs: 90 }),
+  [WeaponId.Knife]: hold([0.31, -0.35, -0.7], [-4, -2, 7], 0.82,
+    [-0.16, -0.04, -0.3], 6, false, { wristFlickDeg: 6 }),
+  [WeaponId.Sidewinder]: hold([0.285, -0.315, -0.72], [-3.5, -2, -1], 0.8,
+    [-0.18, -0.04, -0.32], 1.8, false),
+  [WeaponId.Boomstick]: hold([0.29, -0.335, -0.82], [-3, -2, -1], 0.7,
+    [-0.21, -0.015, -0.56], 5, true, { rackMs: 90 }),
+  [WeaponId.Arc]: hold([0.29, -0.325, -0.76], [-3, -2, -1], 0.76,
+    [-0.2, -0.015, -0.46], 0, true, { humShakeM: 0.0003 }),
+  [WeaponId.Peacemaker]: hold([0.29, -0.34, -0.82], [-3, -2, -1], 0.7,
+    [-0.21, -0.01, -0.56], 4, true, { backpushM: 0.04, backpushMs: 40 }),
+  [WeaponId.Discus]: hold([0.3, -0.33, -0.74], [-3.5, -2, 2], 0.77,
+    [-0.18, -0.02, -0.4], 2.5, true, { wristFlickDeg: 2.5 }),
+  [WeaponId.Deadeye]: hold([0.285, -0.33, -0.86], [-3.2, -2, -1], 0.65,
+    [-0.19, 0, -0.64], 3.2, true, { rackMs: 90 }),
+  [WeaponId.Goldie]: hold([0.285, -0.32, -0.72], [-3.5, -2, -1], 0.8,
+    [-0.18, -0.04, -0.32], 2.2, false),
+});
+
+export const VIEWMODEL_MOTION = Object.freeze({
+  fovDeg: 54,
+  nearM: 0.01,
+  maxFrameHeight: 0.22,
+  parallelOffsetDeg: -2,
+  swayMaxDeg: 1.2,
+  swayCriticalMs: 80,
+  landingDipM: 0.006,
+  landingDipMs: 60,
+  recoilDecayMs: 80,
+  equipMs: 140,
+  equipStartDeg: -15,
+  equipOvershoot: 0.1,
+  idleAmplitudeM: 0.002,
+  idlePeriodMs: 3_000,
+});
 
 /** Fourteen ladder configurations; shared silhouettes are explicit, never accidental. */
 export const VIEWMODEL_CONFIGS: readonly ViewmodelConfig[] = Object.freeze([
@@ -60,7 +148,7 @@ function part(
   return mesh;
 }
 
-function buildSilhouette(config: ViewmodelConfig, material: Material): Group {
+export function buildSilhouette(config: ViewmodelConfig, material: Material): Group {
   const root = new Group();
   const body = new Group();
   root.add(body);
@@ -136,12 +224,28 @@ const RECOIL_PROFILES: Readonly<Record<WeaponIdValue, readonly [number, number]>
 
 export interface WeaponViewmodelOptions {
   readonly loadAssets?: boolean;
+  readonly loadModel?: (url: string) => Promise<Group>;
 }
 
-function disposeSubtree(root: { traverse(cb: (o: unknown) => void): void }): void {
+function disposeSubtree(
+  root: { traverse(cb: (o: unknown) => void): void },
+  disposeMaterials = false,
+): void {
+  const materials = new Set<Material>();
   root.traverse((obj) => {
-    const mesh = obj as { geometry?: { dispose(): void }; isMesh?: boolean };
-    if (mesh.isMesh === true) mesh.geometry?.dispose();
+    const mesh = obj as {
+      geometry?: { dispose(): void };
+      isMesh?: boolean;
+      material?: Material | Material[];
+    };
+    if (mesh.isMesh !== true) return;
+    mesh.geometry?.dispose();
+    if (!disposeMaterials || mesh.material === undefined) return;
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (materials.has(material)) continue;
+      materials.add(material);
+      material.dispose();
+    }
   });
 }
 
@@ -149,9 +253,11 @@ export class WeaponViewmodel {
   readonly root = new Group();
   private readonly material: Material;
   private readonly loadAssets: boolean;
+  private readonly loadModel: (url: string) => Promise<Group>;
   private weaponId: WeaponIdValue | undefined;
   private model: Group | undefined;
   private loadGeneration = 0;
+  private disposed = false;
   private equip = 1;
   private recoil = 0;
   private rack = 0;
@@ -163,6 +269,7 @@ export class WeaponViewmodel {
   constructor(material: Material, options: WeaponViewmodelOptions = {}) {
     this.material = material;
     this.loadAssets = options.loadAssets ?? true;
+    this.loadModel = options.loadModel ?? (async (url) => (await new GLTFLoader().loadAsync(url)).scene);
     this.root.position.set(0.3, -0.28, -0.62);
     this.root.rotation.set(-0.08, -0.06, 0);
     this.root.layers.set(1);
@@ -192,7 +299,10 @@ export class WeaponViewmodel {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.loadGeneration += 1;
     disposeSubtree(this.root);
+    this.model = undefined;
   }
 
   onFire(): void {
@@ -257,9 +367,16 @@ export class WeaponViewmodel {
     generation: number,
   ): Promise<void> {
     try {
-      const gltf = await new GLTFLoader().loadAsync(url);
-      if (generation !== this.loadGeneration || this.weaponId !== config.weaponId) return;
-      const model = gltf.scene;
+      const loaded = await this.loadModel(url);
+      if (
+        this.disposed ||
+        generation !== this.loadGeneration ||
+        this.weaponId !== config.weaponId
+      ) {
+        disposeSubtree(loaded, true);
+        return;
+      }
+      const model = loaded;
       model.traverse((object: Object3D) => {
         object.layers.set(1);
         if (object instanceof Mesh) object.material = this.material;
@@ -274,7 +391,9 @@ export class WeaponViewmodel {
       const composed = new Group();
       composed.add(model);
       composed.scale.set(...config.scale);
-      this.model?.removeFromParent();
+      const previous = this.model;
+      previous?.removeFromParent();
+      if (previous !== undefined) disposeSubtree(previous);
       this.model = composed;
       this.root.add(composed);
     } catch (error) {

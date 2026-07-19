@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { HudStateMachine } from "../src/hud-state.js";
+import { armInviteCopy, inviteUrl, reconnectStatusText } from "../src/hud.js";
 import { webSocketCloseForensics } from "../src/net/session.js";
+import { canonicalRoomUrl, roomIdFromUrl } from "../src/room-url.js";
 
 describe("HUD state machine", () => {
   it("moves through name, play, death, respawn, win, and next-round play", () => {
@@ -40,5 +42,51 @@ describe("HUD state machine", () => {
       consoleMessage: "websocket closed · code 1006 · no reason",
       telemetry: "ws 1006 · no reason",
     });
+  });
+
+  it("replaces exhausted reconnect countdown copy with a rejoin action", () => {
+    expect(reconnectStatusText(2)).toBe("reconnecting… 2");
+    expect(reconnectStatusText()).toBe("connection lost — rejoin?");
+  });
+
+  it("builds the same repeatable canonical invite on every copy", () => {
+    const first = inviteUrl("https://example.test/gg/?create=1&style=toon-cel", "room-7");
+    const second = inviteUrl("https://example.test/gg/?create=1&style=toon-cel", "room-7");
+    expect(first).toBe("https://example.test/gg/r/room-7?style=toon-cel");
+    expect(second).toBe(first);
+  });
+
+  it("parses canonical cold room paths before the legacy query fallback", () => {
+    expect(roomIdFromUrl("/gg/r/r000001", "")).toBe("r000001");
+    expect(roomIdFromUrl("/gg/r/r000001", "?room=legacy")).toBe("r000001");
+    expect(roomIdFromUrl("/gg/", "?room=legacy")).toBe("legacy");
+  });
+
+  it("replaces an existing room route and strips player/create parameters", () => {
+    expect(canonicalRoomUrl(
+      "https://example.test/gg/r/old?room=old&create=1&name=Ari&mode=scoutz&style=toon-cel",
+      "new",
+    )).toBe("https://example.test/gg/r/new?style=toon-cel");
+  });
+
+  it("keeps the invite handler armed for repeated clicks", () => {
+    const writes: string[] = [];
+    const control: {
+      textContent: string | null;
+      onclick: ((event: PointerEvent) => unknown) | null;
+    } = { textContent: "copy invite link", onclick: null };
+    armInviteCopy(
+      control,
+      "https://example.test/gg/?create=1",
+      "room-7",
+      (url) => { writes.push(url); },
+    );
+    control.onclick?.(undefined as unknown as PointerEvent);
+    control.onclick?.(undefined as unknown as PointerEvent);
+    expect(writes).toEqual([
+      "https://example.test/gg/r/room-7",
+      "https://example.test/gg/r/room-7",
+    ]);
+    expect(control.onclick).not.toBeNull();
   });
 });

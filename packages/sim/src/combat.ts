@@ -473,7 +473,7 @@ export class ProjectileSystem {
   private readonly generations = new Map<number, number>();
   private readonly pendingDetonations: ProjectileDetonation[] = [];
   private nextId = 0x8000;
-  private readonly nearMissSeen = new Set<string>();
+  private readonly nearMissSeen = new Map<number, Set<number>>();
   private pendingNearMisses: Array<{
     projectile: ProjectileState;
     targetId: number;
@@ -482,6 +482,12 @@ export class ProjectileSystem {
 
   get projectiles(): readonly ProjectileState[] {
     return [...this.live.values()].sort((left, right) => left.id - right.id);
+  }
+
+  get nearMissDedupeSize(): number {
+    let size = 0;
+    for (const targets of this.nearMissSeen.values()) size += targets.size;
+    return size;
   }
 
   spawn(
@@ -501,7 +507,7 @@ export class ProjectileSystem {
     if (owned.length >= weapon.projectileLiveCap) {
       const oldest = owned[0];
       if (oldest !== undefined) {
-        this.live.delete(oldest.id);
+        this.removeLive(oldest.id);
         this.pendingDetonations.push({
           projectile: oldest,
           point: oldest.position,
@@ -533,8 +539,7 @@ export class ProjectileSystem {
   }
 
   delete(id: number): void {
-    this.live.delete(id);
-    for (const key of this.nearMissSeen) if (key.startsWith(`${id}:`)) this.nearMissSeen.delete(key);
+    this.removeLive(id);
   }
 
   drainNearMisses(): readonly {
@@ -550,7 +555,7 @@ export class ProjectileSystem {
     for (const projectile of this.projectiles) {
       const weapon = WEAPONS[projectile.weaponId];
       if (tick - projectile.spawnTick >= weapon.projectileLifetimeTicks) {
-        this.live.delete(projectile.id);
+        this.removeLive(projectile.id);
         detonations.push({ projectile, point: projectile.position, reason: "lifetime" });
         continue;
       }
@@ -560,13 +565,13 @@ export class ProjectileSystem {
       };
       const next = addScaled(projectile.position, velocity, TICK_DT);
       if (world?.projectileInKillVolume(next, weapon.projectileRadius) === true) {
-        this.live.delete(projectile.id);
+        this.removeLive(projectile.id);
         detonations.push({ projectile, point: next, reason: "kill-volume" });
         continue;
       }
       const worldImpact = world?.sweepProjectile(projectile.position, next, weapon.projectileRadius);
       if (worldImpact !== undefined) {
-        this.live.delete(projectile.id);
+        this.removeLive(projectile.id);
         detonations.push({ projectile, point: worldImpact.point, reason: "impact" });
         continue;
       }
@@ -599,14 +604,18 @@ export class ProjectileSystem {
         }
       }
       if (direct !== undefined) {
-        this.live.delete(projectile.id);
+        this.removeLive(projectile.id);
         detonations.push({ projectile, point: next, directTargetId: direct.id, reason: "target" });
         continue;
       }
       for (const nearMiss of nearMisses) {
-        const key = `${projectile.id}:${nearMiss.target.id}`;
-        if (this.nearMissSeen.has(key)) continue;
-        this.nearMissSeen.add(key);
+        let seenTargets = this.nearMissSeen.get(projectile.id);
+        if (seenTargets === undefined) {
+          seenTargets = new Set<number>();
+          this.nearMissSeen.set(projectile.id, seenTargets);
+        }
+        if (seenTargets.has(nearMiss.target.id)) continue;
+        seenTargets.add(nearMiss.target.id);
         this.pendingNearMisses.push({
           projectile,
           targetId: nearMiss.target.id,
@@ -616,6 +625,11 @@ export class ProjectileSystem {
       this.live.set(projectile.id, { ...projectile, position: next, velocity });
     }
     return detonations;
+  }
+
+  private removeLive(id: number): void {
+    this.live.delete(id);
+    this.nearMissSeen.delete(id);
   }
 }
 

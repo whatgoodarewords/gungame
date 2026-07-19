@@ -3,6 +3,20 @@ import { AUDIO_SAMPLE_URLS } from "./asset-manifest.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
 
+export const MASTER_COMPRESSOR_DIALS = Object.freeze({
+  thresholdDb: -12,
+  kneeDb: 12,
+  ratio: 3,
+  attackSeconds: 0.004,
+  releaseSeconds: 0.16,
+});
+
+export const GUNSHOT_LAYERS = Object.freeze([
+  "mechanical",
+  "body",
+  "tail",
+] as const);
+
 export interface SynthRecipe {
   readonly duration: number;
   readonly attack: number;
@@ -87,8 +101,10 @@ export function renderRecipe(
 export class GameAudio {
   private context: AudioContext | undefined;
   private master: GainNode | undefined;
+  private compressor: DynamicsCompressorNode | undefined;
   private windGain: GainNode | undefined;
   private ambienceGain: GainNode | undefined;
+  private ambienceFilter: BiquadFilterNode | undefined;
   private captureDestination: MediaStreamAudioDestinationNode | undefined;
   private seed = 1;
   private volume = 0.8;
@@ -147,8 +163,14 @@ export class GameAudio {
         : weaponId === WeaponId.Discus
           ? AUDIO_SAMPLE_URLS.laserRetro
           : undefined;
-    if (sampled !== undefined && this.playSample(sampled, position, 0.55)) return;
-    this.play(FIRE_RECIPES[weaponId], position);
+    const sampledBody = sampled !== undefined && this.playSample(sampled, position, 0.55);
+    if (!sampledBody) this.play(FIRE_RECIPES[weaponId], position);
+    // Mechanical transient + room tail remain separate layers even when a
+    // sampled body is available.
+    this.play(recipe(0.022, 0.32, 1_180 + weaponId * 23, 7_500, 0.11, 0.04),
+      position, 1, 0);
+    this.play(recipe(0.22, 0.58, 82 + weaponId * 3, 1_500, 0.13, 0.18),
+      position, 1, 0.035);
   }
 
   playImpact(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
@@ -281,13 +303,23 @@ export class GameAudio {
   setSpireSecretAmbience(active: boolean): void {
     this.ensureLoops();
     if (this.context === undefined || this.ambienceGain === undefined) return;
-    this.ambienceGain.gain.setTargetAtTime(active ? 0.055 : 0, this.context.currentTime, 0.35);
+    this.ambienceGain.gain.setTargetAtTime(active ? 0.055 : 0.024, this.context.currentTime, 0.35);
+  }
+
+  setRoomTone(map: "spire" | "foundry" | "duna" | "cascade" | string): void {
+    this.ensureLoops();
+    if (this.context === undefined || this.ambienceGain === undefined ||
+      this.ambienceFilter === undefined) return;
+    const frequency = map === "spire" ? 510 : map === "duna" ? 230 : map === "cascade" ? 380 : 310;
+    this.ambienceFilter.frequency.setTargetAtTime(frequency, this.context.currentTime, 0.45);
+    this.ambienceGain.gain.setTargetAtTime(0.024, this.context.currentTime, 0.45);
   }
 
   private play(
     value: SynthRecipe,
     position?: { x: number; y: number; z: number },
     gainScale = 1,
+    delaySeconds = 0,
   ): void {
     if (this.context === undefined) return;
     this.ensureMaster();
@@ -310,7 +342,7 @@ export class GameAudio {
       panner.positionZ.value = position.z;
       source.connect(panner).connect(gain).connect(this.master!);
     }
-    source.start();
+    source.start(this.context.currentTime + delaySeconds);
   }
 
   private playSample(
@@ -409,29 +441,43 @@ export class GameAudio {
 
   private ensureLoops(): void {
     if (this.context === undefined || this.windGain !== undefined) return;
-    const makeNoiseLoop = (filterHz: number): { source: AudioBufferSourceNode; gain: GainNode } => {
+    const makeNoiseLoop = (
+      filterHz: number,
+    ): { source: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } => {
       const samples = renderRecipe(recipe(1, 1, 80, filterHz, 0.65, 0), this.context!.sampleRate, this.seed++);
       const buffer = this.context!.createBuffer(1, samples.length, this.context!.sampleRate);
       buffer.copyToChannel(samples, 0);
       const source = this.context!.createBufferSource();
       const gain = this.context!.createGain();
+      const filter = this.context!.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = filterHz;
       source.buffer = buffer;
       source.loop = true;
       gain.gain.value = 0;
-      source.connect(gain).connect(this.master!);
+      source.connect(filter).connect(gain).connect(this.master!);
       source.start();
-      return { source, gain };
+      return { source, gain, filter };
     };
     this.windGain = makeNoiseLoop(1_800).gain;
-    this.ambienceGain = makeNoiseLoop(320).gain;
+    const ambience = makeNoiseLoop(320);
+    this.ambienceGain = ambience.gain;
+    this.ambienceFilter = ambience.filter;
   }
 
   private ensureMaster(): void {
     if (this.context === undefined || this.master !== undefined) return;
     this.master = this.context.createGain();
+    this.compressor = this.context.createDynamicsCompressor();
     this.captureDestination = this.context.createMediaStreamDestination();
     this.master.gain.value = this.muted ? 0 : this.volume;
-    this.master.connect(this.context.destination);
-    this.master.connect(this.captureDestination);
+    this.compressor.threshold.value = MASTER_COMPRESSOR_DIALS.thresholdDb;
+    this.compressor.knee.value = MASTER_COMPRESSOR_DIALS.kneeDb;
+    this.compressor.ratio.value = MASTER_COMPRESSOR_DIALS.ratio;
+    this.compressor.attack.value = MASTER_COMPRESSOR_DIALS.attackSeconds;
+    this.compressor.release.value = MASTER_COMPRESSOR_DIALS.releaseSeconds;
+    this.master.connect(this.compressor);
+    this.compressor.connect(this.context.destination);
+    this.compressor.connect(this.captureDestination);
   }
 }

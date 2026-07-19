@@ -1,6 +1,13 @@
-import { Scene } from "three/webgpu";
+import {
+  BoxGeometry,
+  Group,
+  Mesh,
+  MeshBasicNodeMaterial,
+  Scene,
+  Texture,
+} from "three/webgpu";
 import { vec4 } from "three/tsl";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { GameplayMap } from "../../packages/shared/src/index.js";
 import {
@@ -13,6 +20,7 @@ import {
   armRecoverableAnimationLoop,
   type RenderPipelineLike,
 } from "../src/render-runtime.js";
+import { disposeRenderMaterials, disposeSceneSubtree } from "../src/render-resources.js";
 
 const map: GameplayMap = {
   collision: { positions: new Float32Array(), indices: new Uint32Array() },
@@ -49,6 +57,37 @@ describe("RenderStyle bake-off harness", () => {
 });
 
 describe("live style pipeline reconstruction", () => {
+  it("disposes rejected/map-replaced materials and owned scene subtrees exactly once", () => {
+    const shared = new MeshBasicNodeMaterial();
+    const map = new MeshBasicNodeMaterial();
+    const projectile = new MeshBasicNodeMaterial();
+    const viewmodel = new MeshBasicNodeMaterial();
+    const materialSpies = [shared, map, projectile, viewmodel]
+      .map((material) => vi.spyOn(material, "dispose"));
+    disposeRenderMaterials({
+      map,
+      actor: shared,
+      projectile,
+      viewmodel,
+      outline: shared,
+    });
+    expect(materialSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+
+    const root = new Group();
+    const geometry = new BoxGeometry();
+    const owned = new MeshBasicNodeMaterial();
+    const texture = new Texture();
+    owned.map = texture;
+    const geometryDispose = vi.spyOn(geometry, "dispose");
+    const materialDispose = vi.spyOn(owned, "dispose");
+    const textureDispose = vi.spyOn(texture, "dispose");
+    root.add(new Mesh(geometry, owned));
+    disposeSceneSubtree(root, true);
+    expect(geometryDispose).toHaveBeenCalledOnce();
+    expect(materialDispose).toHaveBeenCalledOnce();
+    expect(textureDispose).toHaveBeenCalledOnce();
+  });
+
   it.each(["webgl2", "webgpu"] as const)(
     "reconstructs and commits every style on the %s backend boundary",
     (backend) => {

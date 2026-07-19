@@ -1,0 +1,9 @@
+<map id="include/ktx.h" name="include/ktx.h">
+<area shape="rect" id="Node000001" title="Declares the public functions and structures of the KTX API." alt="" coords="147,5,242,31"/>
+<area shape="rect" id="Node000002" href="$filestream_8c.html" title="Implementation of ktxStream for FILE." alt="" coords="5,79,112,105"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="159,41,83,81,80,76,157,36"/>
+<area shape="rect" id="Node000003" href="$memstream_8c.html" title="Implementation of ktxStream for memory." alt="" coords="135,79,254,105"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="197,46,197,79,192,79,192,46"/>
+<area shape="rect" id="Node000004" href="$strings_8c.html" title="Functions to return a string corresponding to various enumerations." alt="" coords="278,79,367,105"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="231,37,302,76,299,81,228,41"/>
+</map>

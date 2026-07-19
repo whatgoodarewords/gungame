@@ -1,4 +1,5 @@
 import {
+  AmbientLight,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -7,6 +8,7 @@ import {
   LineBasicMaterial,
   Mesh,
   MeshBasicNodeMaterial,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
   Raycaster,
@@ -17,7 +19,7 @@ import {
   WebGPURenderer,
   type Material,
 } from "three/webgpu";
-import { pass, toonOutlinePass } from "three/tsl";
+import { mix, pass, toonOutlinePass, vec4 } from "three/tsl";
 
 import foundryBlobUrl from "../../maps/foundry.blob?url";
 import dunaBlobUrl from "../../maps/duna.blob?url";
@@ -47,10 +49,19 @@ import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
 import { ClipThat } from "./clip-capture.js";
-import { ProjectileVisualSystem, RemoteCharacterSystem } from "./combat-visuals.js";
+import type {
+  ProjectileView,
+  ProjectileVisualSystem,
+  RemoteCharacterSystem,
+} from "./combat-visuals.js";
+import type { MapDressing } from "./map-dressing.js";
+import type { InterpolatedEntity } from "./net/interpolation.js";
 import { MatchHud } from "./hud.js";
 import { HudStateMachine } from "./hud-state.js";
+import { ImpactVisualSystem } from "./impact-visuals.js";
 import { Button, RawInput, rebindControl } from "./input.js";
+import { FrameBudgetMeter } from "./perf.js";
+import { OfflineEnvironmentAssets } from "./environment-assets.js";
 import {
   likelyTouchOnly,
   showMobileGate,
@@ -59,6 +70,7 @@ import {
   type MenuController,
   type MenuSelection,
 } from "./menu.js";
+import { initializeMaterialAssets } from "./material-assets.js";
 import { matchStatsShareText, updatePersonalBest } from "./match-stats.js";
 import { DevPanel } from "./panel.js";
 import {
@@ -74,6 +86,7 @@ import {
   type RenderStyleId,
   type StyleRig,
 } from "./render-style.js";
+import { disposeRenderMaterials, disposeSceneSubtree } from "./render-resources.js";
 import { createPlayground } from "./sim-bridge.js";
 import {
   crosshairGapPixels,
@@ -83,8 +96,10 @@ import {
   weaponTypeIcon,
   type UserSettings,
 } from "./settings.js";
-import { WeaponViewmodel } from "./viewmodels.js";
+import { PrecisionWeaponViewmodel as WeaponViewmodel } from "./precision-viewmodel.js";
+import { VIEWMODEL_CONFIGS, VIEWMODEL_MOTION } from "./viewmodels.js";
 import { RecoverableRenderPipeline, armRecoverableAnimationLoop } from "./render-runtime.js";
+import { canonicalRoomUrl } from "./room-url.js";
 import "./style.css";
 
 const RAD2DEG = 180 / Math.PI;
@@ -103,19 +118,33 @@ function pointInside(
 
 async function startGame(frontDoor?: MenuController): Promise<void> {
   const query = new URLSearchParams(location.search);
+  const viewmodelCaptureConfig = VIEWMODEL_CONFIGS[Number(query.get("vmconfig"))];
+  const viewmodelCaptureKick = query.get("vmkick") === "1";
   const canvas = document.createElement("canvas");
   root.appendChild(canvas);
   const scene = new Scene();
+  const viewmodelScene = new Scene();
   let userSettings: UserSettings = loadUserSettings(localStorage);
   const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight, userSettings.fov);
-  fpsCam.camera.layers.enable(1);
+  fpsCam.camera.layers.disable(1);
   scene.add(fpsCam.camera);
+  const viewmodelCamera = new PerspectiveCamera(
+    VIEWMODEL_MOTION.fovDeg,
+    window.innerWidth / window.innerHeight,
+    VIEWMODEL_MOTION.nearM,
+    10,
+  );
+  viewmodelCamera.layers.set(1);
+  viewmodelScene.add(viewmodelCamera);
+  viewmodelScene.add(new AmbientLight(0xffffff, 1.65));
   const input = new RawInput(() =>
     canvas.isConnected ? canvas : root.querySelector<HTMLCanvasElement>("canvas:last-of-type") ?? canvas);
   const hud = new MatchHud(root);
   const hudState = new HudStateMachine(true);
   hud.setState(hudState.state);
   const audio = new GameAudio();
+  const perf = new FrameBudgetMeter();
+  const impacts = new ImpactVisualSystem(scene);
   let clipMapName = "map";
   const clip = new ClipThat(canvas, () => clipMapName, () => audio.captureStream);
   audio.setMaster(userSettings.masterVolume, userSettings.muted);
@@ -141,6 +170,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   await renderer.init();
+  await initializeMaterialAssets(renderer);
+  const environments = new OfflineEnvironmentAssets(renderer);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = PCFSoftShadowMap;
   const showConnectionCard = (
     state: "server-restarting" | "version-mismatch" | "room-full" | "room-not-found",
   ): void => {
@@ -150,6 +183,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     frontDoor.setConnectionState(state);
   };
   let currentMap: GameplayMap | undefined;
+  let currentMapId: number | undefined;
   let currentMode: typeof GameMode[keyof typeof GameMode] = GameMode.Scoutzknivez;
   let currentStyleId = renderStyleFromQuery(location.search);
   let currentStyle = RENDER_STYLES[currentStyleId];
@@ -162,6 +196,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let viewmodel: WeaponViewmodel | undefined;
   let characters: RemoteCharacterSystem | undefined;
   let projectiles: ProjectileVisualSystem | undefined;
+  let dressing: MapDressing | undefined;
+  let dressingConstructor: (new (
+    scene: Scene,
+    mapId: number,
+    material: Material,
+  ) => MapDressing) | undefined;
+  let prettyAssetsStarted = false;
   let currentRoomId = "";
   let connectedAtMs = performance.now();
   let networkClosed = false;
@@ -173,10 +214,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const scenePass = style.id === "toon-cel"
       ? toonOutlinePass(scene, fpsCam.camera, new Color(style.palette.ink), 0.0035, 1)
       : pass(scene, fpsCam.camera);
-    return new RenderPipeline(renderer, style.postChain(scenePass));
+    const weaponPass = pass(viewmodelScene, viewmodelCamera);
+    const composited = vec4(
+      mix(scenePass.rgb, weaponPass.rgb, weaponPass.a),
+      scenePass.a.max(weaponPass.a),
+    );
+    return new RenderPipeline(renderer, style.postChain(composited));
   };
 
-  rig = currentStyle.fogLightRig(scene);
+  rig = currentStyle.fogLightRig(scene, currentMap);
   const pipeline = new RecoverableRenderPipeline(
     constructPipeline(currentStyle),
     (error) => console.error(
@@ -196,11 +242,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       viewmodel,
     };
     const nextPipeline = constructPipeline(nextStyle);
-    const nextMaterials = currentMap === undefined ? undefined : nextStyle.materials(currentMap);
+    const nextMaterials = currentMap === undefined
+      ? undefined
+      : nextStyle.materials(currentMap, currentMapId);
     const nextViewmodel = nextMaterials === undefined ? undefined : new WeaponViewmodel(nextMaterials.viewmodel);
-    const nextRig = nextStyle.fogLightRig(scene);
+    const nextRig = nextStyle.fogLightRig(scene, currentMap);
     if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = false;
-    if (nextViewmodel !== undefined) fpsCam.camera.add(nextViewmodel.root);
+    if (nextViewmodel !== undefined) viewmodelScene.add(nextViewmodel.root);
     currentStyleId = id;
     currentStyle = nextStyle;
     rig = nextRig;
@@ -216,19 +264,18 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     pipeline.replace(nextPipeline, () => {
       previous.rig?.dispose();
       if (previous.viewmodel !== undefined) {
-        fpsCam.camera.remove(previous.viewmodel.root);
+        viewmodelScene.remove(previous.viewmodel.root);
         previous.viewmodel.dispose();
       }
-      if (previous.materials !== undefined && previous.materials !== nextMaterials) {
-        for (const value of Object.values(previous.materials)) {
-          (value as Material | undefined)?.dispose?.();
-        }
-      }
+      if (previous.materials !== nextMaterials) disposeRenderMaterials(previous.materials);
     }, () => {
       nextRig.dispose();
-      if (nextViewmodel !== undefined) fpsCam.camera.remove(nextViewmodel.root);
+      if (nextViewmodel !== undefined) {
+        viewmodelScene.remove(nextViewmodel.root);
+        nextViewmodel.dispose();
+      }
       previous.rig?.dispose();
-      rig = previous.style.fogLightRig(scene);
+      rig = previous.style.fogLightRig(scene, currentMap);
       currentStyleId = previous.id;
       currentStyle = previous.style;
       materials = previous.materials;
@@ -239,6 +286,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         characters?.setMaterial(previous.materials.actor);
         projectiles?.setMaterial(previous.materials.projectile);
       }
+      if (nextMaterials !== previous.materials) disposeRenderMaterials(nextMaterials);
       const url = new URL(location.href);
       url.searchParams.set("style", previous.id);
       history.replaceState(null, "", url);
@@ -250,7 +298,17 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     mode: typeof GameMode[keyof typeof GameMode],
     mapId: typeof MapId[keyof typeof MapId],
   ): void => {
+    pipeline.cancelPending();
+    const previous = {
+      materials,
+      rig,
+      mapMesh,
+      ghostMesh,
+      raceMarkers,
+      viewmodel,
+    };
     currentMap = map;
+    currentMapId = mapId;
     currentMode = mode;
     clipMapName = mapId === MapId.Spire
       ? "spire"
@@ -259,10 +317,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         : mapId === MapId.Cascade
           ? "cascade"
           : "foundry";
+    audio.setRoomTone(clipMapName);
     timeTrial = new BhopTimeTrial(BHOP_ROUTES[mapId], localStorage);
     if (ghostMesh !== undefined) {
       scene.remove(ghostMesh);
-      ghostMesh.geometry.dispose();
     }
     const ghostMaterial = new MeshBasicNodeMaterial({
       color: currentStyle.palette.accent,
@@ -276,7 +334,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     scene.add(ghostMesh);
     for (const marker of raceMarkers) {
       scene.remove(marker);
-      marker.geometry.dispose();
     }
     raceMarkers = map.secrets
       .filter((secret) => secret.kind === MapSecretKind.RaceSpot)
@@ -330,18 +387,17 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       });
     if (mapMesh !== undefined) {
       scene.remove(mapMesh);
-      mapMesh.geometry.dispose();
     }
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
     geometry.setIndex(new BufferAttribute(map.collision.indices, 1));
     geometry.computeVertexNormals();
-    materials = currentStyle.materials(map);
-    characters ??= new RemoteCharacterSystem(scene, materials.actor);
-    projectiles ??= new ProjectileVisualSystem(scene, materials.projectile);
-    characters.setMaterial(materials.actor);
-    projectiles.setMaterial(materials.projectile);
+    materials = currentStyle.materials(map, mapId);
+    characters?.setMaterial(materials.actor);
+    projectiles?.setMaterial(materials.projectile);
     mapMesh = new Mesh(geometry, materials.map);
+    mapMesh.castShadow = true;
+    mapMesh.receiveShadow = true;
     mapMesh.name = mapId === MapId.Spire
       ? "Spire"
       : mapId === MapId.Duna
@@ -350,10 +406,23 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           ? "Cascade"
           : "Foundry";
     scene.add(mapMesh);
-    if (viewmodel !== undefined) fpsCam.camera.remove(viewmodel.root);
+    void environments.install(scene, mapMesh.name).catch((error: unknown) => {
+      console.warn(`offline environment unavailable for ${mapMesh?.name ?? "map"}`, error);
+    });
+    dressing?.dispose();
+    dressing = dressingConstructor === undefined
+      ? undefined
+      : new dressingConstructor(scene, mapId, materials.map);
+    if (viewmodel !== undefined) viewmodelScene.remove(viewmodel.root);
     viewmodel = new WeaponViewmodel(materials.viewmodel);
-    fpsCam.camera.add(viewmodel.root);
-    applyStyle(currentStyleId);
+    viewmodelScene.add(viewmodel.root);
+    rig = currentStyle.fogLightRig(scene, map);
+    previous.rig?.dispose();
+    if (previous.ghostMesh !== undefined) disposeSceneSubtree(previous.ghostMesh, true);
+    for (const marker of previous.raceMarkers) disposeSceneSubtree(marker, true);
+    if (previous.mapMesh !== undefined) disposeSceneSubtree(previous.mapMesh);
+    previous.viewmodel?.dispose();
+    disposeRenderMaterials(previous.materials);
     document.title = `gungame — ${mapMesh.name.toLowerCase()}`;
   };
 
@@ -373,7 +442,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     reconnectScheduled = true;
     const retry = nextReconnectAttempt(sessionStorage, Date.now());
     if (!retry.allowed) {
-      hud.setReconnectCountdown(0);
+      hud.setReconnectExhausted();
       return;
     }
     let remaining = retry.countdownSeconds;
@@ -403,9 +472,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       // Canonical room URL: makes the address bar shareable AND lets the
       // reload/reconnect path find its token (review findings 5 + old 8).
       if (roomId !== "") {
-        const roomUrl = new URL(location.href);
-        roomUrl.searchParams.set("room", roomId);
-        history.replaceState(null, "", roomUrl);
+        history.replaceState(null, "", canonicalRoomUrl(location.href, roomId));
       }
       connectedAtMs = performance.now();
       networkClosed = false;
@@ -413,6 +480,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       hud.setState(hudState.dispatch({ type: "connected" }));
       frontDoor?.destroy();
       frontDoor = undefined;
+      hud.setInviteRoom(roomId);
       if (query.get("create") === "1") hud.showInvite(roomId);
     },
     onRefusal: (code) => {
@@ -537,6 +605,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
     headshot: boolean,
+    rocket = false,
   ): void => {
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(Float32Array.of(
@@ -550,6 +619,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     );
     impact.position.set(to.x, to.y + 0.95, to.z);
     scene.add(tracer, impact);
+    impacts.impact(
+      to,
+      currentMode === GameMode.Scoutzknivez ? 0xb9a98a : 0x8997a1,
+      rocket,
+    );
     setTimeout(() => {
       scene.remove(tracer);
       geometry.dispose();
@@ -558,10 +632,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   };
 
   const showAimTracer = (range: number): void => {
-    const origin = fpsCam.camera.getWorldPosition(new Vector3());
-    const direction = fpsCam.camera.getWorldDirection(new Vector3());
-    const end = origin.clone().addScaledVector(direction, range);
-    const geometry = new BufferGeometry().setFromPoints([origin, end]);
+    fpsCam.camera.getWorldPosition(aimOrigin);
+    fpsCam.camera.getWorldDirection(aimDirection);
+    aimEnd.copy(aimOrigin).addScaledVector(aimDirection, range);
+    const geometry = new BufferGeometry().setFromPoints([aimOrigin, aimEnd]);
     aimTracerMaterial.color.set(currentStyle.palette.accent);
     const tracer = new Line(geometry, aimTracerMaterial);
     tracer.name = "hitscan-tracer";
@@ -576,6 +650,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     renderer.setSize(window.innerWidth, window.innerHeight);
     fpsCam.camera.aspect = window.innerWidth / window.innerHeight;
     fpsCam.camera.updateProjectionMatrix();
+    viewmodelCamera.aspect = window.innerWidth / window.innerHeight;
+    viewmodelCamera.updateProjectionMatrix();
   };
   window.addEventListener("resize", resize);
   resize();
@@ -603,19 +679,78 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let howToShown = false;
   const nameplateRaycaster = new Raycaster();
   const nextRemoteFootstep = new Map<number, number>();
+  const listenerDirection = new Vector3();
+  const aimOrigin = new Vector3();
+  const aimDirection = new Vector3();
+  const aimEnd = new Vector3();
+  const nameplateTarget = new Vector3();
+  const nameplateDirection = new Vector3();
+  const remotePlayers: InterpolatedEntity[] = [];
+  const visiblePlayerIds = new Set<number>();
+  const projectileList: Array<{
+    key: string;
+    position: { x: number; y: number; z: number };
+    weaponId: number;
+  }> = [];
+  const projectileKeys = new Map<number, string>();
+  const predictedProjectileKeys = new Map<string, string>();
+  const visualDebug: Record<string, number | string> = {};
+  (window as unknown as { __GG_VISUAL_DEBUG__?: Record<string, number | string> })
+    .__GG_VISUAL_DEBUG__ = visualDebug;
+
+  const writeProjectile = (
+    index: number,
+    key: string,
+    position: Readonly<{ x: number; y: number; z: number }>,
+    weaponId: number,
+  ): void => {
+    let value = projectileList[index];
+    if (value === undefined) {
+      value = { key, position: { x: 0, y: 0, z: 0 }, weaponId };
+      projectileList[index] = value;
+    }
+    value.key = key;
+    value.position.x = position.x;
+    value.position.y = position.y;
+    value.position.z = position.z;
+    value.weaponId = weaponId;
+  };
 
   const renderFrame = (): void => {
     const now = performance.now();
+    perf.beginFrame(now);
     const dtMs = Math.min(100, now - lastFrame);
     lastFrame = now;
     fpsSmoothed = fpsSmoothed * 0.95 + (1000 / Math.max(dtMs, 0.1)) * 0.05;
     // View angles + held-button peek for camera/HUD only — pulse consumption
     // moved to the sim tick via setTickInput (review finding 7: 144 Hz loss).
     const frame = input.peek();
+    const firePresentations = input.drainFirePresentations();
 
     const prev = sim.getPrevState().player;
     const curr = sim.getState().player;
     const combat = sim.getCombatState();
+    if (combat.selfId !== 0 && !prettyAssetsStarted) {
+      prettyAssetsStarted = true;
+      requestAnimationFrame(() => {
+        void Promise.all([
+          import("./combat-visuals.js"),
+          import("./map-dressing.js"),
+        ]).then(([visuals, dressingModule]) => {
+          if (materials === undefined) return;
+          characters ??= new visuals.RemoteCharacterSystem(scene, materials.actor);
+          projectiles ??= new visuals.ProjectileVisualSystem(scene, materials.projectile);
+          dressingConstructor = dressingModule.MapDressing;
+          if (currentMapId !== undefined) {
+            dressing?.dispose();
+            dressing = new dressingConstructor(scene, currentMapId, materials.map);
+          }
+        }).catch((error: unknown) => {
+          prettyAssetsStarted = false;
+          console.warn("deferred character/effect pack unavailable", error);
+        });
+      });
+    }
     const alpha = sim.getAlpha();
     const collision = {
       x: prev.position.x + (curr.position.x - prev.position.x) * alpha,
@@ -628,6 +763,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const pz = collision.z + rendered.z - curr.position.z;
     if (curr.grounded && !wasGrounded && curr.velocity.y <= 0) {
       fpsCam.onLand();
+      viewmodel?.onLand();
       audio.landing(currentMode === GameMode.Scoutzknivez ? "stone" : "metal", Math.abs(prev.velocity.y));
     }
     wasGrounded = curr.grounded;
@@ -645,7 +781,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
     audio.setListener(
       fpsCam.camera.position,
-      fpsCam.camera.getWorldDirection(new Vector3()),
+      fpsCam.camera.getWorldDirection(listenerDirection),
     );
 
     const zoomCapable = combat.weaponId === 4 || combat.weaponId === 11;
@@ -667,7 +803,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     );
 
     const horizontalSpeed = Math.hypot(curr.velocity.x, curr.velocity.z);
-    const trial = timeTrial?.update(curr.position, now);
+    const trial = timeTrial?.update(curr.position, now, combat.alive);
     hud.setTrialTimer(
       trial?.visible ?? false,
       trial?.elapsedMs ?? 0,
@@ -688,7 +824,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const roundTripMs = sim.getPingMs();
     hud.setPing(roundTripMs, pingTone(roundTripMs));
     hud.setAfkWarning(now - input.lastActivityMs >= 20_000);
-    panel.update(fpsSmoothed, renderer.info.render.drawCalls);
+    panel.update(fpsSmoothed, renderer.info.render.drawCalls, perf.snapshot);
     audio.setWindSpeed(horizontalSpeed);
     const surface: SurfaceMaterial = currentMode === GameMode.Scoutzknivez ? "stone" : "metal";
     if (curr.grounded && horizontalSpeed > 2.2 && now >= nextFootstepMs) {
@@ -698,16 +834,23 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const secretRoom = currentMap?.secrets.find((secret) => secret.kind === MapSecretKind.SpireRoom);
     audio.setSpireSecretAmbience(secretRoom !== undefined && pointInside(curr.position, secretRoom.bounds));
 
-    if (combat.weaponId !== lastWeapon) {
-      lastWeapon = combat.weaponId;
-      viewmodel?.setWeapon(combat.weaponId);
+    const displayedWeapon = viewmodelCaptureConfig?.weaponId ?? combat.weaponId;
+    if (displayedWeapon !== lastWeapon) {
+      lastWeapon = displayedWeapon;
+      viewmodel?.setWeapon(displayedWeapon, viewmodelCaptureConfig);
     }
-    if ((frame.buttons & Button.Fire) !== 0 && combat.alive && now >= nextLocalShotMs) {
+    if (viewmodelCaptureKick) viewmodel?.onFire();
+    if (
+      (firePresentations > 0 || (frame.buttons & Button.Fire) !== 0) &&
+      combat.alive &&
+      now >= nextLocalShotMs
+    ) {
       viewmodel?.onFire();
       audio.playFire(combat.weaponId);
       const weapon = WEAPONS[combat.weaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
         showAimTracer(weapon.range);
+        impacts.ejectCasing(fpsCam.camera.position, input.yaw);
       }
       nextLocalShotMs = now + WEAPONS[combat.weaponId].refireTicks * TICK_DT * 1_000;
     }
@@ -723,7 +866,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     lastPitch = input.pitch;
 
     const remotes = sim.getRemotePlayers(now);
-    const remotePlayers = remotes.filter((remote) => remote.kind === EntityKind.Player);
+    remotePlayers.length = 0;
+    for (const remote of remotes) {
+      if (remote.kind === EntityKind.Player) remotePlayers.push(remote);
+    }
     if (query.get("visualtest") === "1" && remotePlayers.length === 0) {
       remotePlayers.push({
         id: 65_000,
@@ -745,9 +891,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         weaponId: 0,
       });
     }
+    const charactersStartedAt = performance.now();
     characters?.update(remotePlayers, now / 1_000);
-    const visiblePlayerIds = new Set(remotePlayers.map((remote) => remote.id));
+    visiblePlayerIds.clear();
     for (const remote of remotePlayers) {
+      visiblePlayerIds.add(remote.id);
       const speed = Math.hypot(remote.velocity.x, remote.velocity.z);
       if (remote.grounded && remote.alive && speed > 2.2 &&
         now >= (nextRemoteFootstep.get(remote.id) ?? 0)) {
@@ -764,15 +912,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       const scoreEntry = combat.modeState?.scoreboard.find((entry) => entry.playerId === remote.id);
       label.textContent = scoreEntry?.name?.toLowerCase() ?? `p${remote.id}`;
       label.classList.toggle("bot", scoreEntry?.bot === true);
-      const target = new Vector3(remote.position.x, remote.position.y + 1.9, remote.position.z);
-      const fromCamera = target.clone().sub(fpsCam.camera.position);
-      const distance = fromCamera.length();
+      nameplateTarget.set(remote.position.x, remote.position.y + 1.9, remote.position.z);
+      nameplateDirection.copy(nameplateTarget).sub(fpsCam.camera.position);
+      const distance = nameplateDirection.length();
       let occluded = false;
       if (mapMesh !== undefined && distance < 15) {
-        nameplateRaycaster.set(fpsCam.camera.position, fromCamera.normalize());
+        nameplateRaycaster.set(fpsCam.camera.position, nameplateDirection.normalize());
         occluded = (nameplateRaycaster.intersectObject(mapMesh, false)[0]?.distance ?? Infinity) < distance - 0.2;
       }
-      const projected = target.project(fpsCam.camera);
+      const projected = nameplateTarget.project(fpsCam.camera);
       const visible = remote.alive && distance < 15 && !occluded &&
         Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1 && projected.z < 1;
       label.classList.toggle("visible", visible);
@@ -788,72 +936,103 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         nextRemoteFootstep.delete(id);
       }
     }
+    perf.mark("characters", performance.now() - charactersStartedAt);
 
-    const projectileViews = new Map<string, { position: { x: number; y: number; z: number }; weaponId: number }>();
+    let projectileCount = 0;
     for (const remote of remotes) {
       if (remote.kind === EntityKind.Projectile) {
-        projectileViews.set(`r:${remote.id}`, { position: remote.position, weaponId: remote.weaponId });
+        let key = projectileKeys.get(remote.id);
+        if (key === undefined) {
+          key = `r:${remote.id}`;
+          projectileKeys.set(remote.id, key);
+        }
+        writeProjectile(projectileCount++, key, remote.position, remote.weaponId);
       }
     }
     for (const predicted of combat.predictedProjectiles) {
-      const replicated = [...projectileViews.values()].some((value) => value.weaponId === predicted.weaponId &&
-        Math.hypot(
-          value.position.x - predicted.position.x,
-          value.position.y - predicted.position.y,
-          value.position.z - predicted.position.z,
-        ) < 0.8);
-      if (!replicated) projectileViews.set(`p:${predicted.ownerId}:${predicted.fireCmdSeq}`, {
-        position: predicted.position,
-        weaponId: predicted.weaponId,
-      });
+      let replicated = false;
+      for (let index = 0; index < projectileCount; index += 1) {
+        const value = projectileList[index]!;
+        if (value.weaponId === predicted.weaponId &&
+          Math.hypot(
+            value.position.x - predicted.position.x,
+            value.position.y - predicted.position.y,
+            value.position.z - predicted.position.z,
+          ) < 0.8) {
+          replicated = true;
+          break;
+        }
+      }
+      if (!replicated) {
+        const identity = `${predicted.ownerId}:${predicted.fireCmdSeq}`;
+        let key = predictedProjectileKeys.get(identity);
+        if (key === undefined) {
+          key = `p:${identity}`;
+          predictedProjectileKeys.set(identity, key);
+        }
+        writeProjectile(projectileCount++, key, predicted.position, predicted.weaponId);
+      }
     }
-    const projectileList = [...projectileViews].map(([key, value]) => ({ key, ...value }));
-    if (query.get("visualtest") === "1" && projectileList.length === 0) {
-      projectileList.push({
-        key: "visual-test-rocket",
-        position: { x: curr.position.x + 1.5, y: curr.position.y + 1.2, z: curr.position.z - 3 },
-        weaponId: 9,
-      });
+    projectileList.length = projectileCount;
+    if (query.get("visualtest") === "1" && projectileCount === 0) {
+      writeProjectile(0, "visual-test-rocket", {
+        x: curr.position.x + 1.5,
+        y: curr.position.y + 1.2,
+        z: curr.position.z - 3,
+      }, 9);
+      projectileList.length = 1;
     }
-    projectiles?.update(projectileList);
+    const particlesStartedAt = performance.now();
+    projectiles?.update(projectileList as readonly ProjectileView[]);
+    impacts.update(seconds);
     if (now >= nextWhooshMs) {
-      const nearest = projectileList
-        .map((projectile) => ({
-          projectile,
-          distance: Math.hypot(
-            projectile.position.x - curr.position.x,
-            projectile.position.y - curr.position.y,
-            projectile.position.z - curr.position.z,
-          ),
-        }))
-        .sort((a, b) => a.distance - b.distance)[0];
-      if (nearest !== undefined && nearest.distance < 7) {
-        audio.projectileWhoosh(nearest.projectile.position, nearest.distance);
+      let nearest: (typeof projectileList)[number] | undefined;
+      let nearestDistance = Infinity;
+      for (const projectile of projectileList) {
+        const distance = Math.hypot(
+          projectile.position.x - curr.position.x,
+          projectile.position.y - curr.position.y,
+          projectile.position.z - curr.position.z,
+        );
+        if (distance < nearestDistance) {
+          nearest = projectile;
+          nearestDistance = distance;
+        }
+      }
+      if (nearest !== undefined && nearestDistance < 7) {
+        audio.projectileWhoosh(nearest.position, nearestDistance);
         nextWhooshMs = now + 180;
       }
     }
-    const debugWindow = window as unknown as {
-      __GG_VISUAL_DEBUG__?: Record<string, number | string>;
-    };
+    perf.mark("particles", performance.now() - particlesStartedAt);
     const inputDebug = input.inspector;
-    debugWindow.__GG_VISUAL_DEBUG__ = {
-      projectileMeshes: projectileList.length,
-      characterRigs: remotePlayers.length,
-      drawCalls: renderer.info.render.drawCalls,
-      style: currentStyleId,
-      backend: query.get("backend") === "webgl2" ? "webgl2" : "webgpu",
-      connected: networkClosed ? 0 : (combat.selfId === 0 ? 0 : 1),
-      playerX: curr.position.x,
-      playerZ: curr.position.z,
-      playerVelocityY: curr.velocity.y,
-      playerDucked: curr.ducked ? 1 : 0,
-      inputButtons: inputDebug.buttons,
-      inputLocked: inputDebug.locked ? 1 : 0,
-      inputYaw: input.yaw,
-      inputKeyEvents: inputDebug.keyEvents
-        .map((event) => `${event.phase}:${event.code}`)
-        .join(","),
-    };
+    visualDebug.projectileMeshes = projectileList.length;
+    visualDebug.characterRigs = remotePlayers.length;
+    visualDebug.drawCalls = renderer.info.render.drawCalls;
+    visualDebug.style = currentStyleId;
+    visualDebug.backend = query.get("backend") === "webgl2" ? "webgl2" : "webgpu";
+    visualDebug.connected = networkClosed ? 0 : (combat.selfId === 0 ? 0 : 1);
+    visualDebug.playerX = curr.position.x;
+    visualDebug.playerZ = curr.position.z;
+    visualDebug.playerVelocityY = curr.velocity.y;
+    visualDebug.playerDucked = curr.ducked ? 1 : 0;
+    visualDebug.inputButtons = inputDebug.buttons;
+    visualDebug.inputLocked = inputDebug.locked ? 1 : 0;
+    visualDebug.inputYaw = input.yaw;
+    const breakdown = perf.snapshot;
+    visualDebug.frameMs = breakdown.frame;
+    visualDebug.renderMs = breakdown.render;
+    visualDebug.lightingMs = breakdown.lighting;
+    visualDebug.postMs = breakdown.post;
+    visualDebug.particlesMs = breakdown.particles;
+    visualDebug.charactersMs = breakdown.characters;
+    visualDebug.viewmodelConfig = viewmodelCaptureConfig === undefined
+      ? -1
+      : VIEWMODEL_CONFIGS.indexOf(viewmodelCaptureConfig);
+    visualDebug.viewmodelKick = viewmodelCaptureKick ? 1 : 0;
+    visualDebug.inputKeyEvents = inputDebug.keyEvents
+      .map((event) => `${event.phase}:${event.code}`)
+      .join(",");
 
     const mode = combat.modeState;
     const ladderLength = mode === undefined ? CLASSIC_LADDER.length : ladderWeapons(mode.ladder).length;
@@ -924,7 +1103,12 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         if (headshot) audio.headshot();
         const target = remotes.find((remote) => remote.id === event.targetId);
         if (target !== undefined) {
-          showTracer(curr.position, target.position, headshot);
+          showTracer(
+            curr.position,
+            target.position,
+            headshot,
+            WEAPONS[event.weaponId as WeaponIdValue]?.kind === "projectile",
+          );
           audio.playImpact(event.weaponId as WeaponIdValue, target.position);
         }
         setTimeout(() => {
@@ -1001,7 +1185,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         audio.foundrySigil();
       }
     }
+    const renderStartedAt = performance.now();
     pipeline.render();
+    perf.mark("render", performance.now() - renderStartedAt);
+    perf.endFrame(performance.now());
   };
   armRecoverableAnimationLoop(
     (callback) => renderer.setAnimationLoop(callback),

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "assets:audio": "node ../tools/audio/normalize.mjs",
-    "build": "pnpm assets:audio && vite build",
+    "assets:textures": "node ../tools/assets/process-textures.mjs",
+    "assets:hdri": "node ../tools/assets/prefilter-hdri.mjs",
+    "build": "pnpm assets:audio && pnpm assets:textures && pnpm assets:hdri && vite build",
     "dev": "vite",
     "size": "size-limit",
     "test": "vitest run",

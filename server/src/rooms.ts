@@ -43,7 +43,10 @@ import {
 } from "@gungame/shared";
 import {
   Buttons,
+  CAPSULE_HEIGHT,
+  CAPSULE_RADIUS,
   DEFAULT,
+  DUCKED_CAPSULE_HEIGHT,
   ModeRules,
   ProjectileSystem,
   SCOUTZ,
@@ -82,6 +85,7 @@ const AFK_MS = 30_000;
 export const SPAWN_PROTECTION_TICKS = Math.ceil(1.5 / TICK_DT);
 const HULL_RING_TICKS = Math.ceil(0.4 / TICK_DT) + 1;
 const SENT_TICK_RING = 64;
+const SPAWN_CLEARANCE_SQ = (CAPSULE_RADIUS * 2) ** 2;
 
 export interface PlayerPeer {
   sendReliable(bytes: Uint8Array): void;
@@ -325,6 +329,7 @@ export class Room {
   }
 
   add(peer: PlayerPeer, nowMs: number, rawName = "Player"): JoinSuccess | undefined {
+    this.expireHolds(nowMs);
     return this.addSlot(peer, nowMs, rawName, false);
   }
 
@@ -334,7 +339,6 @@ export class Room {
     rawName: string,
     isBot: boolean,
   ): JoinSuccess | undefined {
-    this.expireHolds(nowMs);
     if (this.isFull) return undefined;
     const name = validatePlayerName(rawName);
     if (name === undefined) return undefined;
@@ -343,13 +347,16 @@ export class Room {
     const token = tokenBytes();
     const modePlayer = this.rules.addPlayer(id);
     const spawn = this.spawnFor(id, modePlayer.team, 1);
+    const spawnDeferred = spawn === null;
     const initial = createInitialState(`player-${id}`);
     const state: State = {
       ...initial,
       tick: this.lastServerTick,
       player: {
         ...initial.player,
-        ...(spawn === undefined ? {} : { position: { ...spawn.position }, viewYaw: spawn.yaw * 180 / Math.PI }),
+        ...(spawn === undefined || spawn === null
+          ? {}
+          : { position: { ...spawn.position }, viewYaw: spawn.yaw * 180 / Math.PI }),
       },
     };
     const weaponId = this.weaponForTier(modePlayer.tier);
@@ -358,9 +365,9 @@ export class Room {
       name,
       state,
       generation: 1,
-      health: MAX_HEALTH,
-      alive: true,
-      respawnTick: 0,
+      health: spawnDeferred ? 0 : MAX_HEALTH,
+      alive: !spawnDeferred,
+      respawnTick: spawnDeferred ? this.lastServerTick + 1 : 0,
       tier: modePlayer.tier,
       team: modePlayer.team,
       kills: 0,
@@ -420,10 +427,15 @@ export class Room {
   }
 
   disconnect(slotId: number, nowMs: number, peer?: PlayerPeer): void {
+    this.quarantineSlot(slotId, nowMs, peer);
+  }
+
+  private quarantineSlot(slotId: number, nowMs: number, peer?: PlayerPeer): void {
     const slot = this.players.get(slotId);
     if (slot === undefined || (peer !== undefined && slot.peer !== peer)) return;
     slot.peer = undefined;
     slot.holdUntilMs = nowMs + RECONNECT_HOLD_MS;
+    this.expireHolds(nowMs);
     this.rebalanceBots(nowMs);
     if (this.connectedCount === 0) this.lastNonEmptyMs = nowMs;
   }
@@ -469,7 +481,7 @@ export class Room {
 
   tick(serverTick: number, nowMs: number): void {
     this.lastServerTick = serverTick;
-    this.expireHolds(nowMs);
+    if (this.expireHolds(nowMs)) this.rebalanceBots(nowMs);
     this.kickAfk(nowMs);
     if (this.rules.shouldRestart(serverTick)) this.restartRound(serverTick);
     this.respawnReady(serverTick);
@@ -510,11 +522,14 @@ export class Room {
           frame = { ...slot.lastCmd, buttons: slot.lastCmd.buttons & Buttons.Duck };
         }
       } catch (error) {
-        slot.peer?.disconnect(4002, error instanceof Error ? error.message : "protocol error");
-        slot.peer = undefined;
-        // Quarantine preserves the reconnect hold — a transient protocol
-        // hiccup must never cost ladder progress (review finding 12).
-        slot.holdUntilMs = performance.now() + RECONNECT_HOLD_MS;
+        const peer = slot.peer;
+        try {
+          peer?.disconnect(4002, error instanceof Error ? error.message : "protocol error");
+        } catch {
+          // A broken transport must not skip authoritative slot bookkeeping.
+        } finally {
+          this.quarantineSlot(slot.id, nowMs, peer);
+        }
       }
 
       if (slot.ammo === 0 && slot.reloadTick !== 0 && serverTick >= slot.reloadTick) {
@@ -593,14 +608,21 @@ export class Room {
   }
 
   disbandOnError(): void {
-    for (const slot of this.players.values()) {
-      slot.peer?.disconnect(4005, "room error — rejoining");
+    try {
+      for (const slot of this.players.values()) {
+        try {
+          slot.peer?.disconnect(4005, "room error — rejoining");
+        } catch {
+          // Room-global cleanup is best effort per transport.
+        }
+      }
+    } finally {
+      this.players.clear();
     }
-    this.players.clear();
   }
 
   shouldReap(nowMs: number): boolean {
-    this.expireHolds(nowMs);
+    if (this.expireHolds(nowMs)) this.rebalanceBots(nowMs);
     return this.players.size === 0 && nowMs - this.lastNonEmptyMs >= EMPTY_REAP_MS;
   }
 
@@ -864,7 +886,15 @@ export class Room {
 
   private respawn(slot: PlayerSlot, tick: number, forceGeneration: boolean): void {
     if (!forceGeneration && slot.alive) return;
-    slot.generation = (slot.generation + 1) & 0xffff;
+    const nextGeneration = (slot.generation + 1) & 0xffff;
+    const spawn = this.spawnFor(slot.id, slot.team, nextGeneration);
+    if (spawn === null) {
+      slot.health = 0;
+      slot.alive = false;
+      slot.respawnTick = tick + 1;
+      return;
+    }
+    slot.generation = nextGeneration;
     slot.health = MAX_HEALTH;
     slot.alive = true;
     slot.respawnTick = 0;
@@ -873,14 +903,15 @@ export class Room {
     slot.protectedUntilTick = tick + SPAWN_PROTECTION_TICKS;
     slot.airborneSinceTick = 0;
     slot.impressive.resetLife();
-    const spawn = this.spawnFor(slot.id, slot.team, slot.generation);
     const initial = createInitialState(`player-${slot.id}`);
     slot.state = {
       ...initial,
       tick,
       player: {
         ...initial.player,
-        ...(spawn === undefined ? {} : { position: { ...spawn.position }, viewYaw: spawn.yaw * 180 / Math.PI }),
+        ...(spawn === undefined
+          ? {}
+          : { position: { ...spawn.position }, viewYaw: spawn.yaw * 180 / Math.PI }),
       },
     };
     slot.ammo = initialAmmo(this.weaponForTier(slot.tier));
@@ -952,7 +983,7 @@ export class Room {
     });
   }
 
-  private spawnFor(id: number, team: number, generation: number): MapSpawn | undefined {
+  private spawnFor(id: number, team: number, generation: number): MapSpawn | null | undefined {
     const modeSpawns = this.spawns.filter((spawn) => spawn.mode === this.config.mode);
     const pool = (modeSpawns.length === 0 ? this.spawns : modeSpawns)
       .filter((spawn) => team === 0 || spawn.team === 0 || spawn.team === team);
@@ -962,8 +993,7 @@ export class Room {
     // Occupancy-aware: pick the candidate maximizing distance to the nearest
     // living player (review finding 8 — never spawn inside a body).
     const living = [...this.players.values()]
-      .filter((slot) => slot.alive && slot.id !== id)
-      .map((slot) => slot.state.player.position);
+      .filter((slot) => slot.alive && slot.id !== id);
     if (living.length === 0) {
       return candidates[(id + generation - 2) % candidates.length];
     }
@@ -974,18 +1004,28 @@ export class Room {
       const spawn = candidates[(offset + i) % candidates.length];
       if (spawn === undefined) continue;
       let nearest = Number.POSITIVE_INFINITY;
-      for (const p of living) {
+      for (const slot of living) {
+        const p = slot.state.player.position;
         const dx = p.x - spawn.position.x;
-        const dy = p.y - spawn.position.y;
         const dz = p.z - spawn.position.z;
-        nearest = Math.min(nearest, dx * dx + dy * dy + dz * dz);
+        const spawnBottom = spawn.position.y + CAPSULE_RADIUS;
+        const spawnTop = spawn.position.y + CAPSULE_HEIGHT - CAPSULE_RADIUS;
+        const livingHeight = slot.state.player.ducked ? DUCKED_CAPSULE_HEIGHT : CAPSULE_HEIGHT;
+        const livingBottom = p.y + CAPSULE_RADIUS;
+        const livingTop = p.y + livingHeight - CAPSULE_RADIUS;
+        const verticalGap = spawnTop < livingBottom
+          ? livingBottom - spawnTop
+          : livingTop < spawnBottom
+            ? spawnBottom - livingTop
+            : 0;
+        nearest = Math.min(nearest, dx * dx + verticalGap * verticalGap + dz * dz);
       }
       if (nearest > bestDist) {
         bestDist = nearest;
         best = spawn;
       }
     }
-    return best;
+    return bestDist < SPAWN_CLEARANCE_SQ ? null : best;
   }
 
   private modeState(tick: number): SnapshotModeState {
@@ -1027,27 +1067,38 @@ export class Room {
     for (const slot of this.players.values()) {
       if (slot.peer === undefined) continue;
       if (slot.epochs.deltasSuspended) continue;
-      const baseline = slot.snapshots.get(slot.ackedSnapshotTick) ?? [];
-      const packed = packSnapshot({
-        tick: serverTick,
-        lastProcessedCmdSeq: slot.cmdWindow.lastProcessedCmdSeq,
-        cmdArrivalMargin: Math.max(-128, Math.min(127, slot.cmdWindow.size - 2)),
-        baselineEpoch: slot.epochs.epoch,
-        baselineTick: slot.ackedSnapshotTick,
-        selfId: slot.id,
-        entities,
-        baselineEntities: baseline,
-        events: slot.events.pendingAfter(slot.ackedSnapshotTick),
-        modeState,
-      });
-      if (packed.promotedToFull) {
-        slot.peer.sendBaseline(this.openBaseline(slot.id, serverTick), nowMs);
-      }
-      else {
-        slot.snapshots.set(serverTick, packed.baselineEntities);
-        slot.events.recordSnapshot(serverTick, packed.frame.events);
-        slot.sentSnapshotTicks.push(serverTick);
-        slot.peer.sendSnapshot(packed.bytes);
+      const peer = slot.peer;
+      try {
+        const baseline = slot.snapshots.get(slot.ackedSnapshotTick) ?? [];
+        const packed = packSnapshot({
+          tick: serverTick,
+          lastProcessedCmdSeq: slot.cmdWindow.lastProcessedCmdSeq,
+          cmdArrivalMargin: Math.max(-128, Math.min(127, slot.cmdWindow.size - 2)),
+          baselineEpoch: slot.epochs.epoch,
+          baselineTick: slot.ackedSnapshotTick,
+          selfId: slot.id,
+          entities,
+          baselineEntities: baseline,
+          events: slot.events.pendingAfter(slot.ackedSnapshotTick),
+          modeState,
+        });
+        if (packed.promotedToFull) {
+          peer.sendBaseline(this.openBaseline(slot.id, serverTick), nowMs);
+        }
+        else {
+          slot.snapshots.set(serverTick, packed.baselineEntities);
+          slot.events.recordSnapshot(serverTick, packed.frame.events);
+          slot.sentSnapshotTicks.push(serverTick);
+          peer.sendSnapshot(packed.bytes);
+        }
+      } catch (error) {
+        try {
+          peer.disconnect(4002, error instanceof Error ? error.message : "snapshot error");
+        } catch {
+          // The slot quarantine below remains authoritative.
+        } finally {
+          this.quarantineSlot(slot.id, nowMs, peer);
+        }
       }
     }
   }
@@ -1090,7 +1141,7 @@ export class Room {
     if (removedHuman) this.rebalanceBots(nowMs);
   }
 
-  private expireHolds(nowMs: number): void {
+  private expireHolds(nowMs: number): boolean {
     let removed = false;
     for (const slot of [...this.players.values()]) {
       if (slot.isBot) continue;
@@ -1099,7 +1150,7 @@ export class Room {
         removed = true;
       }
     }
-    if (removed) this.rebalanceBots(nowMs);
+    return removed;
   }
 
   rebalanceBots(nowMs: number): void {
@@ -1116,7 +1167,7 @@ export class Room {
       if (bot !== undefined) this.removePlayer(bot.id);
     }
     while (bots.length < target && !this.isFull) {
-      const name = BOT_NAMES[(this.nextPlayerId + bots.length) % BOT_NAMES.length] ?? "Ari";
+      const name = BOT_NAMES[(this.nextPlayerId - 1) % BOT_NAMES.length]!;
       const joined = this.addSlot(undefined, nowMs, name, true);
       if (joined === undefined) break;
       joined.slot.holdUntilMs = Number.POSITIVE_INFINITY;
@@ -1263,8 +1314,11 @@ export class RoomManager {
         if (room.shouldReap(nowMs)) this.rooms.delete(id);
       } catch (error) {
         console.error(`room ${id} tick failed; disbanding`, error);
-        room.disbandOnError();
-        this.rooms.delete(id);
+        try {
+          room.disbandOnError();
+        } finally {
+          this.rooms.delete(id);
+        }
       }
     }
   }

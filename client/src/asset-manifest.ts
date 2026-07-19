@@ -1,4 +1,5 @@
 import crowbarUrl from "../../assets/vendor/creative-trio-crowbar/crowbar.glb?url";
+import wradArmsUrl from "../../assets/vendor/wrad-arms/arms.glb?url";
 import footstepConcrete0Url from "../../assets/vendor/kenney-impact/selected/footstep_concrete_000.ogg?url";
 import footstepConcrete1Url from "../../assets/vendor/kenney-impact/selected/footstep_concrete_001.ogg?url";
 import impactGenericUrl from "../../assets/vendor/kenney-impact/selected/impactGeneric_light_000.ogg?url";
@@ -22,6 +23,8 @@ import shotgunUrl from "../../assets/vendor/quaternius-ultimate-guns/shotgun.glb
 import sidewinderUrl from "../../assets/vendor/quaternius-ultimate-guns/sidewinder.glb?url";
 import smgUrl from "../../assets/vendor/quaternius-ultimate-guns/smg.glb?url";
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
+
+export const WRAD_ARMS_URL = wradArmsUrl;
 
 export const WEAPON_MODEL_URLS: Partial<Readonly<Record<WeaponIdValue, string>>> = Object.freeze({
   [WeaponId.Pistol]: pistolUrl,

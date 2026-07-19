@@ -26,6 +26,7 @@ import type { Cmd } from "@gungame/sim";
 import { WebSocketNetChannel, type NetChannel } from "./channel.js";
 import { ClockSync } from "./clock.js";
 import { RemoteInterpolation, type InterpolatedEntity } from "./interpolation.js";
+import { roomIdFromUrl } from "../room-url.js";
 
 export interface NetworkSnapshot {
   readonly frame: SnapshotFrame;
@@ -81,7 +82,7 @@ function hexToBytes(value: string | null): Uint8Array {
 
 function joinHello(): HelloFrame {
   const query = new URLSearchParams(location.search);
-  const roomId = query.get("room") ?? "";
+  const roomId = roomIdFromUrl(location.pathname, location.search);
   const reconnectToken = hexToBytes(sessionStorage.getItem(`gg:reconnect:${roomId}`));
   const create = query.get("create") === "1";
   const mode = query.get("mode") === "scoutz"

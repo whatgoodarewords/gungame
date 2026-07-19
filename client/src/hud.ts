@@ -5,6 +5,7 @@ import type { CrosshairSettings } from "./settings.js";
 import type { MatchStatKey } from "./match-stats.js";
 import { MATCH_STAT_KEYS, formatMatchStats } from "./match-stats.js";
 import { webSocketCloseForensics } from "./net/session.js";
+import { canonicalRoomUrl } from "./room-url.js";
 
 export interface HudStatus {
   readonly health: number;
@@ -14,6 +15,31 @@ export interface HudStatus {
   readonly ammo?: readonly [number, number];
   readonly speed: number;
   readonly typeIcon: string;
+}
+
+export function reconnectStatusText(seconds?: number): string {
+  return seconds === undefined
+    ? "connection lost — rejoin?"
+    : `reconnecting… ${Math.max(0, Math.floor(seconds))}`;
+}
+
+export function inviteUrl(currentHref: string, roomId: string): string {
+  return canonicalRoomUrl(currentHref, roomId);
+}
+
+export function armInviteCopy(
+  control: {
+    textContent: string | null;
+    onclick: ((event: PointerEvent) => unknown) | null;
+  },
+  currentHref: string,
+  roomId: string,
+  write: (url: string) => void | Promise<void>,
+): void {
+  control.onclick = () => {
+    void write(inviteUrl(currentHref, roomId));
+    control.textContent = "invite copied";
+  };
 }
 
 export class MatchHud {
@@ -284,7 +310,12 @@ export class MatchHud {
 
   setReconnectCountdown(seconds: number): void {
     this.system.classList.add("visible");
-    this.systemText.textContent = `reconnecting… ${seconds}`;
+    this.systemText.textContent = reconnectStatusText(seconds);
+  }
+
+  setReconnectExhausted(): void {
+    this.system.classList.add("visible");
+    this.systemText.textContent = reconnectStatusText();
   }
 
   setConnectionTelemetry(code: number, reason: string): void {
@@ -342,15 +373,27 @@ export class MatchHud {
   showInvite(roomId: string): void {
     if (roomId === "") return;
     this.invite.classList.add("visible");
-    this.invite.addEventListener("click", () => {
-      const url = new URL(location.href);
-      url.search = "";
-      url.pathname = `${url.pathname.replace(/\/$/, "")}/r/${roomId}`;
-      url.searchParams.set("room", roomId);
-      void navigator.clipboard.writeText(url.toString());
-      this.invite.textContent = "invite copied";
-    }, { once: true });
+    this.invite.textContent = "copy invite link";
+    // Assigning onclick keeps the action re-armed after every copy and also
+    // replaces a prior room's closure when a new invite is shown.
+    armInviteCopy(
+      this.invite,
+      location.href,
+      roomId,
+      (url) => navigator.clipboard.writeText(url),
+    );
     const boardInvite = this.root.querySelector<HTMLButtonElement>(".scoreboard-invite")!;
     boardInvite.onclick = () => this.invite.click();
+  }
+
+  setInviteRoom(roomId: string): void {
+    if (roomId === "") return;
+    const boardInvite = this.root.querySelector<HTMLButtonElement>(".scoreboard-invite")!;
+    armInviteCopy(
+      boardInvite,
+      location.href,
+      roomId,
+      (url) => navigator.clipboard.writeText(url),
+    );
   }
 }

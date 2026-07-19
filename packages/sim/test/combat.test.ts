@@ -177,8 +177,14 @@ describe("health and projectile lifecycle", () => {
     const lifetime = new ProjectileSystem();
     lifetime.spawn(1, 1, 1, WeaponId.Discus,
       { x: 0, y: 1, z: 0 }, fireDirection(0, 0), 0);
+    lifetime.tick(1, undefined, [{
+      id: 2, generation: 1, alive: true, ducked: false,
+      position: { x: 1, y: 0, z: -0.5 },
+    }]);
+    expect(lifetime.nearMissDedupeSize).toBe(1);
     expect(lifetime.tick(WEAPONS[WeaponId.Discus].projectileLifetimeTicks, undefined, [])[0]?.reason)
       .toBe("lifetime");
+    expect(lifetime.nearMissDedupeSize).toBe(0);
   });
 
   it("calculates splash/self scalars and reconciles ownership by owner+cmd seq", () => {

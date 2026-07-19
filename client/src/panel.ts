@@ -8,6 +8,7 @@ import {
   type ControlBindings,
   type InputInspectorSnapshot,
 } from "./input.js";
+import type { FrameBreakdown } from "./perf.js";
 import type { UserSettings } from "./settings.js";
 
 export interface PanelBindings {
@@ -32,6 +33,7 @@ export class DevPanel {
   private inputBitsEl: HTMLElement;
   private inputLockEl: HTMLElement;
   private inputEventsEl: HTMLElement;
+  private perfEl: HTMLElement;
   private inputs = new Map<string, HTMLInputElement>();
   private readonly inputInspector: () => InputInspectorSnapshot;
 
@@ -66,9 +68,21 @@ export class DevPanel {
       #devpanel .input-bits{font-size:10px;color:#e8f4e8;text-align:right}
       #devpanel .input-events{margin:3px 0 0;padding:0;list-style:none;color:#9db39d;font-size:10px}
       #devpanel .input-events li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #devpanel .perf-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:1px 8px;font-size:10px;color:#9db39d}
+      #devpanel .perf-breakdown span{display:flex;justify-content:space-between;gap:4px}
+      #devpanel .perf-breakdown b{font-weight:400;color:#e8f4e8}
     </style>
     <h3>diagnostics</h3><div class="row"><span id="gg-fps">0</span><span>fps</span>
       <span id="gg-draws">0</span><span>draws</span></div>
+    <div class="perf-breakdown" id="gg-perf-breakdown">
+      <span>frame <b data-perf="frame">0.00</b></span>
+      <span>render <b data-perf="render">0.00</b></span>
+      <span>light <b data-perf="lighting">0.00</b></span>
+      <span>post <b data-perf="post">0.00</b></span>
+      <span>fx <b data-perf="particles">0.00</b></span>
+      <span>chars <b data-perf="characters">0.00</b></span>
+    </div>
     <h3 style="margin-top:10px">movement</h3>
     <div class="presets" id="gg-presets"></div>
     <div id="gg-params"></div>
@@ -112,6 +126,7 @@ export class DevPanel {
     this.inputBitsEl = root.querySelector("#gg-input-bits")!;
     this.inputLockEl = root.querySelector("#gg-input-lock")!;
     this.inputEventsEl = root.querySelector("#gg-input-events")!;
+    this.perfEl = root.querySelector("#gg-perf-breakdown")!;
 
     const style = root.querySelector<HTMLSelectElement>("#gg-style")!;
     for (const id of bind.styles) style.add(new Option(id, id));
@@ -249,9 +264,15 @@ export class DevPanel {
     (input.nextElementSibling as HTMLElement).textContent = String(value);
   }
 
-  update(fps: number, drawCalls: number): void {
+  update(fps: number, drawCalls: number, breakdown: FrameBreakdown): void {
     this.fpsEl.textContent = String(Math.round(fps));
     this.drawEl.textContent = String(drawCalls);
+    for (const key of [
+      "frame", "render", "lighting", "post", "particles", "characters",
+    ] as const) {
+      const value = this.perfEl.querySelector<HTMLElement>(`[data-perf="${key}"]`);
+      if (value !== null) value.textContent = `${breakdown[key].toFixed(2)} ms`;
+    }
     const input = this.inputInspector();
     this.inputBitsEl.textContent = formatButtonBits(input.buttons);
     this.inputLockEl.textContent = input.locked ? "locked" : "unlocked";

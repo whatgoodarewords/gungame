@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info overwrite-permissions="true" relocatable="false" identifier="com.khronos.ktx.jni" postinstall-action="none" version="4.4.2" format-version="2" generator-version="InstallCmds-860.14 (24G90)" install-location="/" auth="root">
+    <payload numberOfFiles="8" installKBytes="125"/>
+    <bundle-version/>
+    <upgrade-bundle/>
+    <update-bundle/>
+    <atomic-update-bundle/>
+    <strict-identifier/>
+    <relocate/>
+</pkg-info>
