@@ -1,0 +1,10 @@
+Role: Codex GPT-5.6 lane "hotfix1 — live findings" (NORMATIVE: docs/live-findings-4b.md ALL five findings; docs/SPEC.md; the godtier-brief standing bar). You write all code; NO git ops; don't touch docs/, deploy/.
+
+Fix, in order, with a regression test each:
+1. Finding 5 (CRITICAL): server crash via uncaught FSM ProtocolError in sweepTimeouts — unify the loop clock (one time source passed down, never re-sampled), AND add the per-connection error boundary in AuthoritativeLoop.step/sweep (quarantine + typed disconnect + log; process never dies). Tests per the finding.
+2. Finding 4: crouch-jump+turn — if 6.5's pointer-lock fix landed, verify and extend; implement the dev-panel input inspector (live button bits, lock state, last 5 key events); test matrix Shift+Space+A/D+mouse.
+3. Finding 1: pointer lock detached-canvas (verify 6.5 fixed; if not, fix per the finding).
+4. Finding 3: z-fighting — map generators sink grounded bases 0.02 m + stop emitting hidden bottom faces + pipeline validator rule: no parallel-coplanar overlap within 1 mm (CI).
+5. Finding 2: WS-close forensics — with finding 5 fixed this may vanish; keep the close-code surfacing regardless.
+Done: pnpm -r typecheck && test green; e2e (tools/e2e) extended: lock engages, 90 s session incl. style switch survives, no server restart in docker logs during a 12-bot+2-browser mixed run (script it against localhost).
+Report → client/HOTFIX1-REPORT.md progressively.

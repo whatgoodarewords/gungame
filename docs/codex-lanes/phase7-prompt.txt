@@ -1,0 +1,10 @@
+Role: Codex GPT-5.6 lane "phase7 — look/feel/performance overhaul" (NORMATIVE: docs/art-direction.md IN FULL — rendering 1-7, audio 8, asset acquisition, AND the performance-discipline budgets as hard acceptance criteria; docs/assets-plan.md URLs; the standing bar). Network access is ON for asset downloads. You write all code; NO git ops; don't touch docs/, deploy/.
+
+Deliverables = art-direction.md items 1-8 exactly, plus:
+- Assets: download the buy-list packs (validate real archives; itch-gated → procedural fallback + FLAG for owner); vendor with LICENSES.md; KTX2-compress textures at build; PMREM-prefilter HDRIs offline.
+- Per-feature frame budgets enforced: the perf HUD breakdown row ships FIRST so every subsequent feature is measured as it lands; end state meets the budget table on the WebGL2 path headlessly (report measured numbers honestly per feature).
+- Code-split: character/dressing packs stream after first controllable frame; cold-load < 5 s throttled re-measured.
+- GC smoke: 60 s bot match heap delta < 5 MB (CI).
+- Every map re-validated (coplanar rule from hotfix1 must pass on the dressed maps too).
+Done: pnpm -r typecheck && test green; e2e visual smoke per style×backend documented; budgets table filled with measurements.
+Report → client/PHASE7-REPORT.md progressively.
