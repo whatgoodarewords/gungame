@@ -21,6 +21,8 @@ COPY client client
 COPY server server
 COPY packages packages
 COPY maps maps
+COPY tools tools
+COPY assets assets
 
 RUN BUILD_HASH="$BUILD_HASH" pnpm --filter @gungame/client build \
   && BUILD_HASH="$BUILD_HASH" pnpm --filter @gungame/server build \
