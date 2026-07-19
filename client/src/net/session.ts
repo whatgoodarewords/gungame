@@ -48,6 +48,17 @@ export interface NetworkSessionOptions {
   ) => void;
 }
 
+export function webSocketCloseForensics(
+  code: number,
+  reason: string,
+): { readonly consoleMessage: string; readonly telemetry: string } {
+  const cleanReason = reason.trim() === "" ? "no reason" : reason.trim();
+  return {
+    consoleMessage: `websocket closed · code ${code} · ${cleanReason}`,
+    telemetry: `ws ${code} · ${cleanReason.toLowerCase()}`,
+  };
+}
+
 function defaultUrl(): string {
   if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
     return "ws://localhost:8787/gg/ws";
@@ -314,8 +325,7 @@ export class NetworkSession {
 
   private closed(code: number, reason: string): void {
     if (this.pingTimer !== undefined) clearInterval(this.pingTimer);
-    const closeReason = reason.trim() === "" ? "no reason" : reason;
-    console.warn(`websocket closed · code ${code} · ${closeReason}`);
+    console.warn(webSocketCloseForensics(code, reason).consoleMessage);
     if (this.fsm.state !== "closing") {
       try {
         this.fsm.transition("closing", performance.now());

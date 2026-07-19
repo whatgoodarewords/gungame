@@ -3,8 +3,10 @@
 
 import {
   bindingLabel,
+  formatButtonBits,
   type ControlAction,
   type ControlBindings,
+  type InputInspectorSnapshot,
 } from "./input.js";
 import type { UserSettings } from "./settings.js";
 
@@ -19,6 +21,7 @@ export interface PanelBindings {
   onStyle: (style: string) => void;
   controls: ControlBindings;
   onControl: (action: ControlAction, code: string) => void;
+  inputInspector: () => InputInspectorSnapshot;
   settings: UserSettings;
   onSettings: (settings: UserSettings) => void;
 }
@@ -26,11 +29,16 @@ export interface PanelBindings {
 export class DevPanel {
   private drawEl: HTMLElement;
   private fpsEl: HTMLElement;
+  private inputBitsEl: HTMLElement;
+  private inputLockEl: HTMLElement;
+  private inputEventsEl: HTMLElement;
   private inputs = new Map<string, HTMLInputElement>();
+  private readonly inputInspector: () => InputInspectorSnapshot;
 
   constructor(bind: PanelBindings) {
     let settings = bind.settings;
     let controls = bind.controls;
+    this.inputInspector = bind.inputInspector;
     const toggle = document.createElement("button");
     toggle.id = "settings-toggle";
     toggle.type = "button";
@@ -55,6 +63,9 @@ export class DevPanel {
       #devpanel .presets{display:flex;gap:6px;margin:4px 0 8px}
       #devpanel .control{width:126px;text-align:left}
       #devpanel select{max-width:126px;background:#1c2820;color:#cfe3cf;border:1px solid #2a3a2a}
+      #devpanel .input-bits{font-size:10px;color:#e8f4e8;text-align:right}
+      #devpanel .input-events{margin:3px 0 0;padding:0;list-style:none;color:#9db39d;font-size:10px}
+      #devpanel .input-events li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     </style>
     <h3>diagnostics</h3><div class="row"><span id="gg-fps">0</span><span>fps</span>
       <span id="gg-draws">0</span><span>draws</span></div>
@@ -65,7 +76,11 @@ export class DevPanel {
     <div class="row"><select id="gg-style"></select></div>
     <h3 style="margin-top:10px">controls</h3>
     <div id="gg-controls"></div>
-    <h3 style="margin-top:10px">input</h3>
+    <h3 style="margin-top:10px">input inspector</h3>
+    <div class="row"><span>bits</span><code class="input-bits" id="gg-input-bits"></code></div>
+    <div class="row"><span>pointer</span><span id="gg-input-lock"></span></div>
+    <ol class="input-events" id="gg-input-events"></ol>
+    <h3 style="margin-top:10px">input tuning</h3>
     <div class="row"><span>cm/360</span><input type="range" id="gg-cm" min="10" max="80" step="1" value="30"><span class="val" id="gg-cmv">30</span></div>
     <div class="row"><span>dpi</span><input type="range" id="gg-dpi" min="400" max="3200" step="100" value="800"><span class="val" id="gg-dpiv">800</span></div>
     <div class="row"><span>fov</span><input type="range" id="gg-fov" min="90" max="120" step="1"><span class="val" id="gg-fovv"></span></div>
@@ -94,6 +109,9 @@ export class DevPanel {
 
     this.drawEl = root.querySelector("#gg-draws")!;
     this.fpsEl = root.querySelector("#gg-fps")!;
+    this.inputBitsEl = root.querySelector("#gg-input-bits")!;
+    this.inputLockEl = root.querySelector("#gg-input-lock")!;
+    this.inputEventsEl = root.querySelector("#gg-input-events")!;
 
     const style = root.querySelector<HTMLSelectElement>("#gg-style")!;
     for (const id of bind.styles) style.add(new Option(id, id));
@@ -234,5 +252,13 @@ export class DevPanel {
   update(fps: number, drawCalls: number): void {
     this.fpsEl.textContent = String(Math.round(fps));
     this.drawEl.textContent = String(drawCalls);
+    const input = this.inputInspector();
+    this.inputBitsEl.textContent = formatButtonBits(input.buttons);
+    this.inputLockEl.textContent = input.locked ? "locked" : "unlocked";
+    this.inputEventsEl.replaceChildren(...input.keyEvents.map((event) => {
+      const item = document.createElement("li");
+      item.textContent = `${event.phase === "down" ? "↓" : "↑"} ${bindingLabel(event.code)}${event.repeat ? " · repeat" : ""}`;
+      return item;
+    }));
   }
 }

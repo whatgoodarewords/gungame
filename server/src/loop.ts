@@ -17,18 +17,21 @@ export class AuthoritativeLoop {
   private overloadUntilMs = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly samples: number[] = [];
-  private readonly step: (tick: number) => void;
+  private readonly step: (tick: number, nowMs: number) => void;
+  private readonly sweep: (nowMs: number) => void;
   private readonly clock: () => number;
   private readonly warn: (message: string) => void;
 
   constructor(
-    step: (tick: number) => void,
+    step: (tick: number, nowMs: number) => void,
     clock: () => number = () => performance.now(),
     warn: (message: string) => void = (message) => console.warn(message),
+    sweep: (nowMs: number) => void = () => {},
   ) {
     this.step = step;
     this.clock = clock;
     this.warn = warn;
+    this.sweep = sweep;
   }
 
   get metrics(): TickLoopMetrics {
@@ -70,7 +73,8 @@ export class AuthoritativeLoop {
     const aggregateStart = this.clock();
     while (this.accumulatorMs >= TICK_MS && stepped < MAX_CATCH_UP) {
       this.serverTick += 1;
-      this.step(this.serverTick);
+      this.runPhase("step", this.serverTick, () => this.step(this.serverTick, nowMs));
+      this.runPhase("sweep", this.serverTick, () => this.sweep(nowMs));
       this.accumulatorMs -= TICK_MS;
       stepped += 1;
     }
@@ -84,5 +88,14 @@ export class AuthoritativeLoop {
       if (this.samples.length > SAMPLE_LIMIT) this.samples.shift();
     }
     return stepped;
+  }
+
+  private runPhase(phase: "step" | "sweep", tick: number, action: () => void): void {
+    try {
+      action();
+    } catch (error) {
+      const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+      this.warn(`authoritative loop ${phase} error at tick ${tick}; tick continued\n${detail}`);
+    }
   }
 }

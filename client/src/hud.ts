@@ -4,6 +4,7 @@ import type { HudState } from "./hud-state.js";
 import type { CrosshairSettings } from "./settings.js";
 import type { MatchStatKey } from "./match-stats.js";
 import { MATCH_STAT_KEYS, formatMatchStats } from "./match-stats.js";
+import { webSocketCloseForensics } from "./net/session.js";
 
 export interface HudStatus {
   readonly health: number;
@@ -287,8 +288,7 @@ export class MatchHud {
   }
 
   setConnectionTelemetry(code: number, reason: string): void {
-    const cleanReason = reason.trim() === "" ? "no reason" : reason.trim().toLowerCase();
-    this.systemTelemetry.textContent = `ws ${code} · ${cleanReason}`;
+    this.systemTelemetry.textContent = webSocketCloseForensics(code, reason).telemetry;
   }
 
   setScoreboard(

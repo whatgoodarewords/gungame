@@ -24,14 +24,17 @@ interface SpawnEntry {
 }
 
 function box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Geometry {
+  const grounded = y0 === 0;
+  const baseY = grounded ? y0 - 0.02 : y0;
   return {
     positions: [
-      x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0,
-      x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1,
+      x0, baseY, z0, x1, baseY, z0, x1, y1, z0, x0, y1, z0,
+      x0, baseY, z1, x1, baseY, z1, x1, y1, z1, x0, y1, z1,
     ],
     indices: [
       0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
-      0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2,
+      ...(grounded ? [] : [0, 1, 5, 0, 5, 4]),
+      3, 7, 6, 3, 6, 2,
       0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
     ],
   };
@@ -42,17 +45,20 @@ function rampX(x0: number, y0: number, z0: number, length: number, width: number
   const x1 = x0 + length;
   const z1 = z0 + width;
   const y1 = y0 + Math.tan(angleDeg * DEG) * length;
+  const baseY = y0 - 0.02;
   return {
     positions: [
+      x0, baseY, z0, x0, baseY, z1,
+      x1, baseY, z0, x1, baseY, z1,
       x0, y0, z0, x0, y0, z1,
-      x1, y0, z0, x1, y0, z1,
       x1, y1, z0, x1, y1, z1,
     ],
     indices: [
+      4, 6, 7, 4, 7, 5,
+      0, 2, 6, 0, 6, 4,
+      1, 5, 7, 1, 7, 3,
       0, 4, 5, 0, 5, 1,
-      0, 2, 4, 0, 3, 2, 0, 1, 3,
-      2, 3, 5, 2, 5, 4,
-      0, 4, 2, 1, 5, 3,
+      2, 3, 7, 2, 7, 6,
     ],
   };
 }
@@ -69,18 +75,20 @@ function rampZ(
 ): Geometry {
   const z1 = z0 + direction * run;
   const y1 = y0 + Math.tan(angleDeg * DEG) * run;
+  const baseY = y0 - 0.02;
   return {
     positions: [
+      x0, baseY, z0, x1, baseY, z0,
+      x0, baseY, z1, x1, baseY, z1,
       x0, y0, z0, x1, y0, z0,
-      x0, y0, z1, x1, y0, z1,
       x0, y1, z1, x1, y1, z1,
     ],
     indices: [
+      4, 5, 7, 4, 7, 6,
+      0, 4, 6, 0, 6, 2,
+      1, 3, 7, 1, 7, 5,
       0, 1, 5, 0, 5, 4,
-      0, 2, 3, 0, 3, 1,
-      2, 4, 5, 2, 5, 3,
-      0, 4, 2, 1, 3, 5,
-      0, 1, 3, 0, 3, 2,
+      2, 6, 7, 2, 7, 3,
     ],
   };
 }
@@ -174,20 +182,20 @@ function spire(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   const meshes: MeshEntry[] = [
     // 80 x 50 m footprint, 40 m authored bounds. The four floor slabs leave
     // the only hard hazard, a narrow 4 x 16 m centre trench, physically open.
-    { name: "col_floor_west", geometry: box(-40, -0.35, -25, -2, 0, 25) },
-    { name: "col_floor_east", geometry: box(2, -0.35, -25, 40, 0, 25) },
-    { name: "col_floor_trench_north", geometry: box(-2, -0.35, -25, 2, 0, -8) },
-    { name: "col_floor_trench_south", geometry: box(-2, -0.35, 8, 2, 0, 25) },
+    { name: "col_floor_west", geometry: box(-39.7, -0.35, -24.7, -2, 0, 24.7) },
+    { name: "col_floor_east", geometry: box(2, -0.35, -24.7, 39.7, 0, 24.7) },
+    { name: "col_floor_trench_north", geometry: box(-2, -0.35, -24.7, 2, 0, -8) },
+    { name: "col_floor_trench_south", geometry: box(-2, -0.35, 8, 2, 0, 24.7) },
     { name: "kill_center_trench", geometry: box(-2, -6, -8, 2, -0.1, 8) },
     { name: "bounds_spire", geometry: box(-40, -7, -32, 40, 40, 25) },
-    { name: "col_wall_west", geometry: box(-40, 0, -25, -39.4, 40, 25) },
-    { name: "col_wall_east", geometry: box(39.4, 0, -25, 40, 40, 25) },
-    { name: "col_wall_south", geometry: box(-40, 0, 24.4, 40, 40, 25) },
+    { name: "col_wall_west", geometry: box(-40, 0, -24.4, -39.4, 40, 24.4) },
+    { name: "col_wall_east", geometry: box(39.4, 0, -24.4, 40, 40, 24.4) },
+    { name: "col_wall_south", geometry: box(-39.4, 0, 24.4, 39.4, 40, 25) },
     // North wall is split around the strafe-chain entrance to the secret room.
-    { name: "col_wall_north_west", geometry: box(-40, 0, -25, 20, 40, -24.4) },
-    { name: "col_wall_north_east", geometry: box(25, 0, -25, 40, 40, -24.4) },
-    { name: "col_surf_ribbon_north_50deg", geometry: rampZ(-28, 28, 4, -24.4, 1, 5, 50) },
-    { name: "col_surf_ribbon_south_50deg", geometry: rampZ(-28, 28, 4, 24.4, -1, 5, 50) },
+    { name: "col_wall_north_west", geometry: box(-39.4, 0, -25, 20, 40, -24.4) },
+    { name: "col_wall_north_east", geometry: box(25, 0, -25, 39.4, 40, -24.4) },
+    { name: "col_surf_ribbon_north_50deg", geometry: rampZ(-28, 28, 4, -24.39, 1, 5, 50) },
+    { name: "col_surf_ribbon_south_50deg", geometry: rampZ(-28, 28, 4, 24.39, -1, 5, 50) },
     // Central spire: a single exposed mass with the exact 22 m highest perch.
     { name: "col_spire_base", geometry: box(-5, 0, -5, 5, 8, 5) },
     { name: "col_spire_mid", geometry: box(-3.6, 8, -3.6, 3.6, 15, 3.6) },
@@ -198,9 +206,9 @@ function spire(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     { name: "col_secret_ledge_a", geometry: box(14, 13.6, -24.3, 18, 14, -22.8) },
     { name: "col_secret_ledge_b", geometry: box(19, 16.6, -24.3, 23, 17, -22.8) },
     { name: "col_secret_room_floor", geometry: box(20, 16.6, -32, 31, 17, -25) },
-    { name: "col_secret_room_back", geometry: box(20, 17, -32, 31, 23, -31.5) },
-    { name: "col_secret_room_west", geometry: box(20, 17, -32, 20.5, 23, -25) },
-    { name: "col_secret_room_east", geometry: box(30.5, 17, -32, 31, 23, -25) },
+    { name: "col_secret_room_back", geometry: box(20.5, 17, -32, 30.5, 23, -31.5) },
+    { name: "col_secret_room_west", geometry: box(20, 17, -31.5, 20.5, 23, -25) },
+    { name: "col_secret_room_east", geometry: box(30.5, 17, -31.5, 31, 23, -25) },
     { name: "col_names_wall_texture_hook", geometry: box(21, 18, -31.45, 30, 22, -31.35) },
     { name: "secret_spire_room_names_wall", geometry: box(20.6, 17, -31.4, 30.4, 22.8, -25.1) },
     { name: "col_race_spot_spire_lip", geometry: box(-18, 12.6, 20.5, -12, 13, 24) },
@@ -215,7 +223,7 @@ function spire(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
       const x0 = side < 0 ? xEdge + tier * 3 : xEdge - tier * 3;
       meshes.push({
         name: `col_organ_loft_t${team}_tier_${tier + 1}_${10 + tier}m`,
-        geometry: box(x0, 0, -15, x0 + 12, 10 + tier, 15),
+        geometry: box(x0, 0, -15 + tier * 0.02, x0 + 12, 10 + tier, 15 - tier * 0.02),
       });
     }
   }
@@ -242,21 +250,21 @@ function foundry(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   const meshes: MeshEntry[] = [
     { name: "bounds_foundry", geometry: box(-22.5, -5, -22.5, 22.5, 18, 22.5) },
     { name: "kill_foundry_void", geometry: box(-25, -5, -25, 25, -3.2, 25) },
-    { name: "col_wall_north", geometry: box(-22.5, 0, -22.5, 22.5, 18, -22) },
-    { name: "col_wall_south", geometry: box(-22.5, 0, 22, 22.5, 18, 22.5) },
-    { name: "col_wall_west", geometry: box(-22.5, 0, -22.5, -22, 18, 22.5) },
-    { name: "col_wall_east", geometry: box(22, 0, -22.5, 22.5, 18, 22.5) },
+    { name: "col_wall_north", geometry: box(-22, 0, -22.5, 22, 18, -22) },
+    { name: "col_wall_south", geometry: box(-22, 0, 22, 22, 18, 22.5) },
+    { name: "col_wall_west", geometry: box(-22.5, 0, -22, -22, 18, 22) },
+    { name: "col_wall_east", geometry: box(22, 0, -22, 22.5, 18, 22) },
     // Outer arena floor around the 16 x 16 crucible opening; pit floor is 2 m down.
     { name: "col_floor_north", geometry: box(-22, -0.3, -22, 22, 0, -8) },
     { name: "col_floor_south", geometry: box(-22, -0.3, 8, 22, 0, 22) },
     { name: "col_floor_west", geometry: box(-22, -0.3, -8, -8, 0, 8) },
     { name: "col_floor_east", geometry: box(8, -0.3, -8, 22, 0, 8) },
     { name: "col_crucible_pit", geometry: box(-8, -2.35, -8, 8, -2, 8) },
-    { name: "col_pit_ramp_west", geometry: rampX(-8, -2, -5, 5, 4, 21.801409) },
-    { name: "col_pit_ramp_east", geometry: rampX(3, -2, 1, 5, 4, 21.801409) },
+    { name: "col_pit_ramp_west", geometry: rampX(-8.02, -2, -5, 5.02, 4, Math.atan2(2, 5.02) / DEG) },
+    { name: "col_pit_ramp_east", geometry: rampX(3, -2, 1, 5.02, 4, Math.atan2(2, 5.02) / DEG) },
     { name: "col_pit_jump_ramp_30deg", geometry: rampX(-3.464102, -2, -1.5, 3.464102, 3, 30) },
     // 47° surf wedge: exactly named and computed against the 45.57° threshold.
-    { name: "col_pit_surf_wedge_47deg", geometry: rampZ(4, 8, -2, 8, 1, 4.2, 47) },
+    { name: "col_pit_surf_wedge_47deg", geometry: rampZ(4, 8, -2, 7.98, 1, 4.2, 47) },
     // Broken catwalk ring at y=4, with gaps aligned to all three pit exits.
     { name: "col_catwalk_north_w", geometry: box(-14, 0, -14, -3, 4, -10) },
     { name: "col_catwalk_north_e", geometry: box(3, 0, -14, 14, 4, -10) },
@@ -319,21 +327,21 @@ function duna(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     // Two open site-like plazas joined by a broad central rotation.
     { name: "col_plaza_west_hotzone", geometry: box(-48, -0.35, -18, -24, 0, 18) },
     { name: "col_plaza_east_hotzone", geometry: box(24, -0.35, -18, 48, 0, 18) },
-    { name: "col_mid_floor_20pct_wide", geometry: box(-28, -0.35, -7.2, 28, 0, 7.2) },
+    { name: "col_mid_floor_20pct_wide", geometry: box(-24, -0.35, -7.2, 24, 0, 7.2) },
     // Broken arch slit: solid shoulders and lintel create the remembered gap sightline.
-    { name: "col_mid_arch_west_shoulder", geometry: box(-1.4, 0, -7.2, -0.55, 6.5, -1.5) },
-    { name: "col_mid_arch_east_shoulder", geometry: box(0.55, 0, 1.5, 1.4, 6.5, 7.2) },
+    { name: "col_mid_arch_west_shoulder", geometry: box(-1.4, 0, -7.19, -0.55, 6.5, -1.5) },
+    { name: "col_mid_arch_east_shoulder", geometry: box(0.55, 0, 1.5, 1.4, 6.5, 7.19) },
     { name: "col_mid_arch_lintel", geometry: box(-1.4, 3.1, -1.5, 1.4, 6.5, 1.5) },
     // Long is a measured 70 m rifle lane. The west dogleg blocks spawn-to-lane holding.
     { name: "col_long_floor_70m_sightline", geometry: box(-35, -0.35, -34, 35, 0, -24.4) },
     { name: "col_long_outer_wall", geometry: box(-38, 0, -35, 38, 12, -34.4) },
-    { name: "col_long_inner_wall_w", geometry: box(-35, 0, -24.8, -16, 7, -24.2) },
-    { name: "col_long_inner_wall_e", geometry: box(16, 0, -24.8, 35, 7, -24.2) },
+    { name: "col_long_inner_wall_w", geometry: box(-34.99, 0, -24.8, -16, 7, -24.2) },
+    { name: "col_long_inner_wall_e", geometry: box(16, 0, -24.8, 34.99, 7, -24.2) },
     { name: "col_long_entrance_dogleg_a", geometry: box(-43, 0, -30, -35, 7, -29.3) },
     { name: "col_long_entrance_dogleg_b", geometry: box(-43, 0, -24.8, -42.3, 7, -14) },
     { name: "col_long_surf_ribbon_50deg", geometry: rampZ(-34, 34, 2, -34.35, 1, 4.2, 50) },
     // Elevated short/catwalk, a shallow approach and a coyote-friendly 2.2 m drop.
-    { name: "col_catwalk_short_approach", geometry: rampX(-34, 0, 8, 10, 7.2, 13.495733) },
+    { name: "col_catwalk_short_approach", geometry: rampX(-34, 0, 8, 10.02, 7.2, Math.atan2(2.4, 10.02) / DEG) },
     { name: "col_catwalk_short_elevated", geometry: box(-24, 0, 8, 17, 2.4, 15.2) },
     { name: "col_catwalk_drop_lip_040", geometry: box(17, 1.95, 8, 19, 2.4, 15.2) },
     // Tunnels occupy the other half: broad enough for our speed, exactly 4 m clear.
@@ -420,7 +428,14 @@ function cascade(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     }
     meshes.push({
       name: `col_terrace_t${tier + 1}_shortcut_040`,
-      geometry: box(-1.2 + tier * 1.3, tier * 0.4, 7 - tier * 1.8, -0.2 + tier * 1.3, height, 8.2 - tier * 1.8),
+      geometry: box(
+        -1.2 + tier * 1.3,
+        tier * 0.4,
+        7 - tier * 1.8,
+        -0.2 + tier * 1.3,
+        height - 0.02,
+        8.2 - tier * 1.8,
+      ),
     });
   }
 
@@ -444,8 +459,8 @@ function cascade(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   meshes.push(
     { name: "col_cascade_secret_chain_a", geometry: box(-22.8, 5.7, 7, -20.3, 6.1, 9.5) },
     { name: "col_cascade_secret_chain_b", geometry: box(-24.8, 7.2, 3.4, -22.3, 7.6, 5.9) },
-    { name: "col_cascade_secret_chain_c", geometry: box(-26.2, 8.7, -0.2, -23.7, 9.1, 2.3) },
-    { name: "col_cascade_waterfall_room_floor", geometry: box(-29, 8.7, -5, -22, 9.1, 2) },
+    { name: "col_cascade_secret_chain_c", geometry: box(-26.2, 8.7, -0.2, -23.7, 9.08, 2.3) },
+    { name: "col_cascade_waterfall_room_floor", geometry: box(-29, 8.68, -5, -22, 9.1, 2) },
     { name: "col_cascade_waterfall_room_back", geometry: box(-29, 9.1, -5, -28.5, 15, 2) },
     { name: "secret_cascade_waterfall_room", geometry: box(-28.4, 9.1, -4.9, -22.1, 15, 1.9) },
     { name: "col_race_spot_cascade_lip", geometry: box(21, 11.6, 13, 27, 12, 18) },

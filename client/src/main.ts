@@ -137,6 +137,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     canvas,
     antialias: true,
     forceWebGL: query.get("backend") === "webgl2",
+    logarithmicDepthBuffer: query.get("backend") === "webgl2",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   await renderer.init();
@@ -448,6 +449,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       sim.setParams(params);
     },
     onSensitivity: (cm360, dpi) => input.setSensitivity(cm360, dpi),
+    inputInspector: () => input.inspector,
     controls: input.controlBindings,
     onControl: (action, code) => {
       input.setBindings(rebindControl(input.controlBindings, action, code));
@@ -811,6 +813,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const debugWindow = window as unknown as {
       __GG_VISUAL_DEBUG__?: Record<string, number | string>;
     };
+    const inputDebug = input.inspector;
     debugWindow.__GG_VISUAL_DEBUG__ = {
       projectileMeshes: projectileList.length,
       characterRigs: remotePlayers.length,
@@ -820,6 +823,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       connected: networkClosed ? 0 : (combat.selfId === 0 ? 0 : 1),
       playerX: curr.position.x,
       playerZ: curr.position.z,
+      playerVelocityY: curr.velocity.y,
+      playerDucked: curr.ducked ? 1 : 0,
+      inputButtons: inputDebug.buttons,
+      inputLocked: inputDebug.locked ? 1 : 0,
+      inputYaw: input.yaw,
+      inputKeyEvents: inputDebug.keyEvents
+        .map((event) => `${event.phase}:${event.code}`)
+        .join(","),
     };
 
     const mode = combat.modeState;

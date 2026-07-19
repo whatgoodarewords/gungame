@@ -17,14 +17,17 @@ interface MeshEntry {
 }
 
 function box(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): Geometry {
+  const grounded = minY === 0;
+  const baseY = grounded ? minY - 0.02 : minY;
   return {
     positions: [
-      minX, minY, minZ, maxX, minY, minZ, maxX, maxY, minZ, minX, maxY, minZ,
-      minX, minY, maxZ, maxX, minY, maxZ, maxX, maxY, maxZ, minX, maxY, maxZ,
+      minX, baseY, minZ, maxX, baseY, minZ, maxX, maxY, minZ, minX, maxY, minZ,
+      minX, baseY, maxZ, maxX, baseY, maxZ, maxX, maxY, maxZ, minX, maxY, maxZ,
     ],
     indices: [
       0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
-      0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2,
+      ...(grounded ? [] : [0, 1, 5, 0, 5, 4]),
+      3, 7, 6, 3, 6, 2,
       0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
     ],
   };
@@ -34,17 +37,20 @@ function ramp(minX: number, z: number, length: number, width: number, height: nu
   const maxX = minX + length;
   const minZ = z - width / 2;
   const maxZ = z + width / 2;
+  const baseY = -0.02;
   return {
     positions: [
+      minX, baseY, minZ, minX, baseY, maxZ,
+      maxX, baseY, minZ, maxX, baseY, maxZ,
       minX, 0, minZ, minX, 0, maxZ,
-      maxX, 0, minZ, maxX, 0, maxZ,
       maxX, height, minZ, maxX, height, maxZ,
     ],
     indices: [
-      0, 2, 3, 0, 3, 1,
-      0, 4, 2, 0, 5, 4, 0, 1, 5,
-      2, 4, 5, 2, 5, 3,
-      0, 4, 2, 1, 3, 5,
+      4, 6, 7, 4, 7, 5,
+      0, 2, 6, 0, 6, 4,
+      1, 5, 7, 1, 7, 3,
+      0, 4, 5, 0, 5, 1,
+      2, 3, 7, 2, 7, 6,
     ],
   };
 }
@@ -77,11 +83,11 @@ function minMax(positions: readonly number[]): { min: number[]; max: number[] } 
 
 async function main(): Promise<void> {
   const meshes: MeshEntry[] = [
-    { name: "col_floor", geometry: box(-30, -0.2, -20, 30, 0, 20) },
-    { name: "col_wall_north", geometry: box(-30, 0, -20, 30, 4, -19.5) },
-    { name: "col_wall_south", geometry: box(-30, 0, 19.5, 30, 4, 20) },
-    { name: "col_wall_west", geometry: box(-30, 0, -20, -29.5, 4, 20) },
-    { name: "col_wall_east", geometry: box(29.5, 0, -20, 30, 4, 20) },
+    { name: "col_floor", geometry: box(-29.75, -0.2, -19.75, 29.75, 0, 19.75) },
+    { name: "col_wall_north", geometry: box(-29.5, 0, -20, 29.5, 4, -19.5) },
+    { name: "col_wall_south", geometry: box(-29.5, 0, 19.5, 29.5, 4, 20) },
+    { name: "col_wall_west", geometry: box(-30, 0, -19.5, -29.5, 4, 19.5) },
+    { name: "col_wall_east", geometry: box(29.5, 0, -19.5, 30, 4, 19.5) },
     { name: "col_ramp_15deg", geometry: ramp(-24, -10, 8, 4, Math.tan(Math.PI / 12) * 8) },
     { name: "col_ramp_30deg", geometry: ramp(-4, -10, 6, 4, Math.tan(Math.PI / 6) * 6) },
     { name: "col_ramp_45deg", geometry: ramp(16, -10, 4, 4, 4) },

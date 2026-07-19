@@ -1,12 +1,23 @@
 import { MeshBasicNodeMaterial, Scene } from "three/webgpu";
 import { describe, expect, it } from "vitest";
 
-import { WeaponId, WEAPONS } from "../../packages/shared/src/index.js";
+import { TICK_DT, WeaponId, WEAPONS } from "../../packages/shared/src/index.js";
+import {
+  Buttons,
+  createInitialState,
+  step,
+  type Cmd,
+} from "../../packages/sim/src/index.js";
 import { ProjectileVisualSystem, RemoteCharacterSystem } from "../src/combat-visuals.js";
 import {
+  Button,
   DEFAULT_CONTROL_BINDINGS,
+  buttonsForPressedCodes,
+  formatButtonBits,
   loadControlBindings,
+  pointerAnglesAfterDelta,
   rebindControl,
+  resolveLiveInputElement,
 } from "../src/input.js";
 import { likelyTouchOnly } from "../src/menu.js";
 import {
@@ -38,6 +49,64 @@ describe("phase 4c controls and settings", () => {
     const storage = new MemoryStorage();
     storage.setItem("gg:controls", JSON.stringify(rebound));
     expect(loadControlBindings(storage)).toEqual(rebound);
+  });
+
+  it.each(["KeyA", "KeyD"])(
+    "preserves Shift+Space+%s while mouse turning and jumps from a duck",
+    (lateral) => {
+      const buttons = buttonsForPressedCodes(
+        DEFAULT_CONTROL_BINDINGS,
+        ["ShiftLeft", "Space", lateral],
+      );
+      expect(buttons & Button.Duck).toBe(Button.Duck);
+      expect(buttons & Button.Jump).toBe(Button.Jump);
+      expect(buttons & (lateral === "KeyA" ? Button.Left : Button.Right)).not.toBe(0);
+      expect(formatButtonBits(buttons)).toContain("jump duck");
+
+      const angles = pointerAnglesAfterDelta(0, 0, 24, -8, 0.002);
+      expect(angles.yaw).not.toBe(0);
+      expect(angles.pitch).not.toBe(0);
+      const initial = createInitialState("crouch-jump-turn");
+      const ducked = {
+        ...initial,
+        player: {
+          ...initial.player,
+          grounded: true,
+          ducked: true,
+          duckProgress: 1,
+        },
+      };
+      const cmd: Cmd = {
+        seq: 1,
+        tick: 1,
+        buttons,
+        viewYaw: angles.yaw * 180 / Math.PI,
+        viewPitch: angles.pitch * 180 / Math.PI,
+        fireFraction: 0,
+        lastSnapshotTick: 0,
+        interpTargetTick: 0,
+        interpTargetFraction: 0,
+      };
+      const jumped = step(ducked, cmd, TICK_DT);
+      expect(jumped.player.velocity.y).toBeGreaterThan(0);
+      expect(jumped.player.ducked).toBe(true);
+      expect(jumped.player.viewYaw).toBe(cmd.viewYaw);
+      expect(buttons & Buttons.Duck).toBe(Buttons.Duck);
+    },
+  );
+
+  it("resolves a detached configured canvas to the live mounted canvas", () => {
+    const detached = { isConnected: false, ownerDocument: null };
+    const live = { isConnected: true };
+    const fakeDocument = {
+      querySelector: (selector: string) =>
+        selector === "#app canvas:last-of-type" ? live : null,
+    };
+    Object.assign(live, { ownerDocument: fakeDocument });
+    expect(resolveLiveInputElement(
+      detached as unknown as HTMLElement,
+      fakeDocument as unknown as Document,
+    )).toBe(live);
   });
 
   it("clamps settings and projects crosshair spread", () => {

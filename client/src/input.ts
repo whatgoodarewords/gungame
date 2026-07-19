@@ -12,6 +12,18 @@ export interface FrameInput {
   firedPitch: number;
 }
 
+export interface InputKeyEvent {
+  readonly code: string;
+  readonly phase: "down" | "up";
+  readonly repeat: boolean;
+}
+
+export interface InputInspectorSnapshot {
+  readonly buttons: number;
+  readonly locked: boolean;
+  readonly keyEvents: readonly InputKeyEvent[];
+}
+
 export const Button = {
   Forward: 1 << 0,
   Back: 1 << 1,
@@ -60,6 +72,19 @@ const ACTION_BUTTON: Readonly<Record<ControlAction, number>> = Object.freeze({
   melee: Button.Melee,
   clip: 0,
 });
+
+const BUTTON_NAMES = Object.freeze([
+  [Button.Forward, "forward"],
+  [Button.Back, "back"],
+  [Button.Left, "left"],
+  [Button.Right, "right"],
+  [Button.Jump, "jump"],
+  [Button.Fire, "fire"],
+  [Button.Duck, "duck"],
+  [Button.Zoom, "zoom"],
+  [Button.Background, "background"],
+  [Button.Melee, "melee"],
+] as const);
 
 const CONTROL_ACTIONS = Object.keys(DEFAULT_CONTROL_BINDINGS) as ControlAction[];
 
@@ -130,7 +155,51 @@ export function bindingLabel(code: string): string {
     .toLowerCase();
 }
 
+export function buttonsForPressedCodes(
+  bindings: ControlBindings,
+  codes: readonly string[],
+): number {
+  let buttons = 0;
+  for (const action of CONTROL_ACTIONS) {
+    if (bindings[action].some((code) => codes.includes(code))) {
+      buttons |= ACTION_BUTTON[action];
+    }
+  }
+  return buttons;
+}
+
+export function formatButtonBits(buttons: number): string {
+  const active = BUTTON_NAMES
+    .filter(([bit]) => (buttons & bit) !== 0)
+    .map(([, name]) => name);
+  return `0x${buttons.toString(16).padStart(3, "0")} · ${active.join(" ") || "none"}`;
+}
+
 const PITCH_LIMIT = (89 * Math.PI) / 180;
+
+export function pointerAnglesAfterDelta(
+  yaw: number,
+  pitch: number,
+  movementX: number,
+  movementY: number,
+  radPerCount: number,
+): { readonly yaw: number; readonly pitch: number } {
+  return {
+    yaw: yaw - movementX * radPerCount,
+    pitch: Math.max(
+      -PITCH_LIMIT,
+      Math.min(PITCH_LIMIT, pitch - movementY * radPerCount),
+    ),
+  };
+}
+
+export function resolveLiveInputElement(
+  configured: HTMLElement,
+  ownerDocument: Document = document,
+): HTMLElement {
+  if (configured.isConnected && configured.ownerDocument === ownerDocument) return configured;
+  return ownerDocument.querySelector<HTMLElement>("#app canvas:last-of-type") ?? configured;
+}
 
 export class RawInput {
   yaw = 0;
@@ -148,6 +217,7 @@ export class RawInput {
   private bindings: ControlBindings;
   private keyButtons = new Map<string, number>();
   private lockListeners = new Set<(locked: boolean) => void>();
+  private readonly keyEvents: InputKeyEvent[] = [];
   private activityMs = performance.now();
   private readonly resolveConfiguredElement: () => HTMLElement;
 
@@ -182,10 +252,15 @@ export class RawInput {
       if (!this.locked) return;
       this.markActivity();
       // movementX/Y are raw counts under unadjustedMovement — no OS accel.
-      this.yaw -= e.movementX * this.radPerCount;
-      this.pitch -= e.movementY * this.radPerCount;
-      if (this.pitch > PITCH_LIMIT) this.pitch = PITCH_LIMIT;
-      if (this.pitch < -PITCH_LIMIT) this.pitch = -PITCH_LIMIT;
+      const next = pointerAnglesAfterDelta(
+        this.yaw,
+        this.pitch,
+        e.movementX,
+        e.movementY,
+        this.radPerCount,
+      );
+      this.yaw = next.yaw;
+      this.pitch = next.pitch;
     });
     document.addEventListener("mousedown", (e) => {
       if (!this.locked) return;
@@ -200,6 +275,7 @@ export class RawInput {
       if (e.button === 2) this.buttons &= ~Button.Zoom;
     });
     document.addEventListener("keydown", (e) => {
+      this.recordKeyEvent(e.code, "down", e.repeat);
       const b = this.keyButtons.get(e.code);
       if (b !== undefined && b !== 0 && this.locked) {
         this.buttons |= b;
@@ -208,6 +284,7 @@ export class RawInput {
       }
     });
     document.addEventListener("keyup", (e) => {
+      this.recordKeyEvent(e.code, "up", e.repeat);
       const b = this.keyButtons.get(e.code);
       if (b !== undefined) this.buttons &= ~b;
     });
@@ -250,6 +327,16 @@ export class RawInput {
     return this.activityMs;
   }
 
+  get inspector(): InputInspectorSnapshot {
+    return {
+      buttons: this.buttons |
+        (this.queuedJump ? Button.Jump : 0) |
+        (this.queuedFire ? Button.Fire : 0),
+      locked: this.locked,
+      keyEvents: this.keyEvents.map((event) => ({ ...event })),
+    };
+  }
+
   onLockChange(listener: (locked: boolean) => void): () => void {
     this.lockListeners.add(listener);
     return () => this.lockListeners.delete(listener);
@@ -265,14 +352,10 @@ export class RawInput {
     try {
       const pending = element.requestPointerLock({ unadjustedMovement: true } as PointerLockOptions);
       if (pending && typeof (pending as Promise<void>).catch === "function") {
-        void (pending as Promise<void>).catch(() => {
-          const fallback = this.liveElement();
-          if (fallback.isConnected && fallback.ownerDocument === document) fallback.requestPointerLock();
-        });
+        void (pending as Promise<void>).catch(() => this.requestFallbackLock());
       }
     } catch {
-      const fallback = this.liveElement();
-      if (fallback.isConnected && fallback.ownerDocument === document) fallback.requestPointerLock();
+      this.requestFallbackLock();
     }
   }
 
@@ -322,9 +405,27 @@ export class RawInput {
     this.activityMs = performance.now();
   }
 
+  private recordKeyEvent(code: string, phase: InputKeyEvent["phase"], repeat: boolean): void {
+    this.keyEvents.push({ code, phase, repeat });
+    if (this.keyEvents.length > 5) this.keyEvents.shift();
+  }
+
+  private requestFallbackLock(): void {
+    const fallback = this.liveElement();
+    if (!fallback.isConnected || fallback.ownerDocument !== document) return;
+    try {
+      const pending = fallback.requestPointerLock();
+      if (pending && typeof (pending as Promise<void>).catch === "function") {
+        void (pending as Promise<void>).catch((error) => {
+          console.warn("pointer lock request rejected", error);
+        });
+      }
+    } catch (error) {
+      console.warn("pointer lock request rejected", error);
+    }
+  }
+
   private liveElement(): HTMLElement {
-    const configured = this.resolveConfiguredElement();
-    if (configured.isConnected && configured.ownerDocument === document) return configured;
-    return document.querySelector<HTMLElement>("#app canvas:last-of-type") ?? configured;
+    return resolveLiveInputElement(this.resolveConfiguredElement());
   }
 }

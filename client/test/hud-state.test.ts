@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HudStateMachine } from "../src/hud-state.js";
+import { webSocketCloseForensics } from "../src/net/session.js";
 
 describe("HUD state machine", () => {
   it("moves through name, play, death, respawn, win, and next-round play", () => {
@@ -28,5 +29,16 @@ describe("HUD state machine", () => {
   it("exposes version mismatch as a force-reload state", () => {
     const hud = new HudStateMachine(true);
     expect(hud.dispatch({ type: "version-mismatch" })).toBe("version-mismatch");
+  });
+
+  it("surfaces the WebSocket close code and reason for live forensics", () => {
+    expect(webSocketCloseForensics(4002, "protocol state error")).toEqual({
+      consoleMessage: "websocket closed · code 4002 · protocol state error",
+      telemetry: "ws 4002 · protocol state error",
+    });
+    expect(webSocketCloseForensics(1006, "")).toEqual({
+      consoleMessage: "websocket closed · code 1006 · no reason",
+      telemetry: "ws 1006 · no reason",
+    });
   });
 });

@@ -86,19 +86,17 @@ const maps = {
 const staticAssets = loadStaticAssets(staticRoot);
 const spaIndex = staticAssets.get("index.html");
 let loop: AuthoritativeLoop;
-let sweepTimeouts = (_nowMs: number): void => {};
+let transport: ReturnType<typeof createTransport>;
+const clock = (): number => performance.now();
 const rooms = new RoomManager(
   maps,
   () => loop.refuseNewRooms,
 );
-loop = new AuthoritativeLoop((tick) => {
-  const nowMs = performance.now();
+loop = new AuthoritativeLoop((tick, nowMs) => {
   rooms.tick(tick, nowMs);
-  sweepTimeouts(nowMs);
-});
-const transport = createTransport(rooms);
+}, clock, undefined, (nowMs) => transport.sweepTimeouts(nowMs));
+transport = createTransport(rooms, clock);
 const { app, connections } = transport;
-sweepTimeouts = transport.sweepTimeouts;
 
 let draining = false;
 const drain = (): void => {

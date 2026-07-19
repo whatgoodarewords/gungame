@@ -85,7 +85,7 @@ const SENT_TICK_RING = 64;
 
 export interface PlayerPeer {
   sendReliable(bytes: Uint8Array): void;
-  sendBaseline(bytes: Uint8Array): void;
+  sendBaseline(bytes: Uint8Array, nowMs: number): void;
   sendSnapshot(bytes: Uint8Array): void;
   disconnect(code: number, reason: string): void;
 }
@@ -428,7 +428,7 @@ export class Room {
     if (this.connectedCount === 0) this.lastNonEmptyMs = nowMs;
   }
 
-  acceptCmd(slotId: number, cmd: CmdFrame, nowMs = performance.now()): boolean {
+  acceptCmd(slotId: number, cmd: CmdFrame, nowMs: number): boolean {
     const slot = this.players.get(slotId);
     const accepted = slot?.cmdWindow.accept(cmd) ?? false;
     if (accepted && slot !== undefined) slot.lastInputMs = nowMs;
@@ -500,7 +500,7 @@ export class Room {
               slot.ackedSnapshotTick = frame.lastSnapshotTick;
               slot.events.acknowledgeBaseline(frame.lastSnapshotTick);
             } else if (!slot.epochs.deltasSuspended) {
-              slot.peer?.sendBaseline(this.openBaseline(slot.id, serverTick));
+              slot.peer?.sendBaseline(this.openBaseline(slot.id, serverTick), nowMs);
             }
           }
         } else if (slot.lastCmd !== undefined && slot.repeatTicks < 8) {
@@ -586,7 +586,7 @@ export class Room {
       });
     }
     for (const detonation of detonations) this.detonate(detonation, serverTick);
-    this.sendSnapshots(serverTick);
+    this.sendSnapshots(serverTick, nowMs);
   }
 
   shouldReap(nowMs: number): boolean {
@@ -984,7 +984,7 @@ export class Room {
     ].sort((left, right) => left.id - right.id);
   }
 
-  private sendSnapshots(serverTick: number): void {
+  private sendSnapshots(serverTick: number, nowMs: number): void {
     const entities = this.entities();
     const modeState = this.modeState(serverTick);
     for (const slot of this.players.values()) {
@@ -1003,7 +1003,9 @@ export class Room {
         events: slot.events.pendingAfter(slot.ackedSnapshotTick),
         modeState,
       });
-      if (packed.promotedToFull) slot.peer.sendBaseline(this.openBaseline(slot.id, serverTick));
+      if (packed.promotedToFull) {
+        slot.peer.sendBaseline(this.openBaseline(slot.id, serverTick), nowMs);
+      }
       else {
         slot.snapshots.set(serverTick, packed.baselineEntities);
         slot.events.recordSnapshot(serverTick, packed.frame.events);

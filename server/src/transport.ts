@@ -19,13 +19,20 @@ const BACKPRESSURE_HIGH = 32 * 1_024;
 const BACKPRESSURE_LOW = 8 * 1_024;
 const BACKPRESSURE_HARD = 256 * 1_024;
 
-interface ConnectionData {
+export interface ConnectionData {
   readonly fsm: ConnectionFsm;
   readonly limiter: ConnectionRateLimit;
   peer: WsPeer | undefined;
   roomId: string;
   slotId: number;
+  quarantined: boolean;
 }
+
+export type ConnectionErrorLog = (message: string, error: unknown) => void;
+
+const defaultConnectionErrorLog: ConnectionErrorLog = (message, error) => {
+  console.error(message, error);
+};
 
 function refusal(code: RefusalFrame["code"]): Uint8Array {
   return encodeFrame({ type: FrameType.Refusal, code });
@@ -49,9 +56,14 @@ export class WsPeer implements PlayerPeer {
   private aboveHigh = false;
   private ended = false;
   private readonly ws: WebSocket<ConnectionData>;
+  private readonly quarantine: (error: unknown, phase: string, nowMs: number) => void;
 
-  constructor(ws: WebSocket<ConnectionData>) {
+  constructor(
+    ws: WebSocket<ConnectionData>,
+    quarantine: (error: unknown, phase: string, nowMs: number) => void = () => {},
+  ) {
     this.ws = ws;
+    this.quarantine = quarantine;
   }
 
   sendReliable(bytes: Uint8Array): void {
@@ -63,9 +75,16 @@ export class WsPeer implements PlayerPeer {
     this.ws.send(bytes, true, false);
   }
 
-  sendBaseline(bytes: Uint8Array): void {
+  sendBaseline(bytes: Uint8Array, nowMs: number): void {
     const data = this.ws.getUserData();
-    if (data.fsm.state === "active") data.fsm.transition("resync", performance.now());
+    if (data.fsm.state === "active") {
+      try {
+        data.fsm.transition("resync", nowMs);
+      } catch (error) {
+        this.quarantine(error, "baseline transition", nowMs);
+        return;
+      }
+    }
     this.sendReliable(bytes);
   }
 
@@ -125,11 +144,39 @@ function validUpgradeOrigin(request: HttpRequest, origins: ReadonlySet<string>):
   );
 }
 
-function closeProtocol(data: ConnectionData, code: RefusalFrame["code"], reason: string): void {
-  const now = performance.now();
-  data.fsm.malformed(now);
-  data.peer?.sendReliable(refusal(code));
-  data.peer?.disconnect(4002, reason);
+function quarantineConnection(
+  data: ConnectionData,
+  nowMs: number,
+  phase: string,
+  error: unknown,
+  log: ConnectionErrorLog,
+): void {
+  if (data.quarantined) return;
+  data.quarantined = true;
+  const detail = error instanceof Error ? error.message : String(error);
+  log(
+    `connection quarantined · phase ${phase} · at ${nowMs.toFixed(3)} ms · ` +
+    `room ${data.roomId || "-"} · slot ${data.slotId || "-"}`,
+    error,
+  );
+  data.peer?.sendReliable(refusal(RefusalCode.ProtocolError));
+  data.peer?.disconnect(4002, `protocol state error: ${detail}`.slice(0, 120));
+}
+
+function closeProtocol(
+  data: ConnectionData,
+  code: RefusalFrame["code"],
+  reason: string,
+  nowMs: number,
+  log: ConnectionErrorLog,
+): void {
+  try {
+    data.fsm.malformed(nowMs);
+    data.peer?.sendReliable(refusal(code));
+    data.peer?.disconnect(4002, reason);
+  } catch (error) {
+    quarantineConnection(data, nowMs, "protocol close", error, log);
+  }
 }
 
 export interface TransportServer {
@@ -139,7 +186,28 @@ export interface TransportServer {
   drainForRestart(): void;
 }
 
-export function createTransport(manager: RoomManager): TransportServer {
+export function sweepConnectionTimeouts(
+  connections: Iterable<ConnectionData>,
+  nowMs: number,
+  log: ConnectionErrorLog = defaultConnectionErrorLog,
+): void {
+  for (const data of connections) {
+    if (data.quarantined || data.fsm.state === "closing") continue;
+    try {
+      if (!data.fsm.timedOut(nowMs)) continue;
+      data.fsm.transition("closing", nowMs);
+      data.peer?.disconnect(4000, "state timeout");
+    } catch (error) {
+      quarantineConnection(data, nowMs, "timeout sweep", error, log);
+    }
+  }
+}
+
+export function createTransport(
+  manager: RoomManager,
+  clock: () => number = () => performance.now(),
+  log: ConnectionErrorLog = defaultConnectionErrorLog,
+): TransportServer {
   const app = uWS.App();
   const origins = allowedOrigins();
   const connections = new Set<ConnectionData>();
@@ -156,7 +224,7 @@ export function createTransport(manager: RoomManager): TransportServer {
         response.writeStatus("403 Forbidden").end("origin denied");
         return;
       }
-      const now = performance.now();
+      const now = clock();
       response.upgrade<ConnectionData>(
         {
           fsm: new ConnectionFsm(now),
@@ -164,6 +232,7 @@ export function createTransport(manager: RoomManager): TransportServer {
           peer: undefined,
           roomId: "",
           slotId: 0,
+          quarantined: false,
         },
         request.getHeader("sec-websocket-key"),
         request.getHeader("sec-websocket-protocol"),
@@ -173,19 +242,28 @@ export function createTransport(manager: RoomManager): TransportServer {
     },
     open: (ws) => {
       const data = ws.getUserData();
-      data.peer = new WsPeer(ws);
-      data.fsm.transition("hello", performance.now());
+      const now = clock();
+      data.peer = new WsPeer(ws, (error, phase, atMs) => {
+        quarantineConnection(data, atMs, phase, error, log);
+      });
+      try {
+        data.fsm.transition("hello", now);
+      } catch (error) {
+        quarantineConnection(data, now, "open", error, log);
+        return;
+      }
       connections.add(data);
     },
     message: (ws, raw, isBinary) => {
       const data = ws.getUserData();
-      const now = performance.now();
+      const now = clock();
+      if (data.quarantined) return;
       if (!isBinary) {
-        closeProtocol(data, RefusalCode.ProtocolError, "binary frames required");
+        closeProtocol(data, RefusalCode.ProtocolError, "binary frames required", now, log);
         return;
       }
       if (!data.limiter.accept(raw.byteLength, now)) {
-        closeProtocol(data, RefusalCode.RateLimited, "rate limit");
+        closeProtocol(data, RefusalCode.RateLimited, "rate limit", now, log);
         return;
       }
       try {
@@ -223,7 +301,7 @@ export function createTransport(manager: RoomManager): TransportServer {
             mapId: joined.room.mapId,
           }));
           data.fsm.transition("baseline-install", now);
-          data.peer?.sendBaseline(joined.room.openBaseline(joined.slot.id, 0));
+          data.peer?.sendBaseline(joined.room.openBaseline(joined.slot.id, 0), now);
           return;
         }
         if (frame.type === FrameType.BaselineAck) {
@@ -244,7 +322,7 @@ export function createTransport(manager: RoomManager): TransportServer {
           ) {
             throw new Error("unexpected cmd");
           }
-          manager.rooms.get(data.roomId)?.acceptCmd(data.slotId, frame);
+          manager.rooms.get(data.roomId)?.acceptCmd(data.slotId, frame, now);
           return;
         }
         if (frame.type === FrameType.Ping) {
@@ -262,6 +340,8 @@ export function createTransport(manager: RoomManager): TransportServer {
           data,
           RefusalCode.ProtocolError,
           error instanceof Error ? error.message : "malformed frame",
+          now,
+          log,
         );
       }
     },
@@ -271,21 +351,15 @@ export function createTransport(manager: RoomManager): TransportServer {
     close: (ws) => {
       const data = ws.getUserData();
       connections.delete(data);
-      manager.rooms.get(data.roomId)?.disconnect(data.slotId, performance.now(), data.peer);
+      const now = clock();
+      manager.rooms.get(data.roomId)?.disconnect(data.slotId, now, data.peer);
     },
   });
 
   return {
     app,
     connections,
-    sweepTimeouts: (nowMs) => {
-      for (const data of connections) {
-        if (data.fsm.state !== "closing" && data.fsm.timedOut(nowMs)) {
-          data.fsm.transition("closing", nowMs);
-          data.peer?.disconnect(4000, "state timeout");
-        }
-      }
-    },
+    sweepTimeouts: (nowMs) => sweepConnectionTimeouts(connections, nowMs, log),
     drainForRestart: () => {
       for (const data of connections) {
         data.peer?.sendReliable(refusal(RefusalCode.ServerRestarting));
