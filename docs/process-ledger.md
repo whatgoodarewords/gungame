@@ -89,3 +89,9 @@ Codex credits exhausted mid-project — provider reports refill/retry at **Jul 2
 
 ## Operating-model deviation (2026-07-19, logged)
 Codex exhausted to Jul 26 mid-queue; owner directed 'continue to endgame' with the blocker known. Prime adjudication: hotfix2 P0/P1 implemented directly by the Prime from the reviewer's line-level specs (mechanical-execution class); Codex retro-audit queued on credit return; phase7 remains a Codex lane. Deviation ends when credits return.
+
+## Day 2 continued — consolidation rhythm (owner: "test multiple things at once, no over-deploy")
+
+- hotfix2 (Prime-direct during Codex outage): 12 findings live; probe-verified bots FIGHTING on the deploy (killfeed headshots), full HUD + first-session UX confirmed by screenshot; bot names still pN (→hotfix3).
+- Codex retro-audit of the Prime's own diff: REVISE, 7 findings (incl. the room-disband trade-off) — the dual-review contract catching the orchestrator's code; all → hotfix3.
+- New cycle shape: lanes batch → ONE verify → ONE deploy → ONE mega-sweep (live-QA + bots + cross-browser webkit/firefox in a single run). Deploys become expensive-but-rare gates, not per-fix events.
