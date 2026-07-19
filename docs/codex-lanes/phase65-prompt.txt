@@ -1,0 +1,19 @@
+Role: Codex GPT-5.6 lane for gungame "Phase 6.5 — god-tier" (NORMATIVE: docs/godtier-brief.md ALL six features + the standing bar; docs/live-findings-4b.md; docs/SPEC.md; docs/ux-details.md as the quality floor). You write all code; NO git operations; do not touch docs/, deploy/.
+
+ACCEPTANCE BAR (from the brief's standing directive): every surface you touch ships considered — copy, timing, easing, audio gain, empty states. Correct-but-charmless gets rejected by the Prime.
+
+P0s FIRST:
+1. Pointer lock dead on live (docs/live-findings-4b.md #1): RawInput holds a detached canvas after the front-door mount swaps DOM. Fix: input binds/acquires the live canvas at lock time (or rebinds on mount); e2e probe assertion: lock engages after join+click (extend tools/e2e).
+2. Browser WS close forensics (findings #2): surface close code+reason to console.warn and to the reconnect toast telemetry line; e2e asserts session survives 90 s idle-then-move including a style switch; if the close reproduces, fix the actual cause (suspects: style-transaction rollback, pump worker + backpressure interplay, bg-flag misfire on visibility events in headless).
+
+THEN the six god-tier features per docs/godtier-brief.md exactly:
+3. Five-bot room fill (fair-tuned dials, curated name pool, subtle scoreboard dot, one leaves per human join) + per-map bhop time-trial ghost (localStorage best lap, translucent replay, start-gate-scoped HUD timer; Cascade loop is the flagship route, add routes for Foundry/Duna/Spire).
+4. Clip-that: 12 s rolling capture ring (canvas + game audio via MediaRecorder), F8/kill-banner trigger, webm export, burned-in wordmark+map+killfeed composite, quiet auto-suggest toast after airshot/multikill. Broadcast-clean.
+5. Match-end stats screen: flat nouns only, server-computed in mode-end event (airshots, top speed, longest hop chain, flicks landed, knife kills, accuracy), PB underline, share button (text+URL copy). NO jokes, no parentheticals.
+6. IMPRESSIVE: 2 consecutive scout/Deadeye hits per-life → typographic banner + synth voice-sting (design a distinctive 2-note sting, not a beep); chains at 4/6/8; silent reset on miss. Server-computed.
+7. Rocket-jump race spots: 1-2 visible glinting ledges per gungame map reachable by rocket jump/elite strafe (extend map generators; validator counts them); each holds a secret marker (graffiti/names-wall).
+8. Near-miss audio: rocket/disc within 1.5 m of head no-hit → doppler whoosh by closing speed; hitscan crack-whizz lower gain; dials (radius/gain/doppler).
+
+Tests: every feature gets at least one deterministic test (bot-fill join/leave arithmetic, ghost serialization, stats computation, IMPRESSIVE sequencing, race-spot validator, near-miss trigger geometry); e2e extended for P0s. pnpm -r typecheck && test green.
+
+Report: conclusion, evidence, caveats, next action. APPEND progressively to client/PHASE65-REPORT.md.
