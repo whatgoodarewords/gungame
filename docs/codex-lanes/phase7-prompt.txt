@@ -10,3 +10,10 @@ Deliverables = art-direction.md items 1-8 exactly, plus:
 - Every map re-validated (coplanar rule from hotfix1 must pass on the dressed maps too).
 Done: pnpm -r typecheck && test green; e2e visual smoke per style×backend documented; budgets table filled with measurements.
 Report → client/PHASE7-REPORT.md progressively.
+
+VIEWMODEL HOLD — OWNER PRIORITY, EXACT SPEC (Prime taste direction; "the way the gun is held needs to be perfect"):
+- Composition: gun anchored lower-right, grip at NDC-ish (0.28, -0.32) at FOV 105, barrel toward screen center but NOT converging on the crosshair (parallel-minus-2° — convergence reads amateur); muzzle never crosses the screen's center third; left arm (WRAD) visibly supporting on two-handed weapons, wrists straight (bent wrists read broken).
+- Scale/FOV: viewmodel rendered with its OWN fixed 54° FOV camera layer regardless of world FOV (world FOV changes must not stretch the gun); gun occupies ≤22% of frame height; nothing clips the camera near-plane ever (near 0.01 on the viewmodel layer).
+- Motion: sway = view-velocity driven, 2-axis, max 1.2°, critically damped (no springy overshoot); landing dip moves viewmodel +6mm down 60ms synced with the camera dip; fire kick = per-weapon rotational (Sidewinder 1.8°, Boomstick 5° + 90ms rack shove, Arc 0 (continuous hum shake 0.3mm), Peacemaker 4° + 40ms backpush, Discus 2.5° wrist-flick, Deadeye 3.2° + bolt cycle, Goldie 2.2° theatrical single, Knife 6° slash arc), all returning on a 1-pole 80ms decay; equip = 140ms raise from -15° with 10% overshoot settle.
+- Reference: study assets/vendor/wrad-arms/arms.glb bone naming for attachment; weapons parent to the right-hand grip bone, left hand IK-snapped to foregrip empties (add per-weapon grip offsets in a single VIEWMODEL_HOLDS table — every number above is a dial there).
+- Acceptance: screenshot each of the 14 weapons idle + mid-fire-kick on dev-grid at 1280x800; the Prime reviews the contact sheet before this part is called done.
