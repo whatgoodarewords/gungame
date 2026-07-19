@@ -1,6 +1,6 @@
 Role: Codex GPT-5.6 lane "phase7 — look/feel/performance overhaul" (NORMATIVE: docs/art-direction.md IN FULL — rendering 1-7, audio 8, asset acquisition, AND the performance-discipline budgets as hard acceptance criteria; docs/assets-plan.md URLs; the standing bar). Network access is ON for asset downloads. You write all code; NO git ops; don't touch docs/, deploy/.
 
-PART 0 (FIRST): docs/live-findings-4b.md findings 6-9 (style-switch navigation regression; quickplay human-count routing; created-room URL surfacing; stale-invite refusal) — each with the listed test.
+PART 0 (FIRST): VERIFY (do not reimplement) that live-findings 6-9 and review-settled-tree P0/P1 fixes are present at HEAD (they were fixed by prior lanes + a Prime-direct hotfix2); then implement the REMAINING review P2s: finding 10 (bhop trial abort: timeout/death/leave-radius), 11 (exhausted-reconnect copy: 'connection lost — rejoin?'), 15 (clip webm timestamp rebase + final requestData flush before assembling), 16 (near-miss dedupe cleanup on in-tick despawn), 17 (invite copy re-arm, not {once:true}) — regression test each.
 
 Deliverables = art-direction.md items 1-8 exactly, plus:
 - Assets: download the buy-list packs (validate real archives; itch-gated → procedural fallback + FLAG for owner); vendor with LICENSES.md; KTX2-compress textures at build; PMREM-prefilter HDRIs offline.
