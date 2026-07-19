@@ -2,3 +2,5 @@ Role: Codex GPT-5.6 lane "hotfix3 — retro-audit findings" (NORMATIVE: docs/cod
 Also verify (don't reimplement) phase7's landed work compiles with these fixes; where phase7 already fixed an overlapping site, reconcile rather than duplicate.
 Done: pnpm -r typecheck && test green; the three reproduction probes from the report pass as tests.
 Report → client/HOTFIX3-REPORT.md progressively.
+
+FINDING 8 (Prime live-probe screenshot): bots display as p2/p3/p4/p5 — the BOT_NAMES pool (godtier.ts) is not applied on the bot join path. Fix + test (scoreboard shows curated names, never pN). Also: viewmodel reads dark-on-dark in the current style — note for the hold-spec contact sheet (phase7 owns).
