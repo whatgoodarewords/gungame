@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   FrameType,
+  EventKind,
   GameMode,
   GravityVariant,
   Ladder,
   type CmdFrame,
 } from "@gungame/protocol";
-import { TICK_DT } from "@gungame/shared";
+import { MapSecretKind, TICK_DT } from "@gungame/shared";
 import { Buttons } from "@gungame/sim";
 
 import { Room, RoomManager, validatePlayerName, type PlayerPeer } from "../src/rooms.js";
@@ -151,6 +152,39 @@ describe("combat room", () => {
     expect(background.players.has(second.id)).toBe(true);
     background.tick(2, 30_003);
     expect(background.players.has(second.id)).toBe(false);
+  });
+
+  it("server-validates a knife ray against the Foundry sigil only once per match", () => {
+    const value = new Room("secret", {
+      mode: GameMode.GunGame,
+      variant: GravityVariant.Standard,
+      ladder: Ladder.Classic,
+    }, undefined, 0, [], [{
+      kind: MapSecretKind.FoundrySigil,
+      bounds: { min: { x: -0.4, y: 1.2, z: -1.5 }, max: { x: 0.4, y: 1.9, z: -1.35 } },
+    }]);
+    const slot = value.add(new Peer(), 0, "Secret Finder")!.slot;
+    slot.state = { ...slot.state, player: {
+      ...slot.state.player,
+      position: { x: 0, y: 0, z: 0 },
+    } };
+    const epoch = install(value, slot.id);
+    value.acceptCmd(slot.id, command(1, epoch, {
+      buttons: Buttons.Fire | Buttons.Melee,
+      viewYaw: 0,
+      viewPitch: 0,
+    }), 0);
+    value.tick(1, 1);
+    const first = slot.events.pendingAfter(0).filter((event) => event.kind === EventKind.SecretTriggered);
+    expect(first).toHaveLength(1);
+    value.acceptCmd(slot.id, command(2, epoch, {
+      buttons: Buttons.Fire | Buttons.Melee,
+      viewYaw: 0,
+      viewPitch: 0,
+      lastSnapshotTick: 0,
+    }), 2_000);
+    value.tick(100, 2_000);
+    expect(slot.events.pendingAfter(0).filter((event) => event.kind === EventKind.SecretTriggered)).toHaveLength(1);
   });
 });
 

@@ -44,12 +44,30 @@ canvas {
 }
 
 .join-card input,
-.join-card button {
+.join-card button,
+.join-card select {
   padding: 0.8rem;
   color: inherit;
   font: inherit;
   background: #101b27;
   border: 1px solid #65d4ff;
+}
+
+.join-card label,
+.create-options {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.create-options {
+  padding: 0.8rem;
+  border: 1px solid rgb(101 212 255 / 25%);
+}
+
+.menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
 }
 
 .join-card button {
@@ -75,6 +93,35 @@ canvas {
   background: rgb(5 10 18 / 70%);
   transform: translateX(-50%);
 }
+
+.hud-readout {
+  position: absolute;
+  bottom: 1.4rem;
+  display: grid;
+  min-width: 7rem;
+  padding: 0.55rem 0.75rem;
+  background: rgb(5 10 18 / 72%);
+  border-top: 2px solid currentColor;
+}
+
+.hud-readout > span {
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  opacity: 0.68;
+}
+
+.hud-readout > strong {
+  font-size: 1.2rem;
+}
+
+.hud-readout > small {
+  opacity: 0.8;
+}
+
+.hud-health { left: 1.25rem; }
+.hud-ladder { left: 9rem; }
+.hud-ammo { right: 1.25rem; }
+.hud-speed { right: 9rem; }
 
 .crosshair,
 .hitmarker,
@@ -129,8 +176,21 @@ canvas {
   background:
     linear-gradient(90deg, transparent calc(50% - 1px), rgb(255 255 255 / 28%) 50%, transparent calc(50% + 1px)),
     linear-gradient(transparent calc(50% - 1px), rgb(255 255 255 / 28%) 50%, transparent calc(50% + 1px));
-  border: 16vh solid rgb(0 0 0 / 38%);
+  background:
+    radial-gradient(circle, transparent 0 31vh, rgb(0 0 0 / 78%) 31.2vh),
+    linear-gradient(90deg, transparent calc(50% - 1px), rgb(255 255 255 / 32%) 50%, transparent calc(50% + 1px)),
+    linear-gradient(transparent calc(50% - 1px), rgb(255 255 255 / 32%) 50%, transparent calc(50% + 1px));
+}
+
+.scope-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .zoom-overlay.visible {
@@ -151,6 +211,40 @@ canvas {
 
 .death-overlay.visible {
   display: grid;
+}
+
+.win-overlay,
+.system-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 0.7rem;
+  text-align: center;
+  background: rgb(5 10 18 / 58%);
+}
+
+.win-overlay.visible,
+.system-overlay.visible {
+  display: grid;
+}
+
+.win-overlay strong,
+.system-overlay strong {
+  font-size: clamp(1.8rem, 6vw, 4.5rem);
+}
+
+.system-overlay { pointer-events: auto; z-index: 20; }
+.system-overlay button,
+.invite-copy {
+  padding: 0.7rem 1rem;
+  color: #071018;
+  font: inherit;
+  font-weight: 800;
+  background: #65d4ff;
+  border: 0;
+  cursor: pointer;
 }
 
 .killfeed {
@@ -194,6 +288,23 @@ canvas {
   justify-content: space-between;
   padding: 0.25rem 0;
   border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.invite-copy {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  display: none;
+  pointer-events: auto;
+}
+
+.invite-copy.visible {
+  display: block;
+}
+
+@media (max-width: 700px) {
+  .hud-ladder { left: 1.25rem; bottom: 6rem; }
+  .hud-speed { right: 1.25rem; bottom: 6rem; }
 }
 
 #fps {

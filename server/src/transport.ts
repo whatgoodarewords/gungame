@@ -136,6 +136,7 @@ export interface TransportServer {
   readonly app: uWS.TemplatedApp;
   readonly connections: ReadonlySet<ConnectionData>;
   sweepTimeouts(nowMs: number): void;
+  drainForRestart(): void;
 }
 
 export function createTransport(manager: RoomManager): TransportServer {
@@ -282,6 +283,12 @@ export function createTransport(manager: RoomManager): TransportServer {
           data.fsm.transition("closing", nowMs);
           data.peer?.disconnect(4000, "state timeout");
         }
+      }
+    },
+    drainForRestart: () => {
+      for (const data of connections) {
+        data.peer?.sendReliable(refusal(RefusalCode.ServerRestarting));
+        data.peer?.disconnect(1012, "server restarting");
       }
     },
   };

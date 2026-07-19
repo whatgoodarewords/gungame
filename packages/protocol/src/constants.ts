@@ -69,6 +69,7 @@ export const EventKind = {
   Kill: 2,
   HitConfirm: 3,
   Airshot: 4,
+  SecretTriggered: 5,
 } as const;
 
 export const EventFlags = {

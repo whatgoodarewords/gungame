@@ -6,6 +6,7 @@ import {
   ladderWeapons,
   type WeaponIdValue,
   type FeelParams,
+  type GameplayMap,
 } from "../../packages/shared/src/index.js";
 import {
   CollisionWorld,
@@ -68,6 +69,20 @@ export interface CombatView {
   readonly predictedProjectiles: ReturnType<PredictionReconciler["reconcileProjectiles"]>;
 }
 
+export interface PlaygroundOptions {
+  readonly initialMapUrl?: string;
+  readonly mapUrlForMode?: (mode: typeof GameMode[keyof typeof GameMode]) => string;
+  readonly onMapLoaded?: (map: GameplayMap, mode: typeof GameMode[keyof typeof GameMode]) => void;
+  readonly onWelcome?: (
+    mode: typeof GameMode[keyof typeof GameMode],
+    variant: typeof GravityVariant[keyof typeof GravityVariant],
+    ladder: typeof Ladder[keyof typeof Ladder],
+    roomId: string,
+  ) => void;
+  readonly onRefusal?: (code: number) => void;
+  readonly onClose?: (code: number, reason: string) => void;
+}
+
 const EMPTY_INPUT: FrameInput = Object.freeze({
   buttons: 0,
   viewYaw: 0,
@@ -76,10 +91,13 @@ const EMPTY_INPUT: FrameInput = Object.freeze({
 
 export function createPlayground(
   canvas: HTMLCanvasElement,
-  blobUrl?: string,
+  blobUrlOrOptions?: string | PlaygroundOptions,
 ): { sim: SimHandle } {
   // The bridge deliberately treats the canvas as an opaque ownership token.
   void canvas;
+  const options: PlaygroundOptions = typeof blobUrlOrOptions === "string"
+    ? { initialMapUrl: blobUrlOrOptions }
+    : (blobUrlOrOptions ?? {});
 
   let state = createInitialState();
   let prevState = state;
@@ -147,11 +165,21 @@ export function createPlayground(
     drainCombatEvents: () => combatEvents.splice(0),
   };
 
-  void fetch(blobUrl ?? new URL("../../maps/greybox.blob", import.meta.url))
-    .then(async (response) => {
-      if (!response.ok) throw new Error(`greybox load failed: HTTP ${response.status}`);
-      const map = loadGameplayMap(await response.arrayBuffer());
-      world = new CollisionWorld(map.collision, map.killVolumes);
+  let mapLoadSequence = 0;
+  let currentMapUrl = "";
+  const installMap = async (
+    url: string,
+    mode: typeof GameMode[keyof typeof GameMode],
+    placeAtSpawn: boolean,
+  ): Promise<void> => {
+    const sequence = ++mapLoadSequence;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`map load failed: HTTP ${response.status}`);
+    const map = loadGameplayMap(await response.arrayBuffer());
+    if (sequence !== mapLoadSequence) return;
+    currentMapUrl = url;
+    world = new CollisionWorld(map.collision, map.killVolumes);
+    if (placeAtSpawn) {
       const spawn = map.spawns[0];
       state = createInitialState();
       if (spawn !== undefined) {
@@ -164,17 +192,35 @@ export function createPlayground(
           },
         };
       }
-      prediction = new PredictionReconciler(state, world);
-      prediction.configure(params, feel);
+    }
+    prediction = new PredictionReconciler(state, world);
+    prediction.configure(params, feel);
+    options.onMapLoaded?.(map, mode);
+  };
+
+  const initialMode = new URLSearchParams(location.search).get("mode") === "gungame"
+    ? GameMode.GunGame
+    : GameMode.Scoutzknivez;
+  const initialUrl = options.initialMapUrl ?? options.mapUrlForMode?.(initialMode) ??
+    new URL("../../maps/spire.blob", import.meta.url).toString();
+
+  void installMap(initialUrl, initialMode, true)
+    .then(() => {
       network = new NetworkSession({
-        onWelcome: (mode, variant, ladder) => {
+        onRefusal: (code) => options.onRefusal?.(code),
+        onClose: (code, reason) => options.onClose?.(code, reason),
+        onWelcome: (mode, variant, ladder, roomId) => {
           welcomeMode = mode;
           welcomeLadder = ladder;
-          params =
-            mode === GameMode.Scoutzknivez || variant === GravityVariant.Scoutz
-              ? SCOUTZ
-              : DEFAULT;
+          params = mode === GameMode.Scoutzknivez || variant === GravityVariant.Scoutz
+            ? SCOUTZ
+            : DEFAULT;
           prediction?.configure(params, feel);
+          options.onWelcome?.(mode, variant, ladder, roomId);
+          const nextMapUrl = options.mapUrlForMode?.(mode);
+          if (nextMapUrl !== undefined && nextMapUrl !== currentMapUrl) {
+            void installMap(nextMapUrl, mode, false).catch((error: unknown) => console.error(error));
+          }
         },
         onSnapshot: ({ frame, entities, resetPrediction, events }) => {
           const self = entities.find((entity) =>

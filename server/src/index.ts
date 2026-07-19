@@ -64,17 +64,27 @@ function loadStaticAssets(root: string): ReadonlyMap<string, StaticAsset> {
   return assets;
 }
 
-const mapBytes = readFileSync(new URL("../../maps/greybox.blob", import.meta.url));
-const map = loadGameplayMap(mapBytes);
-const world = new CollisionWorld(map.collision, map.killVolumes);
+const spireMap = loadGameplayMap(readFileSync(new URL("../../maps/spire.blob", import.meta.url)));
+const foundryMap = loadGameplayMap(readFileSync(new URL("../../maps/foundry.blob", import.meta.url)));
+const maps = {
+  scoutzknivez: {
+    world: new CollisionWorld(spireMap.collision, spireMap.killVolumes),
+    spawns: spireMap.spawns,
+    secrets: spireMap.secrets,
+  },
+  gunGame: {
+    world: new CollisionWorld(foundryMap.collision, foundryMap.killVolumes),
+    spawns: foundryMap.spawns,
+    secrets: foundryMap.secrets,
+  },
+} as const;
 const staticAssets = loadStaticAssets(staticRoot);
 const spaIndex = staticAssets.get("index.html");
 let loop: AuthoritativeLoop;
 let sweepTimeouts = (_nowMs: number): void => {};
 const rooms = new RoomManager(
-  world,
+  maps,
   () => loop.refuseNewRooms,
-  map.spawns,
 );
 loop = new AuthoritativeLoop((tick) => {
   const nowMs = performance.now();
@@ -84,6 +94,17 @@ loop = new AuthoritativeLoop((tick) => {
 const transport = createTransport(rooms);
 const { app, connections } = transport;
 sweepTimeouts = transport.sweepTimeouts;
+
+let draining = false;
+const drain = (): void => {
+  if (draining) return;
+  draining = true;
+  loop.stop();
+  transport.drainForRestart();
+  setTimeout(() => process.exit(0), 100).unref();
+};
+process.once("SIGTERM", drain);
+process.once("SIGINT", drain);
 
 app.get("/gg/healthz", (response) => {
   const metrics = loop.metrics;

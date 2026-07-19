@@ -9,7 +9,7 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 function summary(path: string, map: Awaited<ReturnType<typeof validatePath>>): string {
   const modes = [...new Set(map.spawns.map((spawn) => spawn.mode))].sort((a, b) => a - b);
-  return `${path}: ${map.collision.indices.length / 3} triangles, ${map.spawns.length} spawns, modes ${modes.join(",")}, ${map.killVolumes.length} kill volumes`;
+  return `${path}: ${map.collision.indices.length / 3} triangles, ${map.spawns.length} spawns, modes ${modes.join(",")}, ${map.killVolumes.length} kill volumes, ${map.secrets.length} secrets`;
 }
 
 async function main(): Promise<void> {

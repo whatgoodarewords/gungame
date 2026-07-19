@@ -13,6 +13,7 @@
     "deploy:staging": "bash deploy/deploy.sh",
     "mappipe": "pnpm --filter @gungame/tools mappipe",
     "mappipe:greybox": "pnpm --filter @gungame/tools exec tsx mappipe/generate-greybox.ts",
+    "mappipe:phase4": "pnpm --filter @gungame/tools exec tsx mappipe/generate-phase4-maps.ts",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "wan-smoke": "pnpm --filter @gungame/tools exec tsx wan-smoke/run.ts"

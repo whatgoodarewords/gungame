@@ -7,6 +7,9 @@ export interface PanelBindings {
   presets: Record<string, Record<string, number>>;
   onPreset: (name: string) => void;
   onSensitivity: (cm360: number, dpi: number) => void;
+  styles: readonly string[];
+  activeStyle: string;
+  onStyle: (style: string) => void;
 }
 
 export class DevPanel {
@@ -38,6 +41,8 @@ export class DevPanel {
     <h3 style="margin-top:10px">MOVEMENT</h3>
     <div class="presets" id="gg-presets"></div>
     <div id="gg-params"></div>
+    <h3 style="margin-top:10px">RENDER STYLE</h3>
+    <div class="row"><select id="gg-style"></select></div>
     <h3 style="margin-top:10px">INPUT</h3>
     <div class="row"><span>cm/360</span><input type="range" id="gg-cm" min="10" max="80" step="1" value="30"><span class="val" id="gg-cmv">30</span></div>
     <div class="row"><span>DPI</span><input type="range" id="gg-dpi" min="400" max="3200" step="100" value="800"><span class="val" id="gg-dpiv">800</span></div>`;
@@ -46,6 +51,11 @@ export class DevPanel {
     this.speedEl = root.querySelector("#gg-speed")!;
     this.drawEl = root.querySelector("#gg-draws")!;
     this.fpsEl = root.querySelector("#gg-fps")!;
+
+    const style = root.querySelector<HTMLSelectElement>("#gg-style")!;
+    for (const id of bind.styles) style.add(new Option(id, id));
+    style.value = bind.activeStyle;
+    style.onchange = () => bind.onStyle(style.value);
 
     const presets = root.querySelector("#gg-presets")!;
     for (const name of Object.keys(bind.presets)) {

@@ -1,8 +1,10 @@
 import {
   encodeGameplayMap,
   loadGameplayMap,
+  MapSecretKind,
   type GameplayMap,
   type MapAabb,
+  type MapSecret,
   type MapSpawn,
 } from "@gungame/shared";
 import { readFile, writeFile } from "node:fs/promises";
@@ -48,6 +50,7 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
   const indices: number[] = [];
   const spawns: MapSpawn[] = [];
   const killVolumes: MapAabb[] = [];
+  const secrets: MapSecret[] = [];
   let bounds: MapAabb | undefined;
   let collisionMeshCount = 0;
 
@@ -83,6 +86,10 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
       spawns.push({ mode, team, position: { x, y, z }, yaw });
     } else if (node.name.startsWith("kill_")) {
       killVolumes.push(nodeAabb(node));
+    } else if (node.name.startsWith("secret_spire_room")) {
+      secrets.push({ kind: MapSecretKind.SpireRoom, bounds: nodeAabb(node) });
+    } else if (node.name.startsWith("secret_foundry_sigil")) {
+      secrets.push({ kind: MapSecretKind.FoundrySigil, bounds: nodeAabb(node) });
     } else if (node.name.startsWith("bounds_")) {
       if (bounds !== undefined) throw new Error("map declares more than one bounds_ node");
       bounds = nodeAabb(node);
@@ -101,6 +108,7 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
         max: { x: NaN, y: NaN, z: NaN },
       },
       killVolumes,
+      secrets,
     },
     collisionMeshCount,
     hasBoundsNode: bounds !== undefined,
@@ -110,6 +118,7 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
 export function validateMap(
   map: GameplayMap,
   metadata?: Pick<BakedMap, "collisionMeshCount" | "hasBoundsNode">,
+  expectedMap?: "spire" | "foundry",
 ): void {
   const collisionCount = metadata?.collisionMeshCount ?? (map.collision.indices.length > 0 ? 1 : 0);
   if (collisionCount < 1 || map.collision.indices.length < 3) {
@@ -126,25 +135,46 @@ export function validateMap(
   for (const [mode, count] of modeCounts) {
     if (count < 8) throw new Error(`mode ${mode} has ${count} spawns; at least 8 required`);
   }
+  if (map.killVolumes.length < 1) throw new Error("map must declare at least one kill_ volume");
+  if (expectedMap === "spire") {
+    if (modeCounts.size !== 1 || modeCounts.get(1) !== 24) {
+      throw new Error("Spire must declare exactly 24 Scoutzknivez spawns");
+    }
+    if (map.secrets.filter((secret) => secret.kind === MapSecretKind.SpireRoom).length !== 1) {
+      throw new Error("Spire must declare exactly one secret_spire_room node");
+    }
+  }
+  if (expectedMap === "foundry") {
+    if (modeCounts.size !== 1 || modeCounts.get(0) !== 16) {
+      throw new Error("Foundry must declare exactly 16 Gun Game spawns");
+    }
+    if (map.secrets.filter((secret) => secret.kind === MapSecretKind.FoundrySigil).length !== 1) {
+      throw new Error("Foundry must declare exactly one secret_foundry_sigil node");
+    }
+  }
 }
 
 export async function buildMap(sourcePath: string, outputPath: string): Promise<GameplayMap> {
   const baked = await bakeGltf(sourcePath);
-  validateMap(baked.map, baked);
+  const lower = sourcePath.toLowerCase();
+  const expected = lower.includes("spire") ? "spire" : lower.includes("foundry") ? "foundry" : undefined;
+  validateMap(baked.map, baked, expected);
   const blob = encodeGameplayMap(baked.map);
   await writeFile(outputPath, new Uint8Array(blob));
   const loaded = loadGameplayMap(await readFile(outputPath));
-  validateMap(loaded);
+  validateMap(loaded, undefined, expected);
   return loaded;
 }
 
 export async function validatePath(sourcePath: string): Promise<GameplayMap> {
+  const lower = sourcePath.toLowerCase();
+  const expected = lower.includes("spire") ? "spire" : lower.includes("foundry") ? "foundry" : undefined;
   if (sourcePath.endsWith(".blob")) {
     const map = loadGameplayMap(await readFile(sourcePath));
-    validateMap(map);
+    validateMap(map, undefined, expected);
     return map;
   }
   const baked = await bakeGltf(sourcePath);
-  validateMap(baked.map, baked);
+  validateMap(baked.map, baked, expected);
   return baked.map;
 }

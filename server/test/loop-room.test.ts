@@ -85,6 +85,31 @@ describe("authoritative loop", () => {
 });
 
 describe("rooms and reconnect slots", () => {
+  it("selects Spire for Scoutzknivez and Foundry for Gun Game", () => {
+    const manager = new RoomManager({
+      scoutzknivez: {
+        world: undefined,
+        spawns: [{ mode: GameMode.Scoutzknivez, team: 1, position: { x: -31, y: 12, z: 0 }, yaw: 0 }],
+        secrets: [],
+      },
+      gunGame: {
+        world: undefined,
+        spawns: [{ mode: GameMode.GunGame, team: 0, position: { x: 17, y: 0, z: 0 }, yaw: 0 }],
+        secrets: [],
+      },
+    }, () => false);
+    const scoutz = manager.join(hello({
+      joinKind: JoinKind.Create,
+      mode: GameMode.Scoutzknivez,
+      variant: GravityVariant.Scoutz,
+    }), new FakePeer(), 0);
+    if ("refusal" in scoutz) throw new Error(scoutz.refusal);
+    expect(scoutz.slot.state.player.position.x).toBe(-31);
+    const gunGame = manager.join(hello({ joinKind: JoinKind.Create }), new FakePeer(), 1);
+    if ("refusal" in gunGame) throw new Error(gunGame.refusal);
+    expect(gunGame.slot.state.player.position.x).toBe(17);
+  });
+
   it("quickplay joins the fullest room and config is immutable-by-copy", () => {
     const manager = new RoomManager(undefined, () => false);
     const created = manager.join(

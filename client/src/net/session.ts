@@ -41,6 +41,7 @@ export interface NetworkSessionOptions {
     mode: typeof GameMode[keyof typeof GameMode],
     variant: typeof GravityVariant[keyof typeof GravityVariant],
     ladder: typeof Ladder[keyof typeof Ladder],
+    roomId: string,
   ) => void;
 }
 
@@ -249,12 +250,11 @@ export class NetworkSession {
         this.playerId = frame.playerId;
         this.roomId = frame.roomId;
         sessionStorage.setItem(`gg:reconnect:${frame.roomId}`, bytesToHex(frame.reconnectToken));
-        this.onWelcome?.(frame.mode, frame.variant, frame.ladder);
+        this.onWelcome?.(frame.mode, frame.variant, frame.ladder, frame.roomId);
         this.fsm.transition("baseline-install", now);
         return;
       }
       if (frame.type === FrameType.Refusal) {
-        // TODO(Phase 4 seam): VersionMismatch should show the force-reload action.
         if (frame.code === RefusalCode.VersionMismatch) console.error("client build mismatch");
         this.onRefusal?.(frame.code);
         return;

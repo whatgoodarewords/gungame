@@ -64,7 +64,10 @@ if (
 }
 
 const map = loadGameplayMap(
-  readFileSync(new URL("../../maps/greybox.blob", import.meta.url)),
+  readFileSync(new URL(
+    args.mode === GameMode.Scoutzknivez ? "../../maps/spire.blob" : "../../maps/foundry.blob",
+    import.meta.url,
+  )),
 );
 const world = new CollisionWorld(map.collision, map.killVolumes);
 const first = new HeadlessBot({

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "transport": "ws",
+  "byteBoundary": "WebSocket binary payload (TCP payload before framing/TLS overhead)",
+  "profile": "phase4-foundry",
+  "seed": 424242,
+  "bots": 12,
+  "durationSeconds": 45,
+  "mode": "gun-game",
+  "ladder": "CLASSIC",
+  "gravity": "standard",
+  "predictionCorrectionP95M": 0.11555415456893252,
+  "remoteEntityStallP95Ms": 1.8210839999956079,
+  "reconnectCount": 0,
+  "protocolErrors": 0,
+  "meanSnapshotBytes": 314.2121948397547,
+  "maxSnapshotBytes": 859,
+  "snapshots": 34572,
+  "movementMirrored": true,
+  "projectileCombatObserved": true,
+  "winnerObserved": true,
+  "restartObserved": true
+}

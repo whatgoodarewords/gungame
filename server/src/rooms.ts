@@ -24,6 +24,7 @@ import {
 } from "@gungame/protocol";
 import {
   LadderId,
+  MapSecretKind,
   MAX_HEALTH,
   RESPAWN_TICKS,
   TICK_DT,
@@ -32,6 +33,7 @@ import {
   ladderWeapons,
   type LadderIdValue,
   type MapSpawn,
+  type MapSecret,
   type Vec3,
   type WeaponDefinition,
   type WeaponIdValue,
@@ -210,6 +212,26 @@ function clampU16(value: number): number {
   return Math.max(0, Math.min(0xffff, Math.floor(value)));
 }
 
+function segmentIntersectsAabb(start: Vec3, end: Vec3, bounds: { min: Vec3; max: Vec3 }): boolean {
+  let near = 0;
+  let far = 1;
+  for (const axis of ["x", "y", "z"] as const) {
+    const delta = end[axis] - start[axis];
+    if (Math.abs(delta) < 1e-8) {
+      if (start[axis] < bounds.min[axis] || start[axis] > bounds.max[axis]) return false;
+      continue;
+    }
+    const inverse = 1 / delta;
+    let first = (bounds.min[axis] - start[axis]) * inverse;
+    let second = (bounds.max[axis] - start[axis]) * inverse;
+    if (first > second) [first, second] = [second, first];
+    near = Math.max(near, first);
+    far = Math.min(far, second);
+    if (near > far) return false;
+  }
+  return far >= 0 && near <= 1;
+}
+
 interface PendingFire {
   readonly slot: PlayerSlot;
   readonly cmd: CmdFrame;
@@ -227,6 +249,8 @@ export class Room {
   private lastNonEmptyMs: number;
   private readonly world: CollisionWorld | undefined;
   private readonly spawns: readonly MapSpawn[];
+  private readonly secrets: readonly MapSecret[];
+  private secretTriggered = false;
   private lastServerTick = 0;
 
   constructor(
@@ -235,6 +259,7 @@ export class Room {
     world: CollisionWorld | undefined,
     nowMs: number,
     spawns: readonly (MapSpawn | Vec3)[] = [],
+    secrets: readonly MapSecret[] = [],
   ) {
     this.id = id;
     this.config = Object.freeze({ ...config });
@@ -242,6 +267,7 @@ export class Room {
     this.spawns = spawns.map((spawn) => "position" in spawn
       ? spawn
       : { mode: config.mode, team: 0, position: spawn, yaw: 0 });
+    this.secrets = secrets;
     this.lastNonEmptyMs = nowMs;
     this.rules = new ModeRules(config.mode as 0 | 1, config.ladder as LadderIdValue);
   }
@@ -544,6 +570,7 @@ export class Room {
       );
       return;
     }
+    if (weapon.kind === "melee") this.tryTriggerSecret(slot, cmd, eye, serverTick);
     const targets = [...this.players.values()]
       .filter((target) => target.id !== slot.id && target.alive &&
         !(this.config.mode === GameMode.Scoutzknivez && target.team === slot.team))
@@ -714,6 +741,7 @@ export class Room {
 
   private restartRound(tick: number): void {
     this.rules.restart();
+    this.secretTriggered = false;
     this.syncRuleState();
     for (const projectile of this.projectiles.projectiles) this.projectiles.delete(projectile.id);
     for (const slot of this.players.values()) this.respawn(slot, tick, true);
@@ -733,6 +761,30 @@ export class Room {
         slot.reloadTick = 0;
       }
     }
+  }
+
+  private tryTriggerSecret(slot: PlayerSlot, cmd: CmdFrame, eye: Vec3, tick: number): void {
+    if (this.secretTriggered || this.config.mode !== GameMode.GunGame) return;
+    const direction = fireDirection(cmd.viewYaw, cmd.viewPitch);
+    const end = {
+      x: eye.x + direction.x * WEAPONS[WeaponId.Knife].range,
+      y: eye.y + direction.y * WEAPONS[WeaponId.Knife].range,
+      z: eye.z + direction.z * WEAPONS[WeaponId.Knife].range,
+    };
+    const sigil = this.secrets.find((secret) =>
+      secret.kind === MapSecretKind.FoundrySigil && segmentIntersectsAabb(eye, end, secret.bounds));
+    if (sigil === undefined) return;
+    this.secretTriggered = true;
+    this.broadcastEvent({
+      id: this.nextEvent(),
+      tick,
+      kind: EventKind.SecretTriggered,
+      actorId: slot.id,
+      targetId: 0,
+      amount: 0,
+      weaponId: WeaponId.Knife,
+      flags: EventFlags.Melee,
+    });
   }
 
   private spawnFor(id: number, team: number, generation: number): MapSpawn | undefined {
@@ -834,21 +886,40 @@ export class Room {
   }
 }
 
+export interface RoomMapBinding {
+  readonly world: CollisionWorld | undefined;
+  readonly spawns: readonly MapSpawn[];
+  readonly secrets: readonly MapSecret[];
+}
+
+export interface RoomMapCatalog {
+  readonly gunGame: RoomMapBinding;
+  readonly scoutzknivez: RoomMapBinding;
+}
+
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
   private roomSequence = 1;
   private readonly world: CollisionWorld | undefined;
   private readonly admissionBlocked: () => boolean;
   private readonly spawns: readonly (MapSpawn | Vec3)[];
+  private readonly maps: RoomMapCatalog | undefined;
 
   constructor(
-    world: CollisionWorld | undefined,
+    worldOrMaps: CollisionWorld | RoomMapCatalog | undefined,
     admissionBlocked: () => boolean,
     spawns: readonly (MapSpawn | Vec3)[] = [],
   ) {
-    this.world = world;
+    if (worldOrMaps !== undefined && "gunGame" in worldOrMaps) {
+      this.maps = worldOrMaps;
+      this.world = undefined;
+      this.spawns = [];
+    } else {
+      this.maps = undefined;
+      this.world = worldOrMaps;
+      this.spawns = spawns;
+    }
     this.admissionBlocked = admissionBlocked;
-    this.spawns = spawns;
   }
 
   join(hello: HelloFrame, peer: PlayerPeer, nowMs: number): JoinResult {
@@ -903,7 +974,17 @@ export class RoomManager {
   private create(config: RoomConfig, nowMs: number): Room {
     const id = `r${this.roomSequence.toString(36).padStart(6, "0")}`;
     this.roomSequence += 1;
-    const room = new Room(id, config, this.world, nowMs, this.spawns);
+    const binding = config.mode === GameMode.Scoutzknivez
+      ? this.maps?.scoutzknivez
+      : this.maps?.gunGame;
+    const room = new Room(
+      id,
+      config,
+      binding?.world ?? this.world,
+      nowMs,
+      binding?.spawns ?? this.spawns,
+      binding?.secrets ?? [],
+    );
     this.rooms.set(id, room);
     return room;
   }
