@@ -28,6 +28,13 @@ The client is served at `http://localhost:5173/gg/`; the server health check is 
 
 Run the CI checks locally with `pnpm typecheck` and `pnpm test`.
 
+Development-only room parameters remain URL-only: `mode=scoutz|gungame`,
+`ladder=classic|arsenal`, `gravity=standard|scoutz`, and
+`map=auto|spire|foundry|duna|cascade`. Add `create=1` to create that immutable
+configuration; `backend=webgl2` forces the fallback renderer and `style=` picks
+one of the render-style bake-off ids. These parameters are intentionally absent
+from the product front door.
+
 ## License
 
 MIT.

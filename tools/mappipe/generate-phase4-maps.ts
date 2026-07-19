@@ -85,6 +85,87 @@ function rampZ(
   };
 }
 
+function orientedBox(
+  centerX: number,
+  centerZ: number,
+  length: number,
+  width: number,
+  y0: number,
+  y1: number,
+  angle: number,
+): Geometry {
+  const source = box(-length / 2, y0, -width / 2, length / 2, y1, width / 2);
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const positions = [...source.positions];
+  for (let index = 0; index < positions.length; index += 3) {
+    const x = positions[index] ?? 0;
+    const z = positions[index + 2] ?? 0;
+    positions[index] = centerX + x * cosine + z * sine;
+    positions[index + 2] = centerZ - x * sine + z * cosine;
+  }
+  return { positions, indices: source.indices };
+}
+
+function annularSlab(
+  innerRadius: number,
+  outerRadius: number,
+  angle0: number,
+  angle1: number,
+  y0: number,
+  y1: number,
+  thickness = 0.35,
+): Geometry {
+  const point = (radius: number, angle: number, y: number): readonly [number, number, number] =>
+    [Math.sin(angle) * radius, y, Math.cos(angle) * radius];
+  const top = [
+    point(innerRadius, angle0, y0),
+    point(outerRadius, angle0, y0),
+    point(outerRadius, angle1, y1),
+    point(innerRadius, angle1, y1),
+  ];
+  const bottom = top.map(([x, y, z]) => [x, y - thickness, z] as const);
+  return {
+    positions: [...top, ...bottom].flat(),
+    indices: [
+      0, 1, 2, 0, 2, 3,
+      4, 6, 5, 4, 7, 6,
+      0, 4, 5, 0, 5, 1,
+      1, 5, 6, 1, 6, 2,
+      2, 6, 7, 2, 7, 3,
+      3, 7, 4, 3, 4, 0,
+    ],
+  };
+}
+
+function cantedAnnularSlab(
+  innerRadius: number,
+  outerRadius: number,
+  angle0: number,
+  angle1: number,
+  innerY: number,
+  outerY: number,
+  thickness = 0.25,
+): Geometry {
+  const point = (radius: number, angle: number, y: number): readonly [number, number, number] =>
+    [Math.sin(angle) * radius, y, Math.cos(angle) * radius];
+  const top = [
+    point(innerRadius, angle0, innerY),
+    point(outerRadius, angle0, outerY),
+    point(outerRadius, angle1, outerY),
+    point(innerRadius, angle1, innerY),
+  ];
+  const bottom = top.map(([x, y, z]) => [x, y - thickness, z] as const);
+  return {
+    positions: [...top, ...bottom].flat(),
+    indices: [
+      0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
+      0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
+      2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0,
+    ],
+  };
+}
+
 function facingOrigin(x: number, z: number): number {
   return Math.atan2(x, z);
 }
@@ -227,6 +308,157 @@ function foundry(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   return { meshes, spawns };
 }
 
+function duna(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
+  const meshes: MeshEntry[] = [
+    { name: "bounds_duna_100x72x20", geometry: box(-50, -6, -36, 50, 20, 43) },
+    { name: "kill_duna_underworld", geometry: box(-54, -6, -40, 54, -2.4, 47) },
+    // Two open site-like plazas joined by a broad central rotation.
+    { name: "col_plaza_west_hotzone", geometry: box(-48, -0.35, -18, -24, 0, 18) },
+    { name: "col_plaza_east_hotzone", geometry: box(24, -0.35, -18, 48, 0, 18) },
+    { name: "col_mid_floor_20pct_wide", geometry: box(-28, -0.35, -7.2, 28, 0, 7.2) },
+    // Broken arch slit: solid shoulders and lintel create the remembered gap sightline.
+    { name: "col_mid_arch_west_shoulder", geometry: box(-1.4, 0, -7.2, -0.55, 6.5, -1.5) },
+    { name: "col_mid_arch_east_shoulder", geometry: box(0.55, 0, 1.5, 1.4, 6.5, 7.2) },
+    { name: "col_mid_arch_lintel", geometry: box(-1.4, 3.1, -1.5, 1.4, 6.5, 1.5) },
+    // Long is a measured 70 m rifle lane. The west dogleg blocks spawn-to-lane holding.
+    { name: "col_long_floor_70m_sightline", geometry: box(-35, -0.35, -34, 35, 0, -24.4) },
+    { name: "col_long_outer_wall", geometry: box(-38, 0, -35, 38, 12, -34.4) },
+    { name: "col_long_inner_wall_w", geometry: box(-35, 0, -24.8, -16, 7, -24.2) },
+    { name: "col_long_inner_wall_e", geometry: box(16, 0, -24.8, 35, 7, -24.2) },
+    { name: "col_long_entrance_dogleg_a", geometry: box(-43, 0, -30, -35, 7, -29.3) },
+    { name: "col_long_entrance_dogleg_b", geometry: box(-43, 0, -24.8, -42.3, 7, -14) },
+    { name: "col_long_surf_ribbon_50deg", geometry: rampZ(-34, 34, 2, -34.35, 1, 4.2, 50) },
+    // Elevated short/catwalk, a shallow approach and a coyote-friendly 2.2 m drop.
+    { name: "col_catwalk_short_approach", geometry: rampX(-34, 0, 8, 10, 7.2, 13.495733) },
+    { name: "col_catwalk_short_elevated", geometry: box(-24, 0, 8, 17, 2.4, 15.2) },
+    { name: "col_catwalk_drop_lip_040", geometry: box(17, 1.95, 8, 19, 2.4, 15.2) },
+    // Tunnels occupy the other half: broad enough for our speed, exactly 4 m clear.
+    { name: "col_tunnels_floor_20pct_wide", geometry: box(-34, -0.35, 22, 34, 0, 32) },
+    { name: "col_tunnels_outer_wall", geometry: box(-36, 0, 32, 36, 7, 32.6) },
+    { name: "col_tunnels_inner_wall_w", geometry: box(-34, 0, 21.4, -8, 4.4, 22) },
+    { name: "col_tunnels_inner_wall_e", geometry: box(8, 0, 21.4, 34, 4.4, 22) },
+    { name: "col_tunnels_ceiling_4m", geometry: box(-34, 4, 22, 34, 4.4, 32) },
+    { name: "col_tunnel_ledge_stack_040_a", geometry: box(-7.2, 0, 22.1, -5.8, 0.4, 25) },
+    { name: "col_tunnel_ledge_stack_040_b", geometry: box(-5.8, 0, 22.1, -4.4, 0.8, 25) },
+    { name: "col_mid_ledge_040", geometry: box(7, 0, -7, 11, 0.4, -4) },
+    { name: "col_long_ledge_040", geometry: box(4, 0, -28, 8, 0.4, -24.5) },
+    // Crate parkour above mid terminates in the original graffiti-room geometry.
+    { name: "col_duna_crate_a", geometry: box(-8, 0, 4, -5.2, 1.6, 6.8) },
+    { name: "col_duna_crate_b", geometry: box(-4.6, 0, 4, -1.8, 3.2, 6.8) },
+    { name: "col_duna_crate_c", geometry: box(-1.2, 0, 4, 1.6, 4.8, 6.8) },
+    { name: "col_duna_secret_ledge", geometry: box(1.6, 4.4, 4, 7.5, 4.8, 7) },
+    { name: "col_duna_graffiti_room_floor", geometry: box(4, 4.4, 7, 15, 4.8, 14) },
+    { name: "col_duna_graffiti_room_back", geometry: box(4, 4.8, 13.5, 15, 10, 14) },
+    { name: "secret_duna_graffiti_room", geometry: box(4.1, 4.8, 7.1, 14.9, 10, 13.4) },
+  ];
+
+  const positions: Array<readonly [number, number, number]> = [
+    [-42, 0.05, -12], [-31, 0.05, 12], [-19, 2.45, 11], [-9, 0.05, -4],
+    [8, 0.05, 4], [19, 2.45, 11], [31, 0.05, 13], [42, 0.05, -11],
+    [-32, 0.05, -29], [-18, 0.05, -29], [-4, 0.05, -29], [12, 0.05, -29],
+    [29, 0.05, -29], [-27, 0.05, 27], [0, 0.05, 27], [27, 0.05, 27],
+  ];
+  const spawns = positions.map(([x, y, z], index): SpawnEntry => ({
+    name: `spawn_0_0_duna_ffa_${String(index + 1).padStart(2, "0")}`,
+    position: [x, y, z],
+    yaw: facingOrigin(x, z),
+  }));
+  return { meshes, spawns };
+}
+
+function cascade(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
+  const meshes: MeshEntry[] = [
+    { name: "bounds_cascade_loop", geometry: box(-29, -7, -29, 29, 22, 29) },
+    { name: "kill_cascade_underworld", geometry: box(-31, -7, -31, 31, -3.5, 31) },
+    { name: "kill_cascade_well", geometry: box(-4.2, -5, -4.2, 4.2, 1.4, 4.2) },
+  ];
+
+  const loopSegments = 48;
+  for (let segment = 0; segment < loopSegments; segment += 1) {
+    const angle0 = segment / loopSegments * Math.PI * 2;
+    const angle1 = (segment + 1) / loopSegments * Math.PI * 2;
+    const quarterProgress0 = (segment % 12) / 12;
+    const quarterProgress1 = ((segment % 12) + 1) / 12;
+    const rhythm = (progress: number): number => -1.2 * progress + Math.sin(progress * Math.PI * 6) * 0.28;
+    meshes.push({
+      name: `col_loop_q${Math.floor(segment / 12) + 1}_wave_${(segment % 12) + 1}`,
+      geometry: annularSlab(11.5, 18.5, angle0, angle1, rhythm(quarterProgress0), rhythm(quarterProgress1)),
+    });
+    // The full outer rim is a 50° canted, continuous surf lap above 2 m.
+    meshes.push({
+      name: `col_surf_rim_50deg_${String(segment + 1).padStart(2, "0")}`,
+      geometry: cantedAnnularSlab(
+        18.5,
+        22,
+        angle0,
+        angle1,
+        2,
+        2 + Math.tan(50 * DEG) * 3.5,
+      ),
+    });
+  }
+
+  // Three inner terraces. Segment gaps every quarter create duck-tap/rocket shortcuts.
+  for (let tier = 0; tier < 3; tier += 1) {
+    const inner = 8.2 - tier * 1.9;
+    const outer = inner + 1.65;
+    const height = 2.5 + tier * 2.5;
+    for (let segment = 0; segment < 16; segment += 1) {
+      if (segment % 4 === tier) continue;
+      const angle0 = segment / 16 * Math.PI * 2;
+      const angle1 = (segment + 0.9) / 16 * Math.PI * 2;
+      meshes.push({
+        name: `col_terrace_t${tier + 1}_${String(segment + 1).padStart(2, "0")}`,
+        geometry: annularSlab(inner, outer, angle0, angle1, height, height),
+      });
+    }
+    meshes.push({
+      name: `col_terrace_t${tier + 1}_shortcut_040`,
+      geometry: box(-1.2 + tier * 1.3, tier * 0.4, 7 - tier * 1.8, -0.2 + tier * 1.3, height, 8.2 - tier * 1.8),
+    });
+  }
+
+  // Offset crossing bridges at different heights: periodic silhouette windows, not dominance.
+  meshes.push(
+    { name: "col_crossing_bridge_low_6m", geometry: orientedBox(0, 0, 31, 3.4, 5.55, 6, 0) },
+    { name: "col_crossing_bridge_high_9m_45deg", geometry: orientedBox(0, 0, 27, 3.2, 8.55, 9, Math.PI / 4) },
+    { name: "col_bridge_low_ramp", geometry: rampX(-18, 0, -1.7, 12, 3.4, 26.565051) },
+    { name: "col_bridge_high_ramp", geometry: orientedBox(-8.5, 8.5, 8, 3.2, 7.1, 7.5, Math.PI / 4) },
+  );
+
+  // Well rim walkway keeps knife hunts close while the open centre remains lethal.
+  meshes.push(
+    { name: "col_well_rim_north", geometry: box(-6.5, 1.1, -6.5, 6.5, 1.5, -4.2) },
+    { name: "col_well_rim_south", geometry: box(-6.5, 1.1, 4.2, 6.5, 1.5, 6.5) },
+    { name: "col_well_rim_west", geometry: box(-6.5, 1.1, -4.2, -4.2, 1.5, 4.2) },
+    { name: "col_well_rim_east", geometry: box(4.2, 1.1, -4.2, 6.5, 1.5, 4.2) },
+  );
+
+  // Waterfall notch behind the rim, reached only by a three-part strafe chain.
+  meshes.push(
+    { name: "col_cascade_secret_chain_a", geometry: box(-22.8, 5.7, 7, -20.3, 6.1, 9.5) },
+    { name: "col_cascade_secret_chain_b", geometry: box(-24.8, 7.2, 3.4, -22.3, 7.6, 5.9) },
+    { name: "col_cascade_secret_chain_c", geometry: box(-26.2, 8.7, -0.2, -23.7, 9.1, 2.3) },
+    { name: "col_cascade_waterfall_room_floor", geometry: box(-29, 8.7, -5, -22, 9.1, 2) },
+    { name: "col_cascade_waterfall_room_back", geometry: box(-29, 9.1, -5, -28.5, 15, 2) },
+    { name: "secret_cascade_waterfall_room", geometry: box(-28.4, 9.1, -4.9, -22.1, 15, 1.9) },
+  );
+
+  const spawns: SpawnEntry[] = [];
+  for (let index = 0; index < 16; index += 1) {
+    const angle = index / 16 * Math.PI * 2;
+    const quarterProgress = ((index * 3) % 12) / 12;
+    const y = -1.2 * quarterProgress + Math.sin(quarterProgress * Math.PI * 6) * 0.28 + 0.08;
+    const radius = 15;
+    spawns.push({
+      name: `spawn_0_0_cascade_tangent_${String(index + 1).padStart(2, "0")}`,
+      position: [Math.sin(angle) * radius, y, Math.cos(angle) * radius],
+      yaw: angle + Math.PI / 2,
+    });
+  }
+  return { meshes, spawns };
+}
+
 function floatBytes(values: readonly number[]): Uint8Array {
   const bytes = new Uint8Array(values.length * 4);
   const view = new DataView(bytes.buffer);
@@ -253,7 +485,10 @@ function minMax(values: readonly number[]): { min: number[]; max: number[] } {
   return { min, max };
 }
 
-async function emit(name: "spire" | "foundry", data: ReturnType<typeof spire>): Promise<void> {
+async function emit(
+  name: "spire" | "foundry" | "duna" | "cascade",
+  data: ReturnType<typeof spire>,
+): Promise<void> {
   const bufferViews: Record<string, number>[] = [];
   const accessors: Record<string, unknown>[] = [];
   const gltfMeshes: Record<string, unknown>[] = [];
@@ -336,3 +571,5 @@ async function emit(name: "spire" | "foundry", data: ReturnType<typeof spire>): 
 
 await emit("spire", spire());
 await emit("foundry", foundry());
+await emit("duna", duna());
+await emit("cascade", cascade());

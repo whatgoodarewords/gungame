@@ -220,6 +220,7 @@ export function createTransport(manager: RoomManager): TransportServer {
             mode: joined.room.config.mode,
             variant: joined.room.config.variant,
             ladder: joined.room.config.ladder,
+            mapId: joined.room.mapId,
           }));
           data.fsm.transition("baseline-install", now);
           data.peer?.sendBaseline(joined.room.openBaseline(joined.slot.id, 0));

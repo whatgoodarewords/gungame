@@ -140,6 +140,7 @@ describe("snapshot serializer", () => {
       modeState: {
         mode: 0,
         ladder: 1,
+        mapId: 2,
         roundState: 1,
         winnerId: 7,
         restartTicksRemaining: 511,

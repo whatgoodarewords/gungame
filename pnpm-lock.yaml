@@ -113,6 +113,9 @@ importers:
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
+      playwright:
+        specifier: ^1.61.1
+        version: 1.61.1
       tsx:
         specifier: 4.20.6
         version: 4.20.6
@@ -669,6 +672,11 @@ packages:
   fflate@0.8.3:
     resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
+  fsevents@2.3.2:
+    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
+    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -783,6 +791,16 @@ packages:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
     engines: {node: '>=12'}
 
+  playwright-core@1.61.1:
+    resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.61.1:
+    resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   postcss@8.5.19:
     resolution: {integrity: sha512-Mz8SaolMd8nB+G13WkORcxQKHZ/NE4xXevtkJHVuG+guo9/wYKlIMTKAqGdEmYOXR2ijPjTYNHssizdaVSUNdQ==}
     engines: {node: ^10 || ^12 || >=14}
@@ -855,7 +873,7 @@ packages:
     hasBin: true
 
   uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca:
-    resolution: {gitHosted: true, integrity: sha512-dP27GqvOmeaKr5wubeyvD2XFG6dPEAOr4YaJG9hPrfFUFse71FzSI+dXAYBY4LBOrhDGGtjTrLjh2PyngBco+g==, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/09c62a4f6dd5fa2e8103f7409949e9eff53ba4ca}
     version: 20.64.0
 
   undici-types@7.16.0:
@@ -1350,6 +1368,9 @@ snapshots:
 
   fflate@0.8.3: {}
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -1427,6 +1448,14 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.5: {}
+
+  playwright-core@1.61.1: {}
+
+  playwright@1.61.1:
+    dependencies:
+      playwright-core: 1.61.1
+    optionalDependencies:
+      fsevents: 2.3.2
 
   postcss@8.5.19:
     dependencies:

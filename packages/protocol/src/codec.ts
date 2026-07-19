@@ -79,6 +79,7 @@ function encodeHello(frame: HelloFrame): Uint8Array {
   writer.u8(frame.mode, "mode");
   writer.u8(frame.variant, "variant");
   writer.u8(frame.ladder, "ladder");
+  writer.u8(frame.mapPreference, "mapPreference");
   writer.ascii(frame.name, MAX_PLAYER_NAME_BYTES, "name");
   writer.ascii(frame.roomId, MAX_ROOM_ID_BYTES, "roomId");
   writeToken(writer, frame.reconnectToken);
@@ -204,6 +205,7 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
     if (mode.scoreboard.length > 12) throw new ProtocolError("too many scoreboard entries");
     writer.u8(mode.mode, "modeState.mode");
     writer.u8(mode.ladder, "modeState.ladder");
+    writer.u8(mode.mapId, "modeState.mapId");
     writer.u8(mode.roundState, "modeState.roundState");
     writer.u16(mode.winnerId, "modeState.winnerId");
     writer.u16(mode.restartTicksRemaining, "modeState.restartTicksRemaining");
@@ -255,6 +257,7 @@ export function encodeFrame(frame: ProtocolFrame): Uint8Array {
       writer.u8(frame.mode, "mode");
       writer.u8(frame.variant, "variant");
       writer.u8(frame.ladder, "ladder");
+      writer.u8(frame.mapId, "mapId");
       bytes = writer.finish();
       break;
     }
@@ -398,6 +401,7 @@ function decodeHello(reader: Reader): HelloFrame {
   const mode = reader.u8() as HelloFrame["mode"];
   const variant = reader.u8() as HelloFrame["variant"];
   const ladder = reader.u8() as HelloFrame["ladder"];
+  const mapPreference = reader.u8() as HelloFrame["mapPreference"];
   const name = reader.ascii(MAX_PLAYER_NAME_BYTES, "name");
   const roomId = reader.ascii(MAX_ROOM_ID_BYTES, "roomId");
   const reconnectToken = readToken(reader);
@@ -410,6 +414,7 @@ function decodeHello(reader: Reader): HelloFrame {
     mode,
     variant,
     ladder,
+    mapPreference,
     name,
     roomId,
     reconnectToken,
@@ -453,6 +458,7 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
   if ((flags & SnapshotFlags.ModeState) !== 0) {
     const mode = reader.u8() as NonNullable<SnapshotFrame["modeState"]>["mode"];
     const ladder = reader.u8() as NonNullable<SnapshotFrame["modeState"]>["ladder"];
+    const mapId = reader.u8() as NonNullable<SnapshotFrame["modeState"]>["mapId"];
     const roundState = reader.u8();
     const winnerId = reader.u16();
     const restartTicksRemaining = reader.u16();
@@ -469,7 +475,7 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
         tier: reader.u8(),
       });
     }
-    modeState = { mode, ladder, roundState, winnerId, restartTicksRemaining, teamScores, scoreboard };
+    modeState = { mode, ladder, mapId, roundState, winnerId, restartTicksRemaining, teamScores, scoreboard };
   }
   const entities: EntityDelta[] = [];
   for (let index = 0; index < entityCount; index += 1) entities.push(readEntity(reader));
@@ -528,6 +534,7 @@ export function decodeFrame(bytes: Uint8Array): ProtocolFrame {
         mode: reader.u8() as WelcomeFrame["mode"],
         variant: reader.u8() as WelcomeFrame["variant"],
         ladder: reader.u8() as WelcomeFrame["ladder"],
+        mapId: reader.u8() as WelcomeFrame["mapId"],
       };
       reader.done();
       return frame;

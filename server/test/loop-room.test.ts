@@ -6,6 +6,8 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapId,
+  MapPreference,
   PROTOCOL_VERSION,
   type HelloFrame,
 } from "@gungame/protocol";
@@ -48,6 +50,7 @@ function hello(overrides: Partial<HelloFrame> = {}): HelloFrame {
     mode: GameMode.GunGame,
     variant: GravityVariant.Standard,
     ladder: Ladder.Classic,
+    mapPreference: MapPreference.AutoRotate,
     name: "Test Player",
     roomId: "",
     reconnectToken: new Uint8Array(),
@@ -88,15 +91,17 @@ describe("rooms and reconnect slots", () => {
   it("selects Spire for Scoutzknivez and Foundry for Gun Game", () => {
     const manager = new RoomManager({
       scoutzknivez: {
+        mapId: MapId.Spire,
         world: undefined,
         spawns: [{ mode: GameMode.Scoutzknivez, team: 1, position: { x: -31, y: 12, z: 0 }, yaw: 0 }],
         secrets: [],
       },
-      gunGame: {
+      gunGame: [{
+        mapId: MapId.Foundry,
         world: undefined,
         spawns: [{ mode: GameMode.GunGame, team: 0, position: { x: 17, y: 0, z: 0 }, yaw: 0 }],
         secrets: [],
-      },
+      }],
     }, () => false);
     const scoutz = manager.join(hello({
       joinKind: JoinKind.Create,
@@ -108,6 +113,67 @@ describe("rooms and reconnect slots", () => {
     const gunGame = manager.join(hello({ joinKind: JoinKind.Create }), new FakePeer(), 1);
     if ("refusal" in gunGame) throw new Error(gunGame.refusal);
     expect(gunGame.slot.state.player.position.x).toBe(17);
+  });
+
+  it("rotates auto Gun Game rooms Foundry → Duna → Cascade and honors a pin", () => {
+    const gunBinding = (mapId: typeof MapId[keyof typeof MapId], x: number) => ({
+      mapId,
+      world: undefined,
+      spawns: [{ mode: GameMode.GunGame, team: 0, position: { x, y: 0, z: 0 }, yaw: 0 }],
+      secrets: [],
+    });
+    const manager = new RoomManager({
+      scoutzknivez: {
+        mapId: MapId.Spire,
+        world: undefined,
+        spawns: [{ mode: GameMode.Scoutzknivez, team: 1, position: { x: 0, y: 0, z: 0 }, yaw: 0 }],
+        secrets: [],
+      },
+      gunGame: [
+        gunBinding(MapId.Foundry, 10),
+        gunBinding(MapId.Duna, 20),
+        gunBinding(MapId.Cascade, 30),
+      ],
+    }, () => false);
+    const created = manager.join(hello({ joinKind: JoinKind.Create }), new FakePeer(), 0);
+    if ("refusal" in created) throw new Error(created.refusal);
+    const victim = created.room.add(new FakePeer(), 0, "Rotation Victim")!.slot;
+    const finish = (tick: number): void => {
+      created.room.rules.players.get(created.slot.id)!.tier = 6;
+      created.room.rules.recordKill({
+        attackerId: created.slot.id,
+        victimId: victim.id,
+        melee: true,
+        suicide: false,
+      }, tick);
+      const restartTick = created.room.rules.snapshot.restartTick;
+      created.room.tick(restartTick, restartTick);
+    };
+    expect(created.room.mapId).toBe(MapId.Foundry);
+    finish(1);
+    expect(created.room.mapId).toBe(MapId.Duna);
+    expect(created.slot.state.player.position.x).toBe(20);
+    finish(500);
+    expect(created.room.mapId).toBe(MapId.Cascade);
+    finish(1_000);
+    expect(created.room.mapId).toBe(MapId.Foundry);
+
+    const pinned = manager.join(hello({
+      joinKind: JoinKind.Create,
+      mapPreference: MapPreference.Duna,
+    }), new FakePeer(), 2_000);
+    if ("refusal" in pinned) throw new Error(pinned.refusal);
+    const pinnedVictim = pinned.room.add(new FakePeer(), 2_000, "Pinned Victim")!.slot;
+    pinned.room.rules.players.get(pinned.slot.id)!.tier = 6;
+    pinned.room.rules.recordKill({
+      attackerId: pinned.slot.id,
+      victimId: pinnedVictim.id,
+      melee: true,
+      suicide: false,
+    }, 2_001);
+    const pinnedRestart = pinned.room.rules.snapshot.restartTick;
+    pinned.room.tick(pinnedRestart, pinnedRestart);
+    expect(pinned.room.mapId).toBe(MapId.Duna);
   });
 
   it("quickplay joins the fullest room and config is immutable-by-copy", () => {
@@ -130,6 +196,7 @@ describe("rooms and reconnect slots", () => {
       mode: GameMode.Scoutzknivez,
       variant: GravityVariant.Scoutz,
       ladder: Ladder.Classic,
+      mapPreference: MapPreference.AutoRotate,
     });
     expect(Object.isFrozen(joined.room.config)).toBe(true);
   });

@@ -6,6 +6,7 @@ import {
   Line,
   LineBasicMaterial,
   Mesh,
+  PerspectiveCamera,
   RenderPipeline,
   Scene,
   SphereGeometry,
@@ -15,6 +16,8 @@ import {
 import { pass, toonOutlinePass } from "three/tsl";
 
 import foundryBlobUrl from "../../maps/foundry.blob?url";
+import dunaBlobUrl from "../../maps/duna.blob?url";
+import cascadeBlobUrl from "../../maps/cascade.blob?url";
 import spireBlobUrl from "../../maps/spire.blob?url";
 import {
   CLASSIC_LADDER,
@@ -22,6 +25,7 @@ import {
   TICK_DT,
   WEAPONS,
   ladderWeapons,
+  loadGameplayMap,
   type GameplayMap,
   type WeaponIdValue,
 } from "../../packages/shared/src/index.js";
@@ -30,6 +34,7 @@ import {
   EventFlags,
   EventKind,
   GameMode,
+  MapId,
   RefusalCode,
   RoundState,
 } from "../../packages/protocol/src/index.js";
@@ -39,7 +44,7 @@ import { FpsCamera } from "./camera.js";
 import { MatchHud } from "./hud.js";
 import { HudStateMachine } from "./hud-state.js";
 import { Button, RawInput } from "./input.js";
-import { showNameEntry, validPlayerName } from "./menu.js";
+import { showNameEntry, validPlayerName, type MenuController, type MenuSelection } from "./menu.js";
 import { DevPanel } from "./panel.js";
 import {
   RENDER_STYLES,
@@ -51,6 +56,7 @@ import {
 } from "./render-style.js";
 import { createPlayground } from "./sim-bridge.js";
 import { WeaponViewmodel } from "./viewmodels.js";
+import { RecoverableRenderPipeline, armRecoverableAnimationLoop } from "./render-runtime.js";
 import "./style.css";
 
 const RAD2DEG = 180 / Math.PI;
@@ -67,7 +73,7 @@ function pointInside(
     point.z >= bounds.min.z && point.z <= bounds.max.z;
 }
 
-async function startGame(): Promise<void> {
+async function startGame(frontDoor?: MenuController): Promise<void> {
   const query = new URLSearchParams(location.search);
   const canvas = document.createElement("canvas");
   root.appendChild(canvas);
@@ -89,8 +95,12 @@ async function startGame(): Promise<void> {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   await renderer.init();
-  const pipeline = new RenderPipeline(renderer);
-
+  const showConnectionCard = (state: "server-restarting" | "version-mismatch" | "room-full"): void => {
+    if (frontDoor === undefined) {
+      frontDoor = showNameEntry(root, (selection) => location.assign(urlForSelection(selection)));
+    }
+    frontDoor.setConnectionState(state);
+  };
   let currentMap: GameplayMap | undefined;
   let currentMode: typeof GameMode[keyof typeof GameMode] = GameMode.Scoutzknivez;
   let currentStyleId = renderStyleFromQuery(location.search);
@@ -102,32 +112,77 @@ async function startGame(): Promise<void> {
   const remoteMeshes = new Map<number, Mesh>();
   const projectileMeshes = new Map<string, Mesh>();
 
-  const rebuildPipeline = (): void => {
-    const scenePass = currentStyle.id === "toon-cel"
-      ? toonOutlinePass(scene, fpsCam.camera, new Color(currentStyle.palette.ink), 0.0035, 1)
+  const constructPipeline = (style: typeof currentStyle): RenderPipeline => {
+    const scenePass = style.id === "toon-cel"
+      ? toonOutlinePass(scene, fpsCam.camera, new Color(style.palette.ink), 0.0035, 1)
       : pass(scene, fpsCam.camera);
-    pipeline.outputNode = currentStyle.postChain(scenePass);
-    pipeline.needsUpdate = true;
+    return new RenderPipeline(renderer, style.postChain(scenePass));
   };
+
+  rig = currentStyle.fogLightRig(scene);
+  const pipeline = new RecoverableRenderPipeline(
+    constructPipeline(currentStyle),
+    (error) => console.error(
+      `render style rebuild failed (${query.get("backend") === "webgl2" ? "webgl2" : "webgpu"})`,
+      error,
+    ),
+  );
 
   const applyStyle = (id: RenderStyleId): void => {
+    pipeline.cancelPending();
+    const nextStyle = RENDER_STYLES[id];
+    const previous = {
+      id: currentStyleId,
+      style: currentStyle,
+      rig,
+      materials,
+      viewmodel,
+    };
+    const nextPipeline = constructPipeline(nextStyle);
+    const nextMaterials = currentMap === undefined ? undefined : nextStyle.materials(currentMap);
+    const nextViewmodel = nextMaterials === undefined ? undefined : new WeaponViewmodel(nextMaterials.viewmodel);
+    const nextRig = nextStyle.fogLightRig(scene);
+    if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = false;
+    if (nextViewmodel !== undefined) fpsCam.camera.add(nextViewmodel.root);
     currentStyleId = id;
-    currentStyle = RENDER_STYLES[id];
-    rig?.dispose();
-    rig = currentStyle.fogLightRig(scene);
+    currentStyle = nextStyle;
+    rig = nextRig;
+    materials = nextMaterials;
     if (currentMap !== undefined) {
-      materials = currentStyle.materials(currentMap);
-      if (mapMesh !== undefined) mapMesh.material = materials.map;
-      for (const mesh of remoteMeshes.values()) mesh.material = materials.actor;
-      for (const mesh of projectileMeshes.values()) mesh.material = materials.projectile;
-      if (viewmodel !== undefined) fpsCam.camera.remove(viewmodel.root);
-      viewmodel = new WeaponViewmodel(materials.viewmodel);
-      fpsCam.camera.add(viewmodel.root);
+      if (mapMesh !== undefined && nextMaterials !== undefined) mapMesh.material = nextMaterials.map;
+      for (const mesh of remoteMeshes.values()) if (nextMaterials !== undefined) mesh.material = nextMaterials.actor;
+      for (const mesh of projectileMeshes.values()) if (nextMaterials !== undefined) mesh.material = nextMaterials.projectile;
     }
-    rebuildPipeline();
+    viewmodel = nextViewmodel;
+    pipeline.replace(nextPipeline, () => {
+      previous.rig?.dispose();
+      if (previous.viewmodel !== undefined) fpsCam.camera.remove(previous.viewmodel.root);
+    }, () => {
+      nextRig.dispose();
+      if (nextViewmodel !== undefined) fpsCam.camera.remove(nextViewmodel.root);
+      previous.rig?.dispose();
+      rig = previous.style.fogLightRig(scene);
+      currentStyleId = previous.id;
+      currentStyle = previous.style;
+      materials = previous.materials;
+      viewmodel = previous.viewmodel;
+      if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = true;
+      if (mapMesh !== undefined && previous.materials !== undefined) mapMesh.material = previous.materials.map;
+      for (const mesh of remoteMeshes.values()) if (previous.materials !== undefined) mesh.material = previous.materials.actor;
+      for (const mesh of projectileMeshes.values()) if (previous.materials !== undefined) {
+        mesh.material = previous.materials.projectile;
+      }
+      const url = new URL(location.href);
+      url.searchParams.set("style", previous.id);
+      history.replaceState(null, "", url);
+    });
   };
 
-  const installVisualMap = (map: GameplayMap, mode: typeof GameMode[keyof typeof GameMode]): void => {
+  const installVisualMap = (
+    map: GameplayMap,
+    mode: typeof GameMode[keyof typeof GameMode],
+    mapId: typeof MapId[keyof typeof MapId],
+  ): void => {
     currentMap = map;
     currentMode = mode;
     if (mapMesh !== undefined) {
@@ -140,7 +195,13 @@ async function startGame(): Promise<void> {
     geometry.computeVertexNormals();
     materials = currentStyle.materials(map);
     mapMesh = new Mesh(geometry, materials.map);
-    mapMesh.name = mode === GameMode.Scoutzknivez ? "Spire" : "Foundry";
+    mapMesh.name = mapId === MapId.Spire
+      ? "Spire"
+      : mapId === MapId.Duna
+        ? "Duna"
+        : mapId === MapId.Cascade
+          ? "Cascade"
+          : "Foundry";
     scene.add(mapMesh);
     if (viewmodel !== undefined) fpsCam.camera.remove(viewmodel.root);
     viewmodel = new WeaponViewmodel(materials.viewmodel);
@@ -148,28 +209,43 @@ async function startGame(): Promise<void> {
     applyStyle(currentStyleId);
   };
 
+  const mapUrlForMap = (mapId: typeof MapId[keyof typeof MapId]): string =>
+    mapId === MapId.Spire
+      ? spireBlobUrl
+      : mapId === MapId.Duna
+        ? dunaBlobUrl
+        : mapId === MapId.Cascade
+          ? cascadeBlobUrl
+          : foundryBlobUrl;
   const mapUrlForMode = (mode: typeof GameMode[keyof typeof GameMode]): string =>
-    mode === GameMode.Scoutzknivez ? spireBlobUrl : foundryBlobUrl;
+    mapUrlForMap(mode === GameMode.Scoutzknivez ? MapId.Spire : MapId.Foundry);
 
   const { sim } = createPlayground(canvas, {
-    initialMapUrl: mapUrlForMode(query.get("mode") === "gungame" ? GameMode.GunGame : GameMode.Scoutzknivez),
     mapUrlForMode,
+    mapUrlForMap,
     onMapLoaded: installVisualMap,
-    onWelcome: (_mode, _variant, _ladder, roomId) => {
+    onWelcome: (_mode, _variant, _ladder, _mapId, roomId) => {
       hud.setState(hudState.dispatch({ type: "connected" }));
+      frontDoor?.destroy();
+      frontDoor = undefined;
       if (query.get("create") === "1") hud.showInvite(roomId);
     },
     onRefusal: (code) => {
       if (code === RefusalCode.VersionMismatch) {
+        showConnectionCard("version-mismatch");
         hud.setState(hudState.dispatch({ type: "version-mismatch" }));
       } else if (code === RefusalCode.ServerRestarting) {
+        showConnectionCard("server-restarting");
         hud.setState(hudState.dispatch({ type: "server-restarting" }));
+      } else if (code === RefusalCode.RoomFull) {
+        showConnectionCard("room-full");
       } else {
         hud.setState(hudState.dispatch({ type: "connection-lost" }));
       }
     },
     onClose: (code, reason) => {
       const restarting = code === 1012 || reason.toLowerCase().includes("restart");
+      if (restarting) showConnectionCard("server-restarting");
       hud.setState(hudState.dispatch({ type: restarting ? "server-restarting" : "connection-lost" }));
     },
   });
@@ -202,10 +278,16 @@ async function startGame(): Promise<void> {
     onStyle: (style) => {
       if (!RENDER_STYLE_IDS.includes(style as RenderStyleId)) return;
       const id = style as RenderStyleId;
-      const url = new URL(location.href);
-      url.searchParams.set("style", id);
-      history.replaceState(null, "", url);
-      applyStyle(id);
+      const previousId = currentStyleId;
+      try {
+        applyStyle(id);
+        const url = new URL(location.href);
+        url.searchParams.set("style", id);
+        history.replaceState(null, "", url);
+      } catch (error) {
+        console.error("render style application failed before pipeline activation", error);
+        if (currentStyleId !== previousId) applyStyle(previousId);
+      }
     },
   });
 
@@ -258,7 +340,11 @@ async function startGame(): Promise<void> {
   };
   window.addEventListener("resize", resize);
   resize();
-  applyStyle(currentStyleId);
+  try {
+    applyStyle(currentStyleId);
+  } catch (error) {
+    console.error("initial render style application failed", error);
+  }
 
   let wasGrounded = true;
   let lastFrame = performance.now();
@@ -267,7 +353,7 @@ async function startGame(): Promise<void> {
   let nextLocalShotMs = 0;
   let nextFootstepMs = 0;
 
-  renderer.setAnimationLoop(() => {
+  const renderFrame = (): void => {
     const now = performance.now();
     const dtMs = Math.min(100, now - lastFrame);
     lastFrame = now;
@@ -308,7 +394,7 @@ async function startGame(): Promise<void> {
     hud.zoomOverlay.classList.toggle("visible", zoomed);
 
     const horizontalSpeed = Math.hypot(curr.velocity.x, curr.velocity.z);
-    panel.update(horizontalSpeed, fpsSmoothed, renderer.info.render.drawCalls);
+    panel.update(fpsSmoothed, renderer.info.render.drawCalls);
     audio.setWindSpeed(horizontalSpeed);
     const surface: SurfaceMaterial = currentMode === GameMode.Scoutzknivez ? "stone" : "metal";
     if (curr.grounded && horizontalSpeed > 2.2 && now >= nextFootstepMs) {
@@ -444,26 +530,98 @@ async function startGame(): Promise<void> {
       }
     }
     pipeline.render();
-  });
+  };
+  armRecoverableAnimationLoop(
+    (callback) => renderer.setAnimationLoop(callback),
+    renderFrame,
+    (error) => console.error("renderer frame failed; re-arming animation loop", error),
+  );
 }
 
-function enterFromMenu(): void {
-  showNameEntry(root, (selection) => {
-    sessionStorage.setItem("gg:name", selection.name);
-    const url = new URL(location.href);
-    url.searchParams.set("name", selection.name);
-    if (selection.create) {
-      url.searchParams.set("create", "1");
-      url.searchParams.set("mode", selection.mode);
-      url.searchParams.set("ladder", selection.ladder);
-      url.searchParams.set("gravity", selection.gravity);
-    } else {
-      for (const key of ["create", "mode", "ladder", "gravity", "room"]) url.searchParams.delete(key);
+function urlForSelection(selection: MenuSelection): URL {
+  const url = new URL(location.href);
+  url.searchParams.set("name", selection.name);
+  if (selection.create) {
+    url.searchParams.delete("room");
+    url.searchParams.set("create", "1");
+    url.searchParams.set("mode", selection.mode);
+    url.searchParams.set("ladder", selection.ladder);
+    url.searchParams.set("gravity", selection.gravity);
+    url.searchParams.set("map", selection.map);
+  } else {
+    for (const key of ["create", "mode", "ladder", "gravity", "map"]) url.searchParams.delete(key);
+    if (selection.quickplay === true) url.searchParams.delete("room");
+  }
+  return url;
+}
+
+async function startFrontDoor(): Promise<void> {
+  root.style.background = "#0e131b";
+  const canvas = document.createElement("canvas");
+  root.appendChild(canvas);
+  showNameEntry(root, (selection) => location.assign(urlForSelection(selection)));
+  const query = new URLSearchParams(location.search);
+  const renderer = new WebGPURenderer({
+    canvas,
+    antialias: true,
+    forceWebGL: query.get("backend") === "webgl2",
+  });
+  try {
+    await renderer.init();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    const scene = new Scene();
+    scene.background = new Color(0x0e131b);
+    const camera = new PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 300);
+    scene.add(camera);
+    const styleId = renderStyleFromQuery(location.search);
+    const style = RENDER_STYLES[styleId];
+    let mapCenter = { x: 0, y: 0, z: 0 };
+    let orbitRadius = 48;
+    try {
+      const response = await fetch(foundryBlobUrl);
+      if (!response.ok) throw new Error(`front-door map load failed: HTTP ${response.status}`);
+      const map = loadGameplayMap(await response.arrayBuffer());
+      style.fogLightRig(scene);
+      const geometry = new BufferGeometry();
+      geometry.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
+      geometry.setIndex(new BufferAttribute(map.collision.indices, 1));
+      geometry.computeVertexNormals();
+      scene.add(new Mesh(geometry, style.materials(map).map));
+      mapCenter = {
+        x: (map.bounds.min.x + map.bounds.max.x) / 2,
+        y: 0,
+        z: (map.bounds.min.z + map.bounds.max.z) / 2,
+      };
+      orbitRadius = Math.max(32, Math.hypot(
+        map.bounds.max.x - map.bounds.min.x,
+        map.bounds.max.z - map.bounds.min.z,
+      ) * 0.65);
+    } catch (error) {
+      console.error(error);
     }
-    location.assign(url);
-  });
+    const resize = (): void => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener("resize", resize);
+    const started = performance.now();
+    armRecoverableAnimationLoop((callback) => renderer.setAnimationLoop(callback), () => {
+      const angle = ((performance.now() - started) % 60_000) / 60_000 * Math.PI * 2;
+      camera.position.set(
+        mapCenter.x + Math.sin(angle) * orbitRadius,
+        15,
+        mapCenter.z + Math.cos(angle) * orbitRadius,
+      );
+      camera.lookAt(mapCenter.x, 1.5, mapCenter.z);
+      renderer.render(scene, camera);
+    }, (error) => console.error("front-door world frame failed", error));
+  } catch (error) {
+    console.error("front-door world unavailable; using fallback background", error);
+  }
 }
 
-const requestedName = new URLSearchParams(location.search).get("name") ?? sessionStorage.getItem("gg:name") ?? "";
-if (!validPlayerName(requestedName)) enterFromMenu();
+const requestedName = new URLSearchParams(location.search).get("name") ?? "";
+if (!validPlayerName(requestedName)) void startFrontDoor();
 else void startGame();

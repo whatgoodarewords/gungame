@@ -7,6 +7,8 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapId,
+  MapPreference,
   EntityKind,
   PROTOCOL_VERSION,
   RefusalCode,
@@ -41,6 +43,7 @@ export interface NetworkSessionOptions {
     mode: typeof GameMode[keyof typeof GameMode],
     variant: typeof GravityVariant[keyof typeof GravityVariant],
     ladder: typeof Ladder[keyof typeof Ladder],
+    mapId: typeof MapId[keyof typeof MapId],
     roomId: string,
   ) => void;
 }
@@ -77,7 +80,16 @@ function joinHello(): HelloFrame {
     ? GravityVariant.Scoutz
     : GravityVariant.Standard;
   const ladder = query.get("ladder") === "arsenal" ? Ladder.Arsenal : Ladder.Classic;
-  const name = (query.get("name") ?? sessionStorage.getItem("gg:name") ?? "").slice(0, 16);
+  const mapPreference = query.get("map") === "spire"
+    ? MapPreference.Spire
+    : query.get("map") === "foundry"
+      ? MapPreference.Foundry
+      : query.get("map") === "duna"
+        ? MapPreference.Duna
+        : query.get("map") === "cascade"
+          ? MapPreference.Cascade
+          : MapPreference.AutoRotate;
+  const name = (query.get("name") ?? localStorage.getItem("gg:name") ?? "").slice(0, 16);
   return {
     type: FrameType.Hello,
     protocolVersion: PROTOCOL_VERSION,
@@ -92,6 +104,7 @@ function joinHello(): HelloFrame {
     mode,
     variant,
     ladder,
+    mapPreference,
     name,
     roomId,
     reconnectToken,
@@ -250,7 +263,7 @@ export class NetworkSession {
         this.playerId = frame.playerId;
         this.roomId = frame.roomId;
         sessionStorage.setItem(`gg:reconnect:${frame.roomId}`, bytesToHex(frame.reconnectToken));
-        this.onWelcome?.(frame.mode, frame.variant, frame.ladder, frame.roomId);
+        this.onWelcome?.(frame.mode, frame.variant, frame.ladder, frame.mapId, frame.roomId);
         this.fsm.transition("baseline-install", now);
         return;
       }

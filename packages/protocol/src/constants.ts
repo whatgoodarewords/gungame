@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 3 as const;
+export const PROTOCOL_VERSION = 4 as const;
 export const MAX_FRAME_BYTES = 2_048 as const;
 export const MAX_HELLO_BYTES = 256 as const;
 export const SNAPSHOT_SIZE_CEILING = 1_100 as const;
@@ -57,6 +57,23 @@ export const GravityVariant = {
 export const Ladder = {
   Classic: 0,
   Arsenal: 1,
+} as const;
+
+/** Immutable room-creation preference. Auto rotates only Gun Game maps. */
+export const MapPreference = {
+  AutoRotate: 0,
+  Spire: 1,
+  Foundry: 2,
+  Duna: 3,
+  Cascade: 4,
+} as const;
+
+/** Authoritative map currently installed by the room. */
+export const MapId = {
+  Spire: 0,
+  Foundry: 1,
+  Duna: 2,
+  Cascade: 3,
 } as const;
 
 export const EntityKind = {

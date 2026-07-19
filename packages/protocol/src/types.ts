@@ -4,6 +4,8 @@ import type {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapId,
+  MapPreference,
   EntityKind,
   RefusalCode,
 } from "./constants.js";
@@ -18,6 +20,7 @@ export interface HelloFrame {
   readonly mode: ValueOf<typeof GameMode>;
   readonly variant: ValueOf<typeof GravityVariant>;
   readonly ladder: ValueOf<typeof Ladder>;
+  readonly mapPreference: ValueOf<typeof MapPreference>;
   readonly name: string;
   readonly roomId: string;
   readonly reconnectToken: Uint8Array;
@@ -37,6 +40,7 @@ export interface WelcomeFrame {
   readonly mode: ValueOf<typeof GameMode>;
   readonly variant: ValueOf<typeof GravityVariant>;
   readonly ladder: ValueOf<typeof Ladder>;
+  readonly mapId: ValueOf<typeof MapId>;
 }
 
 export interface CmdFrame {
@@ -114,6 +118,7 @@ export interface ScoreboardEntry {
 export interface SnapshotModeState {
   readonly mode: ValueOf<typeof GameMode>;
   readonly ladder: ValueOf<typeof Ladder>;
+  readonly mapId: ValueOf<typeof MapId>;
   readonly roundState: number;
   readonly winnerId: number;
   readonly restartTicksRemaining: number;

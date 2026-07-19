@@ -22,6 +22,7 @@ import {
   GameMode,
   GravityVariant,
   Ladder,
+  MapId,
   type SnapshotEvent,
   type SnapshotModeState,
 } from "../../packages/protocol/src/index.js";
@@ -30,6 +31,7 @@ import {
   PredictionReconciler,
   type InterpolatedEntity,
 } from "./net/index.js";
+import { OffRenderTickDriver } from "./tick-driver.js";
 
 export interface FrameInput {
   readonly buttons: number;
@@ -72,11 +74,17 @@ export interface CombatView {
 export interface PlaygroundOptions {
   readonly initialMapUrl?: string;
   readonly mapUrlForMode?: (mode: typeof GameMode[keyof typeof GameMode]) => string;
-  readonly onMapLoaded?: (map: GameplayMap, mode: typeof GameMode[keyof typeof GameMode]) => void;
+  readonly mapUrlForMap?: (mapId: typeof MapId[keyof typeof MapId]) => string;
+  readonly onMapLoaded?: (
+    map: GameplayMap,
+    mode: typeof GameMode[keyof typeof GameMode],
+    mapId: typeof MapId[keyof typeof MapId],
+  ) => void;
   readonly onWelcome?: (
     mode: typeof GameMode[keyof typeof GameMode],
     variant: typeof GravityVariant[keyof typeof GravityVariant],
     ladder: typeof Ladder[keyof typeof Ladder],
+    mapId: typeof MapId[keyof typeof MapId],
     roomId: string,
   ) => void;
   readonly onRefusal?: (code: number) => void;
@@ -108,8 +116,10 @@ export function createPlayground(
   let params: MoveParams = DEFAULT;
   let feel: FeelParams = DEFAULT_FEEL;
   let input = EMPTY_INPUT;
+  let tickDriver: OffRenderTickDriver | undefined;
   let welcomeMode: typeof GameMode[keyof typeof GameMode] = GameMode.GunGame;
   let welcomeLadder: typeof Ladder[keyof typeof Ladder] = Ladder.Classic;
+  let welcomeMapId: typeof MapId[keyof typeof MapId] = MapId.Foundry;
   let combat: CombatView = {
     selfId: 0,
     generation: 0,
@@ -149,7 +159,7 @@ export function createPlayground(
     getRenderPosition: (dtSeconds) =>
       prediction?.renderPosition(dtSeconds) ?? state.player.position,
     getRemotePlayers: (nowMs) => network?.remoteEntities(nowMs) ?? [],
-    getAlpha: () => Math.min(1, accumulator / TICK_DT),
+    getAlpha: () => tickDriver?.alpha ?? 0,
     setParams: (nextParams) => {
       params = { ...nextParams };
       prediction?.configure(params, feel);
@@ -166,18 +176,19 @@ export function createPlayground(
   };
 
   let mapLoadSequence = 0;
-  let currentMapUrl = "";
+  let requestedMapUrl = "";
   const installMap = async (
     url: string,
     mode: typeof GameMode[keyof typeof GameMode],
+    mapId: typeof MapId[keyof typeof MapId],
     placeAtSpawn: boolean,
   ): Promise<void> => {
     const sequence = ++mapLoadSequence;
+    requestedMapUrl = url;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`map load failed: HTTP ${response.status}`);
     const map = loadGameplayMap(await response.arrayBuffer());
     if (sequence !== mapLoadSequence) return;
-    currentMapUrl = url;
     world = new CollisionWorld(map.collision, map.killVolumes);
     if (placeAtSpawn) {
       const spawn = map.spawns[0];
@@ -195,34 +206,53 @@ export function createPlayground(
     }
     prediction = new PredictionReconciler(state, world);
     prediction.configure(params, feel);
-    options.onMapLoaded?.(map, mode);
+    options.onMapLoaded?.(map, mode, mapId);
   };
 
   const initialMode = new URLSearchParams(location.search).get("mode") === "gungame"
     ? GameMode.GunGame
     : GameMode.Scoutzknivez;
-  const initialUrl = options.initialMapUrl ?? options.mapUrlForMode?.(initialMode) ??
+  const mapQuery = new URLSearchParams(location.search).get("map");
+  const initialMapId = initialMode === GameMode.Scoutzknivez
+    ? MapId.Spire
+    : mapQuery === "duna"
+      ? MapId.Duna
+      : mapQuery === "cascade"
+        ? MapId.Cascade
+        : MapId.Foundry;
+  const initialUrl = options.initialMapUrl ?? options.mapUrlForMap?.(initialMapId) ??
+    options.mapUrlForMode?.(initialMode) ??
     new URL("../../maps/spire.blob", import.meta.url).toString();
 
-  void installMap(initialUrl, initialMode, true)
+  void installMap(initialUrl, initialMode, initialMapId, true)
     .then(() => {
       network = new NetworkSession({
         onRefusal: (code) => options.onRefusal?.(code),
         onClose: (code, reason) => options.onClose?.(code, reason),
-        onWelcome: (mode, variant, ladder, roomId) => {
+        onWelcome: (mode, variant, ladder, mapId, roomId) => {
           welcomeMode = mode;
           welcomeLadder = ladder;
+          welcomeMapId = mapId;
           params = mode === GameMode.Scoutzknivez || variant === GravityVariant.Scoutz
             ? SCOUTZ
             : DEFAULT;
           prediction?.configure(params, feel);
-          options.onWelcome?.(mode, variant, ladder, roomId);
-          const nextMapUrl = options.mapUrlForMode?.(mode);
-          if (nextMapUrl !== undefined && nextMapUrl !== currentMapUrl) {
-            void installMap(nextMapUrl, mode, false).catch((error: unknown) => console.error(error));
+          options.onWelcome?.(mode, variant, ladder, mapId, roomId);
+          const nextMapUrl = options.mapUrlForMap?.(mapId) ?? options.mapUrlForMode?.(mode);
+          if (nextMapUrl !== undefined && nextMapUrl !== requestedMapUrl) {
+            void installMap(nextMapUrl, mode, mapId, false).catch((error: unknown) => console.error(error));
           }
         },
         onSnapshot: ({ frame, entities, resetPrediction, events }) => {
+          const snapshotMapId = frame.modeState?.mapId;
+          if (snapshotMapId !== undefined && snapshotMapId !== welcomeMapId) {
+            welcomeMapId = snapshotMapId;
+            const nextMapUrl = options.mapUrlForMap?.(snapshotMapId);
+            if (nextMapUrl !== undefined && nextMapUrl !== requestedMapUrl) {
+              void installMap(nextMapUrl, welcomeMode, snapshotMapId, false)
+                .catch((error: unknown) => console.error(error));
+            }
+          }
           const self = entities.find((entity) =>
             entity.id === network?.selfId && entity.kind === EntityKind.Player);
           if (self === undefined || prediction === undefined) return;
@@ -266,22 +296,8 @@ export function createPlayground(
       console.error(error);
     });
 
-  let previous = performance.now();
-  let accumulator = 0;
-  const loop = (): void => {
-    const now = performance.now();
-    accumulator += Math.min(0.25, Math.max(0, (now - previous) / 1000));
-    previous = now;
-    let catchUpTicks = 0;
-    while (accumulator >= TICK_DT && catchUpTicks < 4) {
-      tick();
-      accumulator -= TICK_DT;
-      catchUpTicks += 1;
-    }
-    if (catchUpTicks === 4 && accumulator >= TICK_DT) accumulator = 0;
-    setTimeout(loop, 4);
-  };
-  setTimeout(loop, 0);
+  tickDriver = new OffRenderTickDriver(tick);
+  tickDriver.start();
 
   return { sim };
 }

@@ -90,6 +90,10 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
       secrets.push({ kind: MapSecretKind.SpireRoom, bounds: nodeAabb(node) });
     } else if (node.name.startsWith("secret_foundry_sigil")) {
       secrets.push({ kind: MapSecretKind.FoundrySigil, bounds: nodeAabb(node) });
+    } else if (node.name.startsWith("secret_duna_graffiti_room")) {
+      secrets.push({ kind: MapSecretKind.DunaGraffitiRoom, bounds: nodeAabb(node) });
+    } else if (node.name.startsWith("secret_cascade_waterfall_room")) {
+      secrets.push({ kind: MapSecretKind.CascadeWaterfallRoom, bounds: nodeAabb(node) });
     } else if (node.name.startsWith("bounds_")) {
       if (bounds !== undefined) throw new Error("map declares more than one bounds_ node");
       bounds = nodeAabb(node);
@@ -118,7 +122,7 @@ export async function bakeGltf(sourcePath: string): Promise<BakedMap> {
 export function validateMap(
   map: GameplayMap,
   metadata?: Pick<BakedMap, "collisionMeshCount" | "hasBoundsNode">,
-  expectedMap?: "spire" | "foundry",
+  expectedMap?: "spire" | "foundry" | "duna" | "cascade",
 ): void {
   const collisionCount = metadata?.collisionMeshCount ?? (map.collision.indices.length > 0 ? 1 : 0);
   if (collisionCount < 1 || map.collision.indices.length < 3) {
@@ -152,12 +156,36 @@ export function validateMap(
       throw new Error("Foundry must declare exactly one secret_foundry_sigil node");
     }
   }
+  if (expectedMap === "duna") {
+    if (modeCounts.size !== 1 || modeCounts.get(0) !== 16) {
+      throw new Error("Duna must declare exactly 16 Gun Game spawns");
+    }
+    if (map.secrets.filter((secret) => secret.kind === MapSecretKind.DunaGraffitiRoom).length !== 1) {
+      throw new Error("Duna must declare exactly one secret_duna_graffiti_room node");
+    }
+  }
+  if (expectedMap === "cascade") {
+    if (modeCounts.size !== 1 || modeCounts.get(0) !== 16) {
+      throw new Error("Cascade must declare exactly 16 Gun Game spawns");
+    }
+    if (map.secrets.filter((secret) => secret.kind === MapSecretKind.CascadeWaterfallRoom).length !== 1) {
+      throw new Error("Cascade must declare exactly one secret_cascade_waterfall_room node");
+    }
+  }
+}
+
+function expectedMapForPath(sourcePath: string): "spire" | "foundry" | "duna" | "cascade" | undefined {
+  const lower = sourcePath.toLowerCase();
+  if (lower.includes("spire")) return "spire";
+  if (lower.includes("foundry")) return "foundry";
+  if (lower.includes("duna")) return "duna";
+  if (lower.includes("cascade")) return "cascade";
+  return undefined;
 }
 
 export async function buildMap(sourcePath: string, outputPath: string): Promise<GameplayMap> {
   const baked = await bakeGltf(sourcePath);
-  const lower = sourcePath.toLowerCase();
-  const expected = lower.includes("spire") ? "spire" : lower.includes("foundry") ? "foundry" : undefined;
+  const expected = expectedMapForPath(sourcePath);
   validateMap(baked.map, baked, expected);
   const blob = encodeGameplayMap(baked.map);
   await writeFile(outputPath, new Uint8Array(blob));
@@ -167,8 +195,7 @@ export async function buildMap(sourcePath: string, outputPath: string): Promise<
 }
 
 export async function validatePath(sourcePath: string): Promise<GameplayMap> {
-  const lower = sourcePath.toLowerCase();
-  const expected = lower.includes("spire") ? "spire" : lower.includes("foundry") ? "foundry" : undefined;
+  const expected = expectedMapForPath(sourcePath);
   if (sourcePath.endsWith(".blob")) {
     const map = loadGameplayMap(await readFile(sourcePath));
     validateMap(map, undefined, expected);

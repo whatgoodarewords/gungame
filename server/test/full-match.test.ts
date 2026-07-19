@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FrameType, GameMode, GravityVariant, Ladder, type CmdFrame } from "@gungame/protocol";
+import { FrameType, GameMode, GravityVariant, Ladder, MapPreference, type CmdFrame } from "@gungame/protocol";
 import { ladderWeapons } from "@gungame/shared";
 import { Buttons } from "@gungame/sim";
 
@@ -27,6 +27,7 @@ function harness(mode: 0 | 1, ladder: 0 | 1): Harness {
     mode,
     variant: mode === GameMode.Scoutzknivez ? GravityVariant.Scoutz : GravityVariant.Standard,
     ladder,
+    mapPreference: MapPreference.AutoRotate,
   }, undefined, 0);
   const attacker = room.add(peer, 0, "Bot Alpha")!.slot;
   const victim = room.add(peer, 0, "Bot Bravo")!.slot;

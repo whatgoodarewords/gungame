@@ -1,70 +1,316 @@
+export type MenuMode = "scoutz" | "gungame";
+export type MenuLadder = "classic" | "arsenal";
+export type MenuGravity = "standard" | "scoutz";
+export type MenuMap = "auto" | "spire" | "foundry" | "duna" | "cascade";
+
 export interface MenuSelection {
   readonly name: string;
   readonly create: boolean;
-  readonly mode: "scoutz" | "gungame";
-  readonly ladder: "classic" | "arsenal";
-  readonly gravity: "standard" | "scoutz";
+  readonly mode: MenuMode;
+  readonly ladder: MenuLadder;
+  readonly gravity: MenuGravity;
+  readonly map: MenuMap;
+  readonly quickplay?: boolean;
 }
+
+export interface CreateRoomState {
+  readonly expanded: boolean;
+  readonly mode: MenuMode;
+  readonly ladder: MenuLadder;
+  readonly gravity: MenuGravity;
+  readonly map: MenuMap;
+}
+
+export type MenuConnectionState =
+  | "idle"
+  | "connecting"
+  | "server-restarting"
+  | "version-mismatch"
+  | "room-full";
+
+export type CreateRoomAction =
+  | { readonly type: "toggle" }
+  | { readonly type: "mode"; readonly value: MenuMode }
+  | { readonly type: "ladder"; readonly value: MenuLadder }
+  | { readonly type: "gravity"; readonly value: MenuGravity }
+  | { readonly type: "map"; readonly value: MenuMap };
+
+export const PLAYER_NAME_STORAGE_KEY = "gg:name";
+export const FRONT_DOOR_CARD_MAX_WIDTH = 420;
+export const FRONT_DOOR_VIEWPORT_GUTTER = 16;
 
 const NAME_PATTERN = /^[a-zA-Z0-9_ -]{2,16}$/;
+const INVALID_NAME_CHARACTERS = /[^a-zA-Z0-9_ -]+/g;
 
-export function validPlayerName(value: string): boolean {
-  return NAME_PATTERN.test(value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ""));
+export function filterPlayerName(value: string): string {
+  return value.replace(INVALID_NAME_CHARACTERS, "").slice(0, 16);
 }
 
-export function showNameEntry(parent: HTMLElement, onSelection: (selection: MenuSelection) => void): void {
+export function validPlayerName(value: string): boolean {
+  return NAME_PATTERN.test(value);
+}
+
+export function persistedPlayerName(storage: Pick<Storage, "getItem">): string {
+  return filterPlayerName(storage.getItem(PLAYER_NAME_STORAGE_KEY) ?? "");
+}
+
+export function persistPlayerName(storage: Pick<Storage, "setItem">, value: string): string {
+  const filtered = filterPlayerName(value);
+  storage.setItem(PLAYER_NAME_STORAGE_KEY, filtered);
+  return filtered;
+}
+
+export function frontDoorCardWidth(viewportWidth: number): number {
+  return Math.min(FRONT_DOOR_CARD_MAX_WIDTH, Math.max(0, viewportWidth - FRONT_DOOR_VIEWPORT_GUTTER * 2));
+}
+
+export function defaultCreateRoomState(): CreateRoomState {
+  return {
+    expanded: false,
+    mode: "gungame",
+    ladder: "classic",
+    gravity: "standard",
+    map: "auto",
+  };
+}
+
+export function updateCreateRoomState(
+  state: CreateRoomState,
+  action: CreateRoomAction,
+): CreateRoomState {
+  if (action.type === "toggle") return { ...state, expanded: !state.expanded };
+  if (action.type === "mode") {
+    return {
+      ...state,
+      mode: action.value,
+      map: state.map === "auto" || (action.value === "scoutz" && state.map === "spire") ||
+        (action.value === "gungame" && state.map !== "spire")
+        ? state.map
+        : "auto",
+    };
+  }
+  if (action.type === "ladder") {
+    return {
+      ...state,
+      ladder: action.value,
+      gravity: action.value === "arsenal" ? "scoutz" : state.gravity,
+    };
+  }
+  if (action.type === "gravity") return { ...state, gravity: action.value };
+  const compatible = action.value === "auto" ||
+    (state.mode === "scoutz" ? action.value === "spire" : action.value !== "spire");
+  return compatible ? { ...state, map: action.value } : state;
+}
+
+export function visibleCreateRows(state: CreateRoomState): readonly string[] {
+  if (!state.expanded) return [];
+  return state.mode === "gungame"
+    ? ["mode", "ladder", "gravity", "map"]
+    : ["mode", "gravity", "map"];
+}
+
+export interface MenuController {
+  readonly element: HTMLElement;
+  setConnectionState(state: MenuConnectionState): void;
+  destroy(): void;
+}
+
+interface SegmentOption<T extends string> {
+  readonly value: T;
+  readonly label: string;
+}
+
+function segmentedRow<T extends string>(
+  label: string,
+  options: readonly SegmentOption<T>[],
+  current: T,
+  onChange: (value: T) => void,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "create-row";
+  const title = document.createElement("span");
+  title.className = "create-row-label";
+  title.textContent = label;
+  const segments = document.createElement("div");
+  segments.className = "segments";
+  segments.setAttribute("role", "group");
+  segments.setAttribute("aria-label", label);
+  for (const option of options) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "segment";
+    button.dataset.value = option.value;
+    button.textContent = option.label;
+    button.classList.toggle("active", option.value === current);
+    button.setAttribute("aria-pressed", String(option.value === current));
+    button.onclick = () => onChange(option.value);
+    segments.appendChild(button);
+  }
+  row.append(title, segments);
+  return row;
+}
+
+export function showNameEntry(
+  parent: HTMLElement,
+  onSelection: (selection: MenuSelection) => void,
+): MenuController {
   const shell = document.createElement("main");
   shell.className = "join-screen";
   shell.innerHTML = `
-    <form class="join-card">
-      <h1>GUNGAME</h1>
-      <p>Choose a name, then quickplay or create a room.</p>
-      <label>Name<input name="name" minlength="2" maxlength="16" pattern="[a-zA-Z0-9_ -]+" autocomplete="nickname" autofocus></label>
-      <div class="create-options" hidden>
-        <label>Mode<select name="mode"><option value="gungame">Gun Game</option><option value="scoutz">Scoutzknivez</option></select></label>
-        <label class="gun-option">Ladder<select name="ladder"><option value="classic">CLASSIC</option><option value="arsenal">ARSENAL</option></select></label>
-        <label class="gun-option">Gravity<select name="gravity"><option value="standard">Standard</option><option value="scoutz">Scoutz</option></select></label>
-      </div>
-      <div class="menu-actions"><button type="submit" name="action" value="play">Play</button><button type="button" class="create-toggle">Create room</button></div>
-      <small>Dev: ?mode=scoutz|gungame&amp;ladder=classic|arsenal&amp;gravity=standard|scoutz</small>
+    <form class="join-card" novalidate>
+      <div class="wordmark" aria-label="Gungame online"><span>GUNGAME</span><i></i></div>
+      <input class="name-field" name="name" maxlength="16" autocomplete="nickname"
+        aria-label="Your name" placeholder="your name" autofocus>
+      <button class="play-button" type="submit"><span>PLAY</span></button>
+      <div class="menu-divider"></div>
+      <button class="create-disclosure" type="button" aria-expanded="false">
+        <span class="chevron">›</span><span>Create room</span>
+      </button>
+      <div class="create-options" hidden></div>
+      <div class="menu-message" aria-live="polite" hidden></div>
     </form>`;
   parent.appendChild(shell);
+
   const form = shell.querySelector<HTMLFormElement>("form")!;
   const input = form.elements.namedItem("name") as HTMLInputElement;
-  const mode = form.elements.namedItem("mode") as HTMLSelectElement;
-  const ladder = form.elements.namedItem("ladder") as HTMLSelectElement;
-  const gravity = form.elements.namedItem("gravity") as HTMLSelectElement;
+  const play = shell.querySelector<HTMLButtonElement>(".play-button")!;
+  const disclosure = shell.querySelector<HTMLButtonElement>(".create-disclosure")!;
   const options = shell.querySelector<HTMLElement>(".create-options")!;
-  const toggle = shell.querySelector<HTMLButtonElement>(".create-toggle")!;
-  let creating = false;
-  toggle.onclick = () => {
-    creating = !creating;
-    options.hidden = !creating;
-    toggle.textContent = creating ? "Create and play" : "Create room";
-    toggle.type = creating ? "submit" : "button";
+  const message = shell.querySelector<HTMLElement>(".menu-message")!;
+  let createState = defaultCreateRoomState();
+  let connectionState: MenuConnectionState = "idle";
+
+  input.value = persistedPlayerName(localStorage);
+
+  const syncPlay = (): void => {
+    const valid = validPlayerName(input.value);
+    play.disabled = !valid || connectionState === "connecting";
   };
-  mode.onchange = () => {
-    for (const element of shell.querySelectorAll<HTMLElement>(".gun-option")) {
-      element.hidden = mode.value === "scoutz";
+
+  const renderCreateOptions = (): void => {
+    options.replaceChildren();
+    options.hidden = !createState.expanded;
+    disclosure.setAttribute("aria-expanded", String(createState.expanded));
+    disclosure.querySelector(".chevron")!.classList.toggle("expanded", createState.expanded);
+    if (!createState.expanded) return;
+    const update = (action: CreateRoomAction): void => {
+      createState = updateCreateRoomState(createState, action);
+      renderCreateOptions();
+    };
+    options.appendChild(segmentedRow("Mode", [
+      { value: "gungame", label: "GUN GAME" },
+      { value: "scoutz", label: "SCOUTZ" },
+    ], createState.mode, (value) => update({ type: "mode", value })));
+    if (createState.mode === "gungame") {
+      options.appendChild(segmentedRow("Ladder", [
+        { value: "classic", label: "CLASSIC" },
+        { value: "arsenal", label: "ARSENAL" },
+      ], createState.ladder, (value) => update({ type: "ladder", value })));
     }
+    options.appendChild(segmentedRow("Gravity", [
+      { value: "standard", label: "STANDARD" },
+      { value: "scoutz", label: "SCOUTZ" },
+    ], createState.gravity, (value) => update({ type: "gravity", value })));
+    const mapOptions: readonly SegmentOption<MenuMap>[] = createState.mode === "gungame"
+      ? [
+          { value: "auto", label: "AUTO-ROTATE" },
+          { value: "foundry", label: "FOUNDRY" },
+          { value: "duna", label: "DUNA" },
+          { value: "cascade", label: "CASCADE" },
+        ]
+      : [
+          { value: "auto", label: "AUTO-ROTATE" },
+          { value: "spire", label: "SPIRE" },
+        ];
+    options.appendChild(segmentedRow("Map", mapOptions, createState.map, (value) => {
+      update({ type: "map", value });
+    }));
+    const create = document.createElement("button");
+    create.type = "submit";
+    create.className = "create-button";
+    create.dataset.action = "create";
+    create.textContent = "CREATE ROOM";
+    create.disabled = !validPlayerName(input.value) || connectionState === "connecting";
+    options.appendChild(create);
   };
-  ladder.onchange = () => {
-    if (ladder.value === "arsenal") gravity.value = "scoutz";
+
+  const setConnectionState = (state: MenuConnectionState): void => {
+    connectionState = state;
+    message.hidden = state === "idle" || state === "connecting";
+    message.replaceChildren();
+    play.classList.toggle("connecting", state === "connecting");
+    play.innerHTML = state === "connecting"
+      ? `<i class="spinner" aria-hidden="true"></i><span>finding a room…</span>`
+      : "<span>PLAY</span>";
+    if (state === "server-restarting") {
+      message.className = "menu-message toast";
+      message.textContent = "server restarting — reconnecting…";
+    } else if (state === "version-mismatch") {
+      message.className = "menu-message inline-prompt";
+      const text = document.createElement("span");
+      text.textContent = "version mismatch";
+      const reload = document.createElement("button");
+      reload.type = "button";
+      reload.textContent = "RELOAD";
+      reload.onclick = () => location.reload();
+      message.append(text, reload);
+    } else if (state === "room-full") {
+      message.className = "menu-message inline-prompt";
+      const text = document.createElement("span");
+      text.textContent = "room full — quickplay instead?";
+      const quickplay = document.createElement("button");
+      quickplay.type = "button";
+      quickplay.textContent = "QUICKPLAY";
+      quickplay.onclick = () => onSelection({
+        name: input.value,
+        create: false,
+        mode: "gungame",
+        ladder: "classic",
+        gravity: "standard",
+        map: "auto",
+        quickplay: true,
+      });
+      message.append(text, quickplay);
+    }
+    syncPlay();
+    renderCreateOptions();
+  };
+
+  input.addEventListener("input", () => {
+    const filtered = filterPlayerName(input.value);
+    if (input.value !== filtered) input.value = filtered;
+    persistPlayerName(localStorage, filtered);
+    input.setCustomValidity("");
+    syncPlay();
+    renderCreateOptions();
+  });
+  disclosure.onclick = () => {
+    createState = updateCreateRoomState(createState, { type: "toggle" });
+    renderCreateOptions();
   };
   form.onsubmit = (event) => {
     event.preventDefault();
-    const name = input.value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-    if (!validPlayerName(name)) {
-      input.setCustomValidity("Use 2–16 letters, numbers, spaces, _ or -");
-      input.reportValidity();
-      return;
-    }
+    const name = persistPlayerName(localStorage, input.value);
+    if (!validPlayerName(name)) return;
+    const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+    const creating = submitter?.dataset.action === "create";
+    setConnectionState("connecting");
     onSelection({
       name,
       create: creating,
-      mode: mode.value === "scoutz" ? "scoutz" : "gungame",
-      ladder: ladder.value === "arsenal" ? "arsenal" : "classic",
-      gravity: gravity.value === "scoutz" ? "scoutz" : "standard",
+      mode: createState.mode,
+      ladder: createState.ladder,
+      gravity: createState.gravity,
+      map: createState.map,
     });
+  };
+
+  renderCreateOptions();
+  syncPlay();
+  requestAnimationFrame(() => input.focus());
+  return {
+    element: shell,
+    setConnectionState,
+    destroy: () => shell.remove(),
   };
 }

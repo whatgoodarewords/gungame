@@ -8,6 +8,11 @@ import {
   RENDER_STYLE_IDS,
   renderStyleFromQuery,
 } from "../src/render-style.js";
+import {
+  RecoverableRenderPipeline,
+  armRecoverableAnimationLoop,
+  type RenderPipelineLike,
+} from "../src/render-runtime.js";
 
 const map: GameplayMap = {
   collision: { positions: new Float32Array(), indices: new Uint32Array() },
@@ -40,5 +45,76 @@ describe("RenderStyle bake-off harness", () => {
   it("selects valid query styles and safely defaults invalid values", () => {
     expect(renderStyleFromQuery("?style=toon-cel")).toBe("toon-cel");
     expect(renderStyleFromQuery("?style=unknown")).toBe("dev-grid");
+  });
+});
+
+describe("live style pipeline reconstruction", () => {
+  it.each(["webgl2", "webgpu"] as const)(
+    "reconstructs and commits every style on the %s backend boundary",
+    (backend) => {
+      for (const id of RENDER_STYLE_IDS) {
+        let initialDisposed = false;
+        let candidateRenders = 0;
+        const initial: RenderPipelineLike = {
+          render: () => {},
+          dispose: () => { initialDisposed = true; },
+        };
+        const runtime = new RecoverableRenderPipeline(initial);
+        const candidate: RenderPipelineLike = {
+          render: () => { candidateRenders += 1; },
+          dispose: () => {},
+        };
+        let committed = "";
+        runtime.replace(candidate, () => { committed = `${backend}:${id}`; }, () => {});
+        expect(runtime.render()).toBe(true);
+        expect(candidateRenders).toBe(1);
+        expect(initialDisposed).toBe(true);
+        expect(committed).toBe(`${backend}:${id}`);
+      }
+    },
+  );
+
+  it.each(["webgl2", "webgpu"] as const)(
+    "captures %s candidate failures and renders the previous working pipeline",
+    (backend) => {
+      for (const id of RENDER_STYLE_IDS) {
+        let fallbackFrames = 0;
+        let rolledBack = false;
+        const errors: unknown[] = [];
+        const runtime = new RecoverableRenderPipeline({
+          render: () => { fallbackFrames += 1; },
+          dispose: () => {},
+        }, (error) => errors.push(error));
+        runtime.replace({
+          render: () => { throw new Error(`${backend}:${id}:post-chain`); },
+          dispose: () => {},
+        }, () => {}, () => { rolledBack = true; });
+        expect(runtime.render()).toBe(false);
+        expect(rolledBack).toBe(true);
+        expect(fallbackFrames).toBe(1);
+        expect(errors).toHaveLength(1);
+      }
+    },
+  );
+
+  it("re-arms the animation loop after an uncaught frame exception", () => {
+    let installed: (() => void) | null = null;
+    let installs = 0;
+    let attempts = 0;
+    const scheduled: Array<() => void> = [];
+    armRecoverableAnimationLoop((callback) => {
+      installed = callback;
+      installs += 1;
+    }, () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("synthetic frame death");
+    }, () => {}, (callback) => scheduled.push(callback));
+    expect(installed).not.toBeNull();
+    (installed as unknown as () => void)();
+    expect(scheduled).toHaveLength(1);
+    scheduled.shift()?.();
+    expect(installs).toBe(2);
+    (installed as unknown as () => void)();
+    expect(attempts).toBe(2);
   });
 });

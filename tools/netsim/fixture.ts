@@ -5,6 +5,7 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapPreference,
   type CmdFrame,
   PROTOCOL_VERSION,
   SNAPSHOT_SIZE_CEILING,
@@ -65,10 +66,10 @@ const peer: PlayerPeer = {
 };
 const manager = new RoomManager(undefined, () => false);
 const roomConfigs = [
-  { mode: GameMode.GunGame, variant: GravityVariant.Standard, ladder: Ladder.Classic },
-  { mode: GameMode.GunGame, variant: GravityVariant.Scoutz, ladder: Ladder.Arsenal },
-  { mode: GameMode.Scoutzknivez, variant: GravityVariant.Scoutz, ladder: Ladder.Classic },
-  { mode: GameMode.GunGame, variant: GravityVariant.Standard, ladder: Ladder.Arsenal },
+  { mode: GameMode.GunGame, variant: GravityVariant.Standard, ladder: Ladder.Classic, mapPreference: MapPreference.AutoRotate },
+  { mode: GameMode.GunGame, variant: GravityVariant.Scoutz, ladder: Ladder.Arsenal, mapPreference: MapPreference.Duna },
+  { mode: GameMode.Scoutzknivez, variant: GravityVariant.Scoutz, ladder: Ladder.Classic, mapPreference: MapPreference.Spire },
+  { mode: GameMode.GunGame, variant: GravityVariant.Standard, ladder: Ladder.Arsenal, mapPreference: MapPreference.Cascade },
 ] as const;
 for (let roomIndex = 0; roomIndex < 4; roomIndex += 1) {
   const config = roomConfigs[roomIndex]!;
@@ -80,6 +81,7 @@ for (let roomIndex = 0; roomIndex < 4; roomIndex += 1) {
     mode: config.mode,
     variant: config.variant,
     ladder: config.ladder,
+    mapPreference: config.mapPreference,
     name: `Room_${roomIndex}`,
     roomId: "",
     reconnectToken: new Uint8Array(),

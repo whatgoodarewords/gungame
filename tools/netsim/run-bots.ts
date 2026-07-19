@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 import { loadGameplayMap } from "@gungame/shared";
 import { CollisionWorld } from "@gungame/sim";
-import { GameMode, GravityVariant, Ladder } from "@gungame/protocol";
+import { GameMode, GravityVariant, Ladder, MapPreference } from "@gungame/protocol";
 
 import { HeadlessBot } from "./bot.js";
 
@@ -17,6 +17,8 @@ interface Arguments {
   readonly mode: typeof GameMode[keyof typeof GameMode];
   readonly variant: typeof GravityVariant[keyof typeof GravityVariant];
   readonly ladder: typeof Ladder[keyof typeof Ladder];
+  readonly mapPreference: typeof MapPreference[keyof typeof MapPreference];
+  readonly mapName: "spire" | "foundry" | "duna" | "cascade";
 }
 
 function parse(): Arguments {
@@ -29,6 +31,20 @@ function parse(): Arguments {
   const mode = values.get("--mode") === "scoutz" ? GameMode.Scoutzknivez : GameMode.GunGame;
   const ladder = values.get("--ladder") === "arsenal" ? Ladder.Arsenal : Ladder.Classic;
   const variant = values.get("--gravity") === "scoutz" ? GravityVariant.Scoutz : GravityVariant.Standard;
+  const mapName = mode === GameMode.Scoutzknivez
+    ? "spire"
+    : values.get("--map") === "duna"
+      ? "duna"
+      : values.get("--map") === "cascade"
+        ? "cascade"
+        : "foundry";
+  const mapPreference = mapName === "spire"
+    ? MapPreference.Spire
+    : mapName === "duna"
+      ? MapPreference.Duna
+      : mapName === "cascade"
+        ? MapPreference.Cascade
+        : MapPreference.Foundry;
   return {
     bots: Number.parseInt(values.get("--bots") ?? "2", 10),
     durationSeconds: Number.parseFloat(values.get("--duration") ?? "30"),
@@ -39,6 +55,8 @@ function parse(): Arguments {
     mode,
     ladder,
     variant,
+    mapName,
+    mapPreference,
   };
 }
 
@@ -65,7 +83,7 @@ if (
 
 const map = loadGameplayMap(
   readFileSync(new URL(
-    args.mode === GameMode.Scoutzknivez ? "../../maps/spire.blob" : "../../maps/foundry.blob",
+    `../../maps/${args.mapName}.blob`,
     import.meta.url,
   )),
 );
@@ -78,6 +96,7 @@ const first = new HeadlessBot({
   mode: args.mode,
   variant: args.variant,
   ladder: args.ladder,
+  mapPreference: args.mapPreference,
   create: true,
 });
 first.start();
@@ -95,6 +114,7 @@ const bots = [first, ...Array.from({ length: args.bots - 1 }, (_, index) => new 
   mode: args.mode,
   variant: args.variant,
   ladder: args.ladder,
+  mapPreference: args.mapPreference,
   roomId: first.joinedRoomId,
 }))];
 for (const bot of bots.slice(1)) bot.start();
@@ -124,6 +144,7 @@ const report = {
   mode: args.mode === GameMode.Scoutzknivez ? "scoutzknivez" : "gun-game",
   ladder: args.ladder === Ladder.Arsenal ? "ARSENAL" : "CLASSIC",
   gravity: args.variant === GravityVariant.Scoutz ? "scoutz" : "standard",
+  map: args.mapName,
   predictionCorrectionP95M: percentile(corrections, 0.95),
   remoteEntityStallP95Ms: percentile(stalls, 0.95),
   reconnectCount: metrics.reduce((sum, metric) => sum + metric.reconnectCount, 0),

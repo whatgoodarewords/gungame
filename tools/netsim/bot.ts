@@ -6,6 +6,7 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapPreference,
   PROTOCOL_VERSION,
   decodeFrame,
   encodeFrame,
@@ -48,6 +49,7 @@ export interface BotOptions {
   readonly mode?: typeof GameMode[keyof typeof GameMode];
   readonly variant?: typeof GravityVariant[keyof typeof GravityVariant];
   readonly ladder?: typeof Ladder[keyof typeof Ladder];
+  readonly mapPreference?: typeof MapPreference[keyof typeof MapPreference];
   readonly create?: boolean;
   readonly roomId?: string;
 }
@@ -210,6 +212,7 @@ export class HeadlessBot {
         mode: this.options.mode ?? GameMode.GunGame,
         variant: this.options.variant ?? GravityVariant.Standard,
         ladder: this.options.ladder ?? Ladder.Classic,
+        mapPreference: this.options.mapPreference ?? MapPreference.AutoRotate,
         name: `Bot_${this.options.id}`,
         roomId: resume ? this.roomId : this.options.roomId ?? "",
         reconnectToken: resume ? this.reconnectToken : new Uint8Array(),

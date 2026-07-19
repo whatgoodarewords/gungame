@@ -6,6 +6,7 @@ import {
   GameMode,
   GravityVariant,
   Ladder,
+  MapPreference,
   type CmdFrame,
 } from "@gungame/protocol";
 import { MapSecretKind, TICK_DT } from "@gungame/shared";
@@ -49,6 +50,7 @@ function room(ladder: typeof Ladder[keyof typeof Ladder] = Ladder.Classic): Room
     mode: GameMode.GunGame,
     variant: GravityVariant.Standard,
     ladder,
+    mapPreference: MapPreference.AutoRotate,
   }, undefined, 0);
 }
 
@@ -159,6 +161,7 @@ describe("combat room", () => {
       mode: GameMode.GunGame,
       variant: GravityVariant.Standard,
       ladder: Ladder.Classic,
+      mapPreference: MapPreference.Foundry,
     }, undefined, 0, [], [{
       kind: MapSecretKind.FoundrySigil,
       bounds: { min: { x: -0.4, y: 1.2, z: -1.5 }, max: { x: 0.4, y: 1.9, z: -1.35 } },
@@ -207,6 +210,7 @@ describe("names and reconnect progress", () => {
       mode: GameMode.GunGame,
       variant: GravityVariant.Standard,
       ladder: Ladder.Classic,
+      mapPreference: MapPreference.AutoRotate,
       name: "Resume Me",
       roomId: "",
       reconnectToken: new Uint8Array(),
@@ -248,6 +252,7 @@ describe("12-bot combat determinism smoke", () => {
         mode: GameMode.GunGame,
         variant: GravityVariant.Scoutz,
         ladder: Ladder.Arsenal,
+        mapPreference: MapPreference.AutoRotate,
       }, undefined, 0, spawns);
       const epochs = new Map<number, number>();
       for (let index = 0; index < 12; index += 1) {

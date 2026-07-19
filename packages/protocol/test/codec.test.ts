@@ -6,6 +6,8 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapId,
+  MapPreference,
   PROTOCOL_VERSION,
   ProtocolError,
   decodeFrame,
@@ -42,6 +44,7 @@ describe("binary codec", () => {
         mode: GameMode.Scoutzknivez,
         variant: GravityVariant.Scoutz,
         ladder: Ladder.Arsenal,
+        mapPreference: MapPreference.Spire,
         name: "Codec Bot",
         roomId: "",
         reconnectToken: new Uint8Array(),
@@ -55,6 +58,7 @@ describe("binary codec", () => {
         mode: GameMode.GunGame,
         variant: GravityVariant.Standard,
         ladder: Ladder.Classic,
+        mapId: MapId.Duna,
       },
       cmd(),
       {
@@ -75,6 +79,14 @@ describe("binary codec", () => {
     if (decodedCmd.type !== FrameType.Cmd) throw new Error("wrong frame");
     expect(decodedCmd.viewPitch).toBeCloseTo(89, 4);
     expect(decodedCmd.viewYaw).toBeCloseTo(123.25, 2);
+    const decodedHello = decodeFrame(encodeFrame(frames[0]!));
+    expect(decodedHello.type).toBe(FrameType.Hello);
+    if (decodedHello.type !== FrameType.Hello) throw new Error("wrong frame");
+    expect(decodedHello.mapPreference).toBe(MapPreference.Spire);
+    const decodedWelcome = decodeFrame(encodeFrame(frames[1]!));
+    expect(decodedWelcome.type).toBe(FrameType.Welcome);
+    if (decodedWelcome.type !== FrameType.Welcome) throw new Error("wrong frame");
+    expect(decodedWelcome.mapId).toBe(MapId.Duna);
   });
 
   it("rejects forged, oversized, truncated, trailing, and non-finite frames", () => {
@@ -97,6 +109,7 @@ describe("binary codec", () => {
       mode: GameMode.GunGame,
       variant: GravityVariant.Standard,
       ladder: Ladder.Classic,
+      mapPreference: MapPreference.AutoRotate,
       name: "Fuzz_Bot",
       roomId: "",
       reconnectToken: new Uint8Array(),

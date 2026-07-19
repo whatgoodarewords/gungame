@@ -7,6 +7,7 @@ import { Buttons, createInitialState, CollisionWorld, type Cmd } from "@gungame/
 import { ClockSync } from "../src/net/clock.js";
 import { RemoteInterpolation } from "../src/net/interpolation.js";
 import { PredictionReconciler } from "../src/net/prediction.js";
+import { OffRenderTickDriver } from "../src/tick-driver.js";
 
 function boxWorld(
   min: readonly [number, number, number],
@@ -57,6 +58,32 @@ describe("clock sync and pacing", () => {
     const before = clock.commandBiasTicks;
     clock.commandTick(0, 9, 1_500);
     expect(before - clock.commandBiasTicks).toBeLessThanOrEqual(0.5);
+  });
+
+  it("keeps the connection active and sends cmds through 3 s with no render frames", () => {
+    let clockMs = 0;
+    let commands = 0;
+    const connection = { active: true };
+    const queue: Array<{ due: number; callback: () => void }> = [];
+    const driver = new OffRenderTickDriver(
+      () => {
+        if (connection.active) commands += 1;
+      },
+      () => clockMs,
+      (callback, delayMs) => queue.push({ due: clockMs + delayMs, callback }),
+    );
+    driver.start();
+    while (queue.length > 0) {
+      queue.sort((left, right) => left.due - right.due);
+      const next = queue.shift()!;
+      if (next.due > 3_000) break;
+      clockMs = next.due;
+      next.callback();
+    }
+    driver.stop();
+    expect(connection.active).toBe(true);
+    expect(commands).toBeGreaterThanOrEqual(190);
+    expect(commands).toBeLessThanOrEqual(192);
   });
 });
 

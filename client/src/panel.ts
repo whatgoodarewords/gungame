@@ -13,7 +13,6 @@ export interface PanelBindings {
 }
 
 export class DevPanel {
-  private speedEl: HTMLElement;
   private drawEl: HTMLElement;
   private fpsEl: HTMLElement;
   private inputs = new Map<string, HTMLInputElement>();
@@ -25,6 +24,7 @@ export class DevPanel {
       #devpanel{position:fixed;top:12px;right:12px;width:250px;background:rgba(10,12,16,.88);
         color:#cfe3cf;font:12px/1.5 ui-monospace,monospace;padding:12px;border-radius:8px;
         border:1px solid #2a3a2a;z-index:10;user-select:none}
+      #devpanel[hidden]{display:none}
       #devpanel h3{margin:0 0 6px;font-size:11px;letter-spacing:.14em;color:#7fae7f}
       #devpanel .row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:2px 0}
       #devpanel input[type=range]{width:120px;accent-color:#7fae7f}
@@ -35,8 +35,7 @@ export class DevPanel {
       #devpanel button:hover{border-color:#7fae7f}
       #devpanel .presets{display:flex;gap:6px;margin:4px 0 8px}
     </style>
-    <h3>SPEED</h3><div class="row"><span class="stat" id="gg-speed">0.0</span><span>m/s</span>
-      <span id="gg-fps" style="margin-left:auto">0</span><span>fps</span>
+    <h3>DIAGNOSTICS</h3><div class="row"><span id="gg-fps">0</span><span>fps</span>
       <span id="gg-draws">0</span><span>draws</span></div>
     <h3 style="margin-top:10px">MOVEMENT</h3>
     <div class="presets" id="gg-presets"></div>
@@ -47,8 +46,15 @@ export class DevPanel {
     <div class="row"><span>cm/360</span><input type="range" id="gg-cm" min="10" max="80" step="1" value="30"><span class="val" id="gg-cmv">30</span></div>
     <div class="row"><span>DPI</span><input type="range" id="gg-dpi" min="400" max="3200" step="100" value="800"><span class="val" id="gg-dpiv">800</span></div>`;
     document.body.appendChild(root);
+    const storageKey = "gg:dev-panel-open";
+    root.hidden = localStorage.getItem(storageKey) !== "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.code !== "Backquote" || event.repeat) return;
+      root.hidden = !root.hidden;
+      localStorage.setItem(storageKey, root.hidden ? "0" : "1");
+      event.preventDefault();
+    });
 
-    this.speedEl = root.querySelector("#gg-speed")!;
     this.drawEl = root.querySelector("#gg-draws")!;
     this.fpsEl = root.querySelector("#gg-fps")!;
 
@@ -111,8 +117,7 @@ export class DevPanel {
     (input.nextElementSibling as HTMLElement).textContent = String(value);
   }
 
-  update(speedMs: number, fps: number, drawCalls: number): void {
-    this.speedEl.textContent = speedMs.toFixed(1);
+  update(fps: number, drawCalls: number): void {
     this.fpsEl.textContent = String(Math.round(fps));
     this.drawEl.textContent = String(drawCalls);
   }

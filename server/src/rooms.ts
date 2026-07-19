@@ -11,6 +11,8 @@ import {
   GravityVariant,
   JoinKind,
   Ladder,
+  MapId,
+  MapPreference,
   ProtocolError,
   RoundState,
   ServerBaselineEpochs,
@@ -80,6 +82,7 @@ export interface RoomConfig {
   readonly mode: typeof GameMode[keyof typeof GameMode];
   readonly variant: typeof GravityVariant[keyof typeof GravityVariant];
   readonly ladder: typeof Ladder[keyof typeof Ladder];
+  readonly mapPreference: typeof MapPreference[keyof typeof MapPreference];
 }
 
 export interface HullSample extends HullHistorySample {
@@ -247,9 +250,12 @@ export class Room {
   private nextPlayerId = 1;
   private nextEventId = 1;
   private lastNonEmptyMs: number;
-  private readonly world: CollisionWorld | undefined;
-  private readonly spawns: readonly MapSpawn[];
-  private readonly secrets: readonly MapSecret[];
+  private world: CollisionWorld | undefined;
+  private spawns: readonly MapSpawn[];
+  private secrets: readonly MapSecret[];
+  private readonly mapRotation: readonly RoomMapBinding[];
+  private mapRotationIndex: number;
+  private activeMapId: typeof MapId[keyof typeof MapId];
   private secretTriggered = false;
   private lastServerTick = 0;
 
@@ -260,6 +266,10 @@ export class Room {
     nowMs: number,
     spawns: readonly (MapSpawn | Vec3)[] = [],
     secrets: readonly MapSecret[] = [],
+    mapId: typeof MapId[keyof typeof MapId] = config.mode === GameMode.Scoutzknivez
+      ? MapId.Spire
+      : MapId.Foundry,
+    mapRotation: readonly RoomMapBinding[] = [],
   ) {
     this.id = id;
     this.config = Object.freeze({ ...config });
@@ -268,6 +278,9 @@ export class Room {
       ? spawn
       : { mode: config.mode, team: 0, position: spawn, yaw: 0 });
     this.secrets = secrets;
+    this.activeMapId = mapId;
+    this.mapRotation = mapRotation;
+    this.mapRotationIndex = Math.max(0, mapRotation.findIndex((entry) => entry.mapId === mapId));
     this.lastNonEmptyMs = nowMs;
     this.rules = new ModeRules(config.mode as 0 | 1, config.ladder as LadderIdValue);
   }
@@ -284,6 +297,10 @@ export class Room {
 
   get emptySinceMs(): number {
     return this.lastNonEmptyMs;
+  }
+
+  get mapId(): typeof MapId[keyof typeof MapId] {
+    return this.activeMapId;
   }
 
   add(peer: PlayerPeer, nowMs: number, rawName = "Player"): JoinSuccess | undefined {
@@ -740,6 +757,20 @@ export class Room {
   }
 
   private restartRound(tick: number): void {
+    if (
+      this.config.mode === GameMode.GunGame &&
+      this.config.mapPreference === MapPreference.AutoRotate &&
+      this.mapRotation.length > 1
+    ) {
+      this.mapRotationIndex = (this.mapRotationIndex + 1) % this.mapRotation.length;
+      const next = this.mapRotation[this.mapRotationIndex];
+      if (next !== undefined) {
+        this.activeMapId = next.mapId;
+        this.world = next.world;
+        this.spawns = next.spawns;
+        this.secrets = next.secrets;
+      }
+    }
     this.rules.restart();
     this.secretTriggered = false;
     this.syncRuleState();
@@ -801,6 +832,7 @@ export class Room {
     return {
       mode: this.config.mode,
       ladder: this.config.ladder,
+      mapId: this.activeMapId,
       roundState: this.rules.frozen ? RoundState.ScoreboardFreeze : RoundState.Playing,
       winnerId: snapshot.winnerId,
       restartTicksRemaining: snapshot.restartTick === 0
@@ -887,13 +919,14 @@ export class Room {
 }
 
 export interface RoomMapBinding {
+  readonly mapId: typeof MapId[keyof typeof MapId];
   readonly world: CollisionWorld | undefined;
   readonly spawns: readonly MapSpawn[];
   readonly secrets: readonly MapSecret[];
 }
 
 export interface RoomMapCatalog {
-  readonly gunGame: RoomMapBinding;
+  readonly gunGame: readonly RoomMapBinding[];
   readonly scoutzknivez: RoomMapBinding;
 }
 
@@ -941,6 +974,7 @@ export class RoomManager {
         mode: hello.mode === GameMode.Scoutzknivez ? GameMode.Scoutzknivez : GameMode.GunGame,
         variant: hello.variant === GravityVariant.Scoutz ? GravityVariant.Scoutz : GravityVariant.Standard,
         ladder: hello.ladder === Ladder.Arsenal ? Ladder.Arsenal : Ladder.Classic,
+        mapPreference: this.normalizeMapPreference(hello.mode, hello.mapPreference),
       }, nowMs);
       return room.add(peer, nowMs, hello.name) ?? { refusal: "room-full" };
     }
@@ -954,6 +988,7 @@ export class RoomManager {
         mode: GameMode.GunGame,
         variant: GravityVariant.Standard,
         ladder: Ladder.Classic,
+        mapPreference: MapPreference.AutoRotate,
       }, nowMs);
     }
     return room.add(peer, nowMs, hello.name) ?? { refusal: "room-full" };
@@ -974,9 +1009,11 @@ export class RoomManager {
   private create(config: RoomConfig, nowMs: number): Room {
     const id = `r${this.roomSequence.toString(36).padStart(6, "0")}`;
     this.roomSequence += 1;
-    const binding = config.mode === GameMode.Scoutzknivez
-      ? this.maps?.scoutzknivez
-      : this.maps?.gunGame;
+    const rotation = config.mode === GameMode.Scoutzknivez
+      ? (this.maps === undefined ? [] : [this.maps.scoutzknivez])
+      : (this.maps?.gunGame ?? []);
+    const requestedMapId = this.mapIdForPreference(config.mode, config.mapPreference);
+    const binding = rotation.find((entry) => entry.mapId === requestedMapId) ?? rotation[0];
     const room = new Room(
       id,
       config,
@@ -984,8 +1021,33 @@ export class RoomManager {
       nowMs,
       binding?.spawns ?? this.spawns,
       binding?.secrets ?? [],
+      binding?.mapId ?? requestedMapId,
+      rotation,
     );
     this.rooms.set(id, room);
     return room;
+  }
+
+  private normalizeMapPreference(
+    mode: number,
+    preference: number,
+  ): typeof MapPreference[keyof typeof MapPreference] {
+    if (mode === GameMode.Scoutzknivez) {
+      return preference === MapPreference.Spire ? MapPreference.Spire : MapPreference.AutoRotate;
+    }
+    return preference === MapPreference.Foundry || preference === MapPreference.Duna ||
+      preference === MapPreference.Cascade
+      ? preference
+      : MapPreference.AutoRotate;
+  }
+
+  private mapIdForPreference(
+    mode: typeof GameMode[keyof typeof GameMode],
+    preference: typeof MapPreference[keyof typeof MapPreference],
+  ): typeof MapId[keyof typeof MapId] {
+    if (mode === GameMode.Scoutzknivez) return MapId.Spire;
+    if (preference === MapPreference.Duna) return MapId.Duna;
+    if (preference === MapPreference.Cascade) return MapId.Cascade;
+    return MapId.Foundry;
   }
 }

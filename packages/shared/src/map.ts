@@ -12,6 +12,8 @@ const SECRET_BYTES = 28;
 export const MapSecretKind = {
   SpireRoom: 1,
   FoundrySigil: 2,
+  DunaGraffitiRoom: 3,
+  CascadeWaterfallRoom: 4,
 } as const;
 
 export type MapSecretKindValue = typeof MapSecretKind[keyof typeof MapSecretKind];

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadGameplayMap } from "@gungame/shared";
 import { CollisionWorld } from "@gungame/sim";
+import { MapId } from "@gungame/protocol";
 
 import { AuthoritativeLoop } from "./loop.js";
 import { RoomManager } from "./rooms.js";
@@ -66,17 +67,21 @@ function loadStaticAssets(root: string): ReadonlyMap<string, StaticAsset> {
 
 const spireMap = loadGameplayMap(readFileSync(new URL("../../maps/spire.blob", import.meta.url)));
 const foundryMap = loadGameplayMap(readFileSync(new URL("../../maps/foundry.blob", import.meta.url)));
+const dunaMap = loadGameplayMap(readFileSync(new URL("../../maps/duna.blob", import.meta.url)));
+const cascadeMap = loadGameplayMap(readFileSync(new URL("../../maps/cascade.blob", import.meta.url)));
+const binding = (mapId: typeof MapId[keyof typeof MapId], map: typeof spireMap) => ({
+  mapId,
+  world: new CollisionWorld(map.collision, map.killVolumes),
+  spawns: map.spawns,
+  secrets: map.secrets,
+});
 const maps = {
-  scoutzknivez: {
-    world: new CollisionWorld(spireMap.collision, spireMap.killVolumes),
-    spawns: spireMap.spawns,
-    secrets: spireMap.secrets,
-  },
-  gunGame: {
-    world: new CollisionWorld(foundryMap.collision, foundryMap.killVolumes),
-    spawns: foundryMap.spawns,
-    secrets: foundryMap.secrets,
-  },
+  scoutzknivez: binding(MapId.Spire, spireMap),
+  gunGame: [
+    binding(MapId.Foundry, foundryMap),
+    binding(MapId.Duna, dunaMap),
+    binding(MapId.Cascade, cascadeMap),
+  ],
 } as const;
 const staticAssets = loadStaticAssets(staticRoot);
 const spaIndex = staticAssets.get("index.html");

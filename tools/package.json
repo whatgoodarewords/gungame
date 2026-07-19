@@ -9,16 +9,17 @@
     "mappipe": "tsx mappipe/cli.ts",
     "netsim:steady": "tsx netsim/run-bots.ts --bots 12 --duration 600 --output tools/netsim/reports/steady.json",
     "smoke": "bash netsim/smoke-local.sh",
-    "test": "tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob && tsx mappipe/cli.ts validate maps/spire.gltf && tsx mappipe/cli.ts validate maps/spire.blob && tsx mappipe/cli.ts validate maps/foundry.gltf && tsx mappipe/cli.ts validate maps/foundry.blob && tsx netsim/fixture.ts",
+    "test": "tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob && tsx mappipe/cli.ts validate maps/spire.gltf && tsx mappipe/cli.ts validate maps/spire.blob && tsx mappipe/cli.ts validate maps/foundry.gltf && tsx mappipe/cli.ts validate maps/foundry.blob && tsx mappipe/cli.ts validate maps/duna.gltf && tsx mappipe/cli.ts validate maps/duna.blob && tsx mappipe/cli.ts validate maps/cascade.gltf && tsx mappipe/cli.ts validate maps/cascade.blob && tsx netsim/fixture.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p mappipe/tsconfig.json"
   },
   "dependencies": {
     "@gungame/protocol": "workspace:*",
-    "@gungame/sim": "workspace:*",
-    "@gungame/shared": "workspace:*"
+    "@gungame/shared": "workspace:*",
+    "@gungame/sim": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "playwright": "^1.61.1",
     "tsx": "4.20.6"
   }
 }
