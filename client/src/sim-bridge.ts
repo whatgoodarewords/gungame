@@ -55,6 +55,8 @@ export interface SimHandle {
   setParams(params: MoveParams): void;
   setFeel(feel: FeelParams): void;
   applyInput(frameInput: FrameInput): void;
+  /** Pull-at-tick input source: consumes pulses exactly once per sim tick (144 Hz safe). */
+  setTickInput(source: () => FrameInput): void;
   getCombatState(): CombatView;
   drainCombatEvents(): readonly SnapshotEvent[];
   getPingMs(): number;
@@ -133,8 +135,10 @@ export function createPlayground(
   };
   const combatEvents: SnapshotEvent[] = [];
 
+  let tickInput: (() => FrameInput) | undefined;
   const tick = (): void => {
     if (world === undefined) return;
+    if (tickInput !== undefined) input = { ...tickInput() };
     prevState = state;
     const cmd: Cmd = {
       seq: nextSeq,
@@ -171,6 +175,9 @@ export function createPlayground(
     },
     applyInput: (frameInput) => {
       input = { ...frameInput };
+    },
+    setTickInput: (source) => {
+      tickInput = source;
     },
     getCombatState: () => combat,
     drainCombatEvents: () => combatEvents.splice(0),

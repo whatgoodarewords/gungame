@@ -215,7 +215,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     viewmodel = nextViewmodel;
     pipeline.replace(nextPipeline, () => {
       previous.rig?.dispose();
-      if (previous.viewmodel !== undefined) fpsCam.camera.remove(previous.viewmodel.root);
+      if (previous.viewmodel !== undefined) {
+        fpsCam.camera.remove(previous.viewmodel.root);
+        previous.viewmodel.dispose();
+      }
+      if (previous.materials !== undefined && previous.materials !== nextMaterials) {
+        for (const value of Object.values(previous.materials)) {
+          (value as Material | undefined)?.dispose?.();
+        }
+      }
     }, () => {
       nextRig.dispose();
       if (nextViewmodel !== undefined) fpsCam.camera.remove(nextViewmodel.root);
@@ -392,6 +400,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       clearReconnectAttempts(sessionStorage);
       reconnectScheduled = false;
       currentRoomId = roomId;
+      // Canonical room URL: makes the address bar shareable AND lets the
+      // reload/reconnect path find its token (review findings 5 + old 8).
+      if (roomId !== "") {
+        const roomUrl = new URL(location.href);
+        roomUrl.searchParams.set("room", roomId);
+        history.replaceState(null, "", roomUrl);
+      }
       connectedAtMs = performance.now();
       networkClosed = false;
       audio.uiConfirm();
@@ -493,7 +508,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if (event.code === "Tab") scoreboardHeld = false;
   });
   document.addEventListener("visibilitychange", () => {
-    const frame = input.sampleTick();
+    const frame = input.peek();
     sim.applyInput({
       buttons: frame.buttons,
       viewYaw: frame.yaw * RAD2DEG,
@@ -502,8 +517,22 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     });
     if (!document.hidden) hud.setPointerLock(input.isLocked, false);
   });
+  sim.setTickInput(() => {
+    const frame = input.sampleTick();
+    return {
+      buttons: frame.buttons,
+      viewYaw: (frame.fireFraction >= 0 ? frame.firedYaw : frame.yaw) * RAD2DEG,
+      viewPitch: (frame.fireFraction >= 0 ? frame.firedPitch : frame.pitch) * RAD2DEG,
+      fireFraction: frame.fireFraction >= 0 ? frame.fireFraction : 0,
+    };
+  });
   hud.setPointerLock(input.isLocked);
 
+  // Shared per-session tracer resources (review finding 9: zero per-shot GPU allocation).
+  const tracerMaterialPlain = new LineBasicMaterial({ color: 0xffffff });
+  const tracerMaterialHeadshot = new LineBasicMaterial({ color: 0xffdd55 });
+  const aimTracerMaterial = new LineBasicMaterial({ transparent: true, opacity: 0.8 });
+  const impactGeometry = new SphereGeometry(0.08, 6, 4);
   const showTracer = (
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
@@ -514,10 +543,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       from.x, from.y + 1.55, from.z,
       to.x, to.y + 0.95, to.z,
     ), 3));
-    const tracer = new Line(geometry, new LineBasicMaterial({ color: headshot ? 0xffdd55 : 0xffffff }));
+    const tracer = new Line(geometry, headshot ? tracerMaterialHeadshot : tracerMaterialPlain);
     const impact = new Mesh(
-      new SphereGeometry(0.08, 6, 4),
-      materials?.projectile ?? new LineBasicMaterial({ color: 0xffffff }),
+      impactGeometry,
+      materials?.projectile ?? tracerMaterialPlain,
     );
     impact.position.set(to.x, to.y + 0.95, to.z);
     scene.add(tracer, impact);
@@ -533,11 +562,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const direction = fpsCam.camera.getWorldDirection(new Vector3());
     const end = origin.clone().addScaledVector(direction, range);
     const geometry = new BufferGeometry().setFromPoints([origin, end]);
-    const tracer = new Line(geometry, new LineBasicMaterial({
-      color: currentStyle.palette.accent,
-      transparent: true,
-      opacity: 0.8,
-    }));
+    aimTracerMaterial.color.set(currentStyle.palette.accent);
+    const tracer = new Line(geometry, aimTracerMaterial);
     tracer.name = "hitscan-tracer";
     scene.add(tracer);
     setTimeout(() => {
@@ -583,13 +609,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const dtMs = Math.min(100, now - lastFrame);
     lastFrame = now;
     fpsSmoothed = fpsSmoothed * 0.95 + (1000 / Math.max(dtMs, 0.1)) * 0.05;
-    const frame = input.sampleTick();
-    sim.applyInput({
-      buttons: frame.buttons,
-      viewYaw: (frame.fireFraction >= 0 ? frame.firedYaw : frame.yaw) * RAD2DEG,
-      viewPitch: (frame.fireFraction >= 0 ? frame.firedPitch : frame.pitch) * RAD2DEG,
-      fireFraction: frame.fireFraction >= 0 ? frame.fireFraction : 0,
-    });
+    // View angles + held-button peek for camera/HUD only — pulse consumption
+    // moved to the sim tick via setTickInput (review finding 7: 144 Hz loss).
+    const frame = input.peek();
 
     const prev = sim.getPrevState().player;
     const curr = sim.getState().player;

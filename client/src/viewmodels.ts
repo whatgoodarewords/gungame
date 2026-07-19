@@ -138,6 +138,13 @@ export interface WeaponViewmodelOptions {
   readonly loadAssets?: boolean;
 }
 
+function disposeSubtree(root: { traverse(cb: (o: unknown) => void): void }): void {
+  root.traverse((obj) => {
+    const mesh = obj as { geometry?: { dispose(): void }; isMesh?: boolean };
+    if (mesh.isMesh === true) mesh.geometry?.dispose();
+  });
+}
+
 export class WeaponViewmodel {
   readonly root = new Group();
   private readonly material: Material;
@@ -165,7 +172,10 @@ export class WeaponViewmodel {
   setWeapon(weaponId: WeaponIdValue): void {
     if (weaponId === this.weaponId) return;
     this.weaponId = weaponId;
-    if (this.model !== undefined) this.root.remove(this.model);
+    if (this.model !== undefined) {
+      this.root.remove(this.model);
+      disposeSubtree(this.model);
+    }
     const config = VIEWMODEL_CONFIGS.find((entry) => entry.weaponId === weaponId);
     if (config === undefined) throw new RangeError(`missing viewmodel for weapon ${weaponId}`);
     this.model = buildSilhouette(config, this.material);
@@ -179,6 +189,10 @@ export class WeaponViewmodel {
     this.recoil = 0;
     this.rack = 0;
     this.goldieReload = 0;
+  }
+
+  dispose(): void {
+    disposeSubtree(this.root);
   }
 
   onFire(): void {

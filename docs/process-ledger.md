@@ -86,3 +86,6 @@ Codex credits exhausted mid-project — provider reports refill/retry at **Jul 2
 - Prime built its own E2E capability (Playwright headless vs the LIVE site, browsers on SD). The probe immediately caught two browser-only regressions the 100-test suite missed: detached-canvas pointer lock (aim dead) and an 8-second browser WS drop post-style-switch. Lesson for the writeup: unit suites + bots validate the protocol; only a real browser validates the game.
 - Codex quota exhausted mid-day (refill Jul 25 / credit purchase); owner had credits; lanes resumed in fast mode (`model_service_tier=fast`), noticeably quicker.
 - Codex lane tokens (implementation): phase0+1 ~unrecorded (pre-fast-mode), r2-r7 audits 613k (recorded above); fast-mode lanes 3/4/4b: pending pull from logs.
+
+## Operating-model deviation (2026-07-19, logged)
+Codex exhausted to Jul 26 mid-queue; owner directed 'continue to endgame' with the blocker known. Prime adjudication: hotfix2 P0/P1 implemented directly by the Prime from the reviewer's line-level specs (mechanical-execution class); Codex retro-audit queued on credit return; phase7 remains a Codex lane. Deviation ends when credits return.

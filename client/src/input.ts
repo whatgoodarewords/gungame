@@ -359,6 +359,18 @@ export class RawInput {
     }
   }
 
+  /** Non-consuming view for render-rate readers (camera, HUD): never clears pulses. */
+  peek(): FrameInput {
+    return {
+      yaw: this.yaw,
+      pitch: this.pitch,
+      buttons: this.buttons,
+      fireFraction: -1,
+      firedYaw: this.firedYaw,
+      firedPitch: this.firedPitch,
+    };
+  }
+
   /** Called by the fixed-tick loop at each tick boundary; returns and re-arms per-tick state. */
   sampleTick(): FrameInput {
     const pulseButtons =

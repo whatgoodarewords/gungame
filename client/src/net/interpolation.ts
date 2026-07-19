@@ -26,8 +26,10 @@ export class RemoteInterpolation {
   }
 
   push(tick: number, entities: readonly EntityState[], selfId: number): void {
+    const seen = new Set<number>();
     for (const state of entities) {
       if (state.id === selfId) continue;
+      seen.add(state.id);
       let buffer = this.buffers.get(state.id);
       if (buffer === undefined) {
         buffer = [];
@@ -39,6 +41,12 @@ export class RemoteInterpolation {
       }
       buffer.push({ tick, state });
       while (buffer.length > 16) buffer.shift();
+    }
+    // Prune departed entities so leavers never linger as ghost husks
+    // (review finding 6). push() receives the session's full entity map,
+    // so absence here is authoritative deletion.
+    for (const id of this.buffers.keys()) {
+      if (!seen.has(id)) this.buffers.delete(id);
     }
   }
 

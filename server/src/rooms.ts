@@ -512,6 +512,9 @@ export class Room {
       } catch (error) {
         slot.peer?.disconnect(4002, error instanceof Error ? error.message : "protocol error");
         slot.peer = undefined;
+        // Quarantine preserves the reconnect hold — a transient protocol
+        // hiccup must never cost ladder progress (review finding 12).
+        slot.holdUntilMs = performance.now() + RECONNECT_HOLD_MS;
       }
 
       if (slot.ammo === 0 && slot.reloadTick !== 0 && serverTick >= slot.reloadTick) {
@@ -527,7 +530,7 @@ export class Room {
         continue;
       }
       slot.backgroundSinceMs = 0;
-      if (frame !== undefined && slot.peer !== undefined && slot.alive && !this.rules.frozen) {
+      if (frame !== undefined && (slot.peer !== undefined || slot.isBot) && slot.alive && !this.rules.frozen) {
         const previousPosition = { ...slot.state.player.position };
         const scoutz = this.config.mode === GameMode.Scoutzknivez ||
           this.config.variant === GravityVariant.Scoutz;
@@ -587,6 +590,13 @@ export class Room {
     }
     for (const detonation of detonations) this.detonate(detonation, serverTick);
     this.sendSnapshots(serverTick, nowMs);
+  }
+
+  disbandOnError(): void {
+    for (const slot of this.players.values()) {
+      slot.peer?.disconnect(4005, "room error — rejoining");
+    }
+    this.players.clear();
   }
 
   shouldReap(nowMs: number): boolean {
@@ -948,7 +958,34 @@ export class Room {
       .filter((spawn) => team === 0 || spawn.team === 0 || spawn.team === team);
     const fallback = modeSpawns.length === 0 ? this.spawns : modeSpawns;
     const candidates = pool.length === 0 ? fallback : pool;
-    return candidates[(id + generation - 2) % Math.max(1, candidates.length)];
+    if (candidates.length === 0) return undefined;
+    // Occupancy-aware: pick the candidate maximizing distance to the nearest
+    // living player (review finding 8 — never spawn inside a body).
+    const living = [...this.players.values()]
+      .filter((slot) => slot.alive && slot.id !== id)
+      .map((slot) => slot.state.player.position);
+    if (living.length === 0) {
+      return candidates[(id + generation - 2) % candidates.length];
+    }
+    let best = candidates[0];
+    let bestDist = -1;
+    const offset = (id + generation - 2) % candidates.length;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const spawn = candidates[(offset + i) % candidates.length];
+      if (spawn === undefined) continue;
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const p of living) {
+        const dx = p.x - spawn.position.x;
+        const dy = p.y - spawn.position.y;
+        const dz = p.z - spawn.position.z;
+        nearest = Math.min(nearest, dx * dx + dy * dy + dz * dz);
+      }
+      if (nearest > bestDist) {
+        bestDist = nearest;
+        best = spawn;
+      }
+    }
+    return best;
   }
 
   private modeState(tick: number): SnapshotModeState {
@@ -1016,7 +1053,12 @@ export class Room {
   }
 
   private broadcastEvent(event: SnapshotEvent): void {
-    for (const slot of this.players.values()) slot.events.add(event);
+    // Journal only for slots that receive snapshots — bots and held
+    // (disconnected) slots never ack, so their journals would grow forever.
+    for (const slot of this.players.values()) {
+      if (slot.isBot || slot.peer === undefined) continue;
+      slot.events.add(event);
+    }
   }
 
   private nextEvent(): number {
@@ -1034,7 +1076,9 @@ export class Room {
   private kickAfk(nowMs: number): void {
     let removedHuman = false;
     for (const slot of [...this.players.values()]) {
-      if (slot.isBot) continue;
+      // Disconnected slots are owned by the 45 s reconnect hold (expireHolds),
+      // never the AFK drought — their lastInputMs is frozen by definition.
+      if (slot.isBot || slot.peer === undefined) continue;
       const backgroundExpired = slot.backgroundSinceMs !== 0 &&
         nowMs - slot.backgroundSinceMs >= AFK_MS;
       const droughtExpired = slot.backgroundSinceMs === 0 && nowMs - slot.lastInputMs >= AFK_MS;
@@ -1047,16 +1091,25 @@ export class Room {
   }
 
   private expireHolds(nowMs: number): void {
+    let removed = false;
     for (const slot of [...this.players.values()]) {
       if (slot.isBot) continue;
-      if (slot.peer === undefined && slot.holdUntilMs <= nowMs) this.removePlayer(slot.id);
+      if (slot.peer === undefined && slot.holdUntilMs <= nowMs) {
+        this.removePlayer(slot.id);
+        removed = true;
+      }
     }
+    if (removed) this.rebalanceBots(nowMs);
   }
 
   rebalanceBots(nowMs: number): void {
-    const humans = [...this.players.values()]
+    const connected = [...this.players.values()]
       .filter((slot) => !slot.isBot && slot.peer !== undefined).length;
-    const target = desiredBotCount(humans);
+    const held = [...this.players.values()]
+      .filter((slot) => !slot.isBot && slot.peer === undefined).length;
+    // A room with no connected humans and no reconnect holds must empty out
+    // entirely so shouldReap can fire — bots never keep a room alive.
+    const target = connected === 0 && held === 0 ? 0 : desiredBotCount(connected);
     const bots = [...this.players.values()].filter((slot) => slot.isBot);
     while (bots.length > target) {
       const bot = bots.pop();
@@ -1203,8 +1256,16 @@ export class RoomManager {
 
   tick(serverTick: number, nowMs: number): void {
     for (const [id, room] of this.rooms) {
-      room.tick(serverTick, nowMs);
-      if (room.shouldReap(nowMs)) this.rooms.delete(id);
+      // Per-room isolation (review finding 13): one room's tick failure must
+      // never starve the rooms after it in Map order.
+      try {
+        room.tick(serverTick, nowMs);
+        if (room.shouldReap(nowMs)) this.rooms.delete(id);
+      } catch (error) {
+        console.error(`room ${id} tick failed; disbanding`, error);
+        room.disbandOnError();
+        this.rooms.delete(id);
+      }
     }
   }
 
