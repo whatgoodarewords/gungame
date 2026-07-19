@@ -53,3 +53,42 @@ with no camping spot that two tiers of the ladder can't punish.
   deliberately against the 45.57° threshold; a 0.4 m ledge somewhere on every
   main route (duck-tap texture); no surface a player can stand on that the
   designer didn't intend (audit with the validator + a bot-roam pass).
+
+## Map 3 — "Duna" (Gun Game arena #2; the dust2 homage — owner request 2026-07-19)
+
+Original geometry and name; the LAYOUT ARCHETYPE of de_dust2 (layouts aren't
+copyrightable; the artistic work is — no textures, proportions, or landmarks
+copied). What we keep is the flow everyone's hands remember:
+- **Mid with doors-gap sightline** (our version: a broken arch slit) splitting
+  two rotation halves; **Long** (the map's rail/Deadeye lane, one 70 m
+  sightline, entrance dogleg so it can't be held from spawn); **Catwalk/short**
+  elevated route with the classic drop-down into a site-like plaza; **Tunnels**
+  (low, tight — Boomstick country) under the other half; two open "site"
+  plazas as the FFA hot zones.
+- Scaled to our movement: all routes 20% wider than CS proportions (we're
+  faster), tunnel ceilings 4 m (bhop headroom), catwalk drop is coyote-friendly.
+- One surf ribbon along Long's outer wall (the modern twist on the archetype).
+- 16 FFA spawns, anti-farm scored. Secret: a crate-parkour ledge above mid
+  with the graffiti room.
+
+## Map 4 — "Cascade" (the most-fun-possible map — owner request 2026-07-19)
+
+Design target: the map itself is a rhythm instrument. Every considerations
+pass (movement thesis, flow, readability, 2–12 scale, comeback geometry):
+- **The Loop**: a terraced canyon ring (~90 m circumference) with a continuous
+  gentle downhill grade in the run direction — you can bhop the loop endlessly,
+  each lap building speed like a velodrome. The floor undulates in 3 low waves
+  per quarter (ramp-hop rhythm: jump timing IS the skill).
+- **The Crossing**: two bridges span the canyon at different heights, offset
+  45° — the airshot galleries. Anyone on the loop is periodically silhouetted
+  to the bridges and vice versa: exposure is rhythmic, never constant.
+- **Terraces**: three tiers up the inner wall, rocket-jump/duck-tap shortcuts
+  between them; top tier sees both bridges but not the loop floor (no single
+  dominant position).
+- **Surf rim**: the entire outer canyon wall above 2 m is a 50° surf ribbon —
+  the escape/flank layer; a full surf lap is possible and glorious.
+- **The Well**: center-bottom kill-volume pit with a rim walkway — the
+  highest-tension knife-hunt floor; falling in is always your own fault.
+- Comeback geometry: spawns feed the loop tangentially (instant flow state,
+  never spawn-facing-wall); no position holds more than one layer.
+- Secret: a waterfall-notch room behind the surf rim, strafe-chain entry.

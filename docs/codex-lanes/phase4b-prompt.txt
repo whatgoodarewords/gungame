@@ -1,0 +1,28 @@
+Role: Codex GPT-5.6 lane for gungame "Phase 4b — front door redesign + two new maps" (issue #7 continuation). NORMATIVE: docs/SPEC.md §3.4 room flows; docs/maps-brief.md Maps 3 (Duna) and 4 (Cascade). You write all code; NO git operations. Do not touch docs/, deploy/.
+
+PART A — Front door redesign (owner: current screen "looks busted" — screenshot showed a rogue vertical border bisecting the card, controls overflowing the card bounds, raw dev-string dumped at the bottom). The Prime's EXACT design direction — implement precisely, no interpretation:
+
+1. Structure: one centered card, fixed max-width 420 px, viewport-centered both axes, single border, nothing escapes its bounds (fix the current overflow: inputs/selects use width:100%, box-sizing:border-box everywhere). Behind it, the game world renders live (spectator orbit camera slowly circling the map at 15 m height, 60 s period) — the menu floats over the actual arena, not a void. If the world isn't loaded yet: plain #0e131b.
+2. Hierarchy (top to bottom, 20 px padding, 14 px gaps):
+   - Wordmark: "GUNGAME" 28 px/800 weight/0.08 em tracking, followed on the same baseline by a 8 px-diameter dot in the accent color (pulse: opacity 0.4→1, 2 s ease, the only animation).
+   - Name field: 44 px tall, autofocus, placeholder "your name", maxlength 16, charset filtered live to [a-zA-Z0-9_ -]; persisted to localStorage and prefilled on return.
+   - Primary action: one full-width 48 px button "PLAY" (accent bg #7dd0ff, #06090d text, 700 weight). Enter in the name field = PLAY. Disabled (40% opacity) until name is >=2 chars.
+   - Divider: 1 px line, then a collapsed "Create room" disclosure row (12 px chevron). Expanding reveals Mode / Ladder(gungame only) / Gravity as three segmented-control rows (NOT native selects — buttons in a row, active = accent border + fill 12%), plus a full-width secondary button "CREATE ROOM" (transparent bg, accent border).
+   - Ladder row only visible when Mode=Gun Game; Gravity auto-flips to Scoutz when Ladder=ARSENAL (owner taste pairing; still changeable).
+3. Palette: bg card rgba(10,13,18,0.92) + backdrop-blur 12px; text #dfe8f2; secondary #8b98a8; accent #7dd0ff; border #223140 (1 px). Font: the existing mono stack. NO other colors.
+4. Remove the dev-string footer entirely; dev params remain URL-only (documented in README dev section instead).
+5. States: connecting (button → spinner inline, text "finding a room…"), server-restarting toast, version-mismatch reload prompt, room-full → "quickplay instead?" inline row. All within the card.
+6. Tests: name filter/persistence unit tests; disclosure + conditional-row logic; segmented control state.
+
+PART B — Two new maps, exactly per docs/maps-brief.md Maps 3 & 4 (Duna: the dust2-archetype homage, original geometry, all listed routes/sightlines/dimensions; Cascade: the loop/bridges/terraces/surf-rim/well design with the undulation rhythm as specced). Programmatic generators like Spire/Foundry, through the pipeline, validators green (16 FFA spawns each, kill volumes, secret nodes). Map rotation: gungame rooms now rotate Foundry → Duna → Cascade between matches (same-map restart retired; scoutz stays Spire); room creation gains a Map segmented row (Auto-rotate default, or pin one) — extend protocol roomConfig + the §3.4 create flow accordingly (protocol version bump).
+
+Done means: pnpm -r typecheck && pnpm -r test green; all four maps validate; scripted bot matches complete on Duna AND Cascade; the front-door card renders within bounds at 360px, 768px, 1440px widths (assert via computed-style unit tests where feasible; document the manual matrix).
+
+Report: conclusion, evidence, caveats, next action. APPEND progressively to client/PHASE4B-REPORT.md.
+
+PART C — P0 LIVE BUG (owner screenshot: switching Render Style mid-match → black scene, 0 draws, then CONNECTION LOST):
+Diagnosis (Prime): applyStyle→rebuildPipeline re-derives the TSL post chain live; an exception there kills the renderer animation loop, and the net pump shares its fate → server times the session out. Fix all three layers:
+1. Root cause: reproduce the postChain rebuild failure per style×backend (WebGL2 fallback path is testable headless; instrument the WebGPU path with an error boundary + console.error capture) and fix the actual rebuild bug (likely: the PostProcessing pipeline needs reconstruction, not mutation, when outputNode changes — or per-style nodes hold disposed references after rig?.dispose()).
+2. Isolation: wrap style application in a try/catch that falls back to the previous working style (never a dead scene); the renderer loop must re-arm after any thrown frame.
+3. Fate-sharing: verify and enforce the §3.3 contract — cmd send/net pump runs off the render loop (setTimeout/Worker driver), so a render exception can never starve the connection. Add a test: kill the render loop artificially for 3 s → connection stays active, cmds keep flowing.
+Also: now that the product HUD exists, the dev panel duplicates SPEED — panel becomes hidden by default, toggled with Backquote (`), remembered in localStorage; remove the duplicate bottom-right SPEED tile (keep the HUD one styled with the §3.6 readout).
