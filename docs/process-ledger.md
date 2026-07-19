@@ -77,3 +77,12 @@ Owner prompts so far: ~14 messages (1 substantial voice-note brief + short steer
 ## Provider quota incident (2026-07-18 ~22:42)
 
 Codex credits exhausted mid-project — provider reports refill/retry at **Jul 25, 04:24** (or immediate on credit purchase). The Phase 3 lane died at launch (zero work produced, zero tokens burned on the attempt; phases 0-2d and all 7 audit rounds completed before exhaustion). Lesson recorded: the CLAUDEX quota-preflight rule existed for exactly this and was not applied to the Codex side after r7. Phase 3 lane prompt is committed and ready to relaunch unchanged.
+
+## Day 2 (2026-07-19) — content, hardening, the "test everything" turn
+
+- Phases 3 (combat, 74 tests) and 4 (styles/maps/HUD/audio, 85→100 tests) shipped and deployed; the live URL became a playable game (~07:00) then got real maps.
+- Owner playtest #1 found: macOS Ctrl+Space eats crouch-jump (OS shortcut, not code); projectile invisibility; crosshair quality; busted front-door layout; style-switch → CONNECTION LOST. Each spawned: the 29-item UX punch list (docs/ux-details.md), lane 4b (front door redesign + Duna/Cascade maps + style-transaction fix), and the standing lesson that owner playtests find bug *classes*, not bugs.
+- "Test everything" directive → three parallel reviews: sim/protocol adversarial review returned 9 verified findings (5 P1 — incl. the never-draining cmd-window latency bug and the air-unduck wallhack) with file:line fixes; asset research returned a fully-CC0 pipeline (WRAD ARMS + Quaternius + Kenney + Poly Haven; Mixamo/Sonniss rejected on license); server/client review died to the Claude session limit → re-queued as Codex audit post-4c.
+- Prime built its own E2E capability (Playwright headless vs the LIVE site, browsers on SD). The probe immediately caught two browser-only regressions the 100-test suite missed: detached-canvas pointer lock (aim dead) and an 8-second browser WS drop post-style-switch. Lesson for the writeup: unit suites + bots validate the protocol; only a real browser validates the game.
+- Codex quota exhausted mid-day (refill Jul 25 / credit purchase); owner had credits; lanes resumed in fast mode (`model_service_tier=fast`), noticeably quicker.
+- Codex lane tokens (implementation): phase0+1 ~unrecorded (pre-fast-mode), r2-r7 audits 613k (recorded above); fast-mode lanes 3/4/4b: pending pull from logs.
