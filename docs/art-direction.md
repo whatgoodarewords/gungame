@@ -45,3 +45,34 @@ Characters + Animation Library, Kenney audio, Poly Haven textures/HDRIs.
 Prime retries headless downloads; anything gated gets a 2-minute owner manual
 download list (owner offered). NO authenticated services needed — all CC0
 direct.
+
+## Performance discipline (owner: "very, very performant and elegant in that way")
+
+Perf is part of the aesthetic — a speed game that stutters is ugly. Every
+visual feature above pays rent against these budgets, measured, or it's cut:
+
+- **Frame budget** (unchanged, now feature-allocated): ≥120 fps M-series /
+  ≥60 fps Iris-Xe-class. New-feature allocations at 1440p M-series:
+  lighting+shadows ≤2.0 ms, post chain ≤1.0 ms, particles+casings ≤0.5 ms,
+  characters ≤1.0 ms. The perf HUD (backtick panel) gains a frame-time
+  breakdown row so regressions are visible the day they land.
+- **Draw calls ≤150 holds**: dressing via BatchedMesh/instancing only;
+  particles are ONE instanced system per effect type; casings pooled (max 32
+  live, oldest recycled).
+- **Shadows**: single directional cascade, tight frustum per map bounds,
+  1024px default / 2048 on M-series — never per-light shadow maps.
+- **Textures**: KTX2/Basis-compressed (toktx at build), 1K default sizes,
+  mipped; total GPU texture budget 64 MB. HDRIs prefiltered offline to PMREM
+  at build, not runtime.
+- **Post**: one combined pass (ACES + bloom threshold + vignette in a single
+  TSL chain) — no naive multi-pass stacking.
+- **Zero per-frame allocation** in render + sim hot loops (reuse vectors,
+  pooled objects); a CI smoke asserts no GC pressure growth over a 60 s bot
+  match (heap delta < 5 MB).
+- **Cold load stays < 5 s** on throttled 50 Mbps incl. all new assets:
+  code-split the character/dressing packs to stream in AFTER first
+  controllable frame (play first, pretty catches up within seconds — the
+  correct order for a game about instant play).
+- **Elegance clause**: prefer one system that does a thing well over three
+  toggles; any effect that can't justify its milliseconds in feel terms is
+  deleted, per the no-theater standing bar.
