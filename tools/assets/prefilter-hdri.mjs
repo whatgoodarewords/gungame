@@ -3,6 +3,13 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
+// Deploy builds ship prebaked outputs in git; regeneration needs local tools
+// (magick/toktx/ffmpeg) that container builders lack (Prime deploy fix).
+if (process.env.GG_PREBAKED_ASSETS === "1") {
+  console.log(`[assets] GG_PREBAKED_ASSETS=1 — using committed outputs for ${import.meta.url.split("/").pop()}`);
+  process.exit(0);
+}
+
 const root = resolve(import.meta.dirname, "../..");
 const toktx = join(
   root,

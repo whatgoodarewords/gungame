@@ -2,6 +2,13 @@ import { copyFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+// Deploy builds ship prebaked outputs in git; regeneration needs local tools
+// (magick/toktx/ffmpeg) that container builders lack (Prime deploy fix).
+if (process.env.GG_PREBAKED_ASSETS === "1") {
+  console.log(`[assets] GG_PREBAKED_ASSETS=1 — using committed outputs for ${import.meta.url.split("/").pop()}`);
+  process.exit(0);
+}
+
 const root = resolve(import.meta.dirname, "../..");
 const selectedDirectories = [
   "assets/vendor/kenney-impact/selected",
