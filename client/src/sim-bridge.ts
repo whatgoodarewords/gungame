@@ -2,6 +2,9 @@ import {
   DEFAULT_FEEL,
   loadGameplayMap,
   TICK_DT,
+  WeaponId,
+  ladderWeapons,
+  type WeaponIdValue,
   type FeelParams,
 } from "../../packages/shared/src/index.js";
 import {
@@ -13,7 +16,14 @@ import {
   DEFAULT,
   SCOUTZ,
 } from "../../packages/sim/src/index.js";
-import { GameMode, GravityVariant } from "../../packages/protocol/src/index.js";
+import {
+  EntityKind,
+  GameMode,
+  GravityVariant,
+  Ladder,
+  type SnapshotEvent,
+  type SnapshotModeState,
+} from "../../packages/protocol/src/index.js";
 import {
   NetworkSession,
   PredictionReconciler,
@@ -42,6 +52,20 @@ export interface SimHandle {
   setParams(params: MoveParams): void;
   setFeel(feel: FeelParams): void;
   applyInput(frameInput: FrameInput): void;
+  getCombatState(): CombatView;
+  drainCombatEvents(): readonly SnapshotEvent[];
+}
+
+export interface CombatView {
+  readonly selfId: number;
+  readonly generation: number;
+  readonly health: number;
+  readonly alive: boolean;
+  readonly tier: number;
+  readonly ammo: number;
+  readonly weaponId: WeaponIdValue;
+  readonly modeState?: SnapshotModeState;
+  readonly predictedProjectiles: ReturnType<PredictionReconciler["reconcileProjectiles"]>;
 }
 
 const EMPTY_INPUT: FrameInput = Object.freeze({
@@ -66,6 +90,19 @@ export function createPlayground(
   let params: MoveParams = DEFAULT;
   let feel: FeelParams = DEFAULT_FEEL;
   let input = EMPTY_INPUT;
+  let welcomeMode: typeof GameMode[keyof typeof GameMode] = GameMode.GunGame;
+  let welcomeLadder: typeof Ladder[keyof typeof Ladder] = Ladder.Classic;
+  let combat: CombatView = {
+    selfId: 0,
+    generation: 0,
+    health: 100,
+    alive: true,
+    tier: 1,
+    ammo: 0,
+    weaponId: WeaponId.Pistol,
+    predictedProjectiles: [],
+  };
+  const combatEvents: SnapshotEvent[] = [];
 
   const tick = (): void => {
     if (world === undefined) return;
@@ -83,7 +120,7 @@ export function createPlayground(
     };
     nextSeq += 1;
     if (prediction === undefined) return;
-    state = prediction.predict(cmd);
+    if (combat.alive) state = prediction.predict(cmd);
     network?.sendCommand(cmd, performance.now());
   };
 
@@ -106,6 +143,8 @@ export function createPlayground(
     applyInput: (frameInput) => {
       input = { ...frameInput };
     },
+    getCombatState: () => combat,
+    drainCombatEvents: () => combatEvents.splice(0),
   };
 
   void fetch(blobUrl ?? new URL("../../maps/greybox.blob", import.meta.url))
@@ -128,15 +167,18 @@ export function createPlayground(
       prediction = new PredictionReconciler(state, world);
       prediction.configure(params, feel);
       network = new NetworkSession({
-        onWelcome: (mode, variant) => {
+        onWelcome: (mode, variant, ladder) => {
+          welcomeMode = mode;
+          welcomeLadder = ladder;
           params =
             mode === GameMode.Scoutzknivez || variant === GravityVariant.Scoutz
               ? SCOUTZ
               : DEFAULT;
           prediction?.configure(params, feel);
         },
-        onSnapshot: ({ frame, entities, resetPrediction }) => {
-          const self = entities.find((entity) => entity.id === network?.selfId);
+        onSnapshot: ({ frame, entities, resetPrediction, events }) => {
+          const self = entities.find((entity) =>
+            entity.id === network?.selfId && entity.kind === EntityKind.Player);
           if (self === undefined || prediction === undefined) return;
           const authoritative: State = {
             tick: frame.tick,
@@ -150,8 +192,26 @@ export function createPlayground(
             },
           };
           prevState = prediction.state;
-          if (resetPrediction) prediction.resetForEpoch(authoritative);
+          const generationChanged = combat.generation !== 0 && combat.generation !== self.generation;
+          if (resetPrediction || generationChanged) prediction.resetForEpoch(authoritative);
           else prediction.reconcile(authoritative, frame.lastProcessedCmdSeq);
+          const weaponId = welcomeMode === GameMode.Scoutzknivez
+            ? WeaponId.Scout
+            : ladderWeapons(welcomeLadder)[Math.max(0, self.weaponTier - 1)] ?? WeaponId.Pistol;
+          prediction.configureCombat(self.id, self.generation, weaponId);
+          const predictedProjectiles = prediction.reconcileProjectiles(entities);
+          combat = {
+            selfId: self.id,
+            generation: self.generation,
+            health: self.health,
+            alive: self.alive,
+            tier: self.weaponTier,
+            ammo: self.ammo,
+            weaponId,
+            ...(frame.modeState === undefined ? {} : { modeState: frame.modeState }),
+            predictedProjectiles,
+          };
+          combatEvents.push(...events);
           state = prediction.state;
         },
       });

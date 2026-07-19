@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { EntityState } from "@gungame/protocol";
-import { createInitialState, CollisionWorld } from "@gungame/sim";
+import { EntityKind, type EntityState } from "@gungame/protocol";
+import { TICK_DT, WeaponId } from "@gungame/shared";
+import { Buttons, createInitialState, CollisionWorld, type Cmd } from "@gungame/sim";
 
 import { ClockSync } from "../src/net/clock.js";
 import { RemoteInterpolation } from "../src/net/interpolation.js";
@@ -35,6 +36,13 @@ function entity(generation: number, x: number): EntityState {
     viewPitch: 0,
     grounded: true,
     alive: true,
+    kind: EntityKind.Player,
+    health: 100,
+    weaponTier: 1,
+    ammo: 0,
+    ownerId: 0,
+    fireCmdSeq: 0,
+    weaponId: 0,
   };
 }
 
@@ -74,6 +82,31 @@ describe("prediction reconciliation", () => {
     const renderPosition = reconciler.renderPosition(0);
     expect(world.capsuleFits(renderPosition)).toBe(true);
     expect(renderPosition).toEqual(authoritative.player.position);
+  });
+
+  it("replays own projectile world detonation and self-impulse during reconciliation", () => {
+    const world = boxWorld([-2, 0, -0.75], [2, 3, -0.6]);
+    const authoritative = createInitialState("rocket-jumper");
+    const reconciler = new PredictionReconciler(authoritative, world);
+    reconciler.configureCombat(1, 1, WeaponId.Peacemaker);
+    const cmd = (seq: number, buttons: number): Cmd => ({
+      seq,
+      tick: seq,
+      buttons,
+      viewYaw: 0,
+      viewPitch: 0,
+      fireFraction: 128,
+      lastSnapshotTick: 0,
+      interpTargetTick: 0,
+      interpTargetFraction: 0,
+    });
+    reconciler.predict(cmd(1, Buttons.Fire));
+    const predicted = reconciler.predict(cmd(2, 0));
+    expect(predicted.player.velocity.z).toBeGreaterThan(0);
+    const rebuilt = reconciler.reconcile(authoritative, 0);
+    expect(rebuilt.player.velocity).toEqual(predicted.player.velocity);
+    expect(rebuilt.tick).toBe(2);
+    expect(TICK_DT).toBe(1 / 64);
   });
 });
 

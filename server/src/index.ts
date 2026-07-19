@@ -74,7 +74,7 @@ let sweepTimeouts = (_nowMs: number): void => {};
 const rooms = new RoomManager(
   world,
   () => loop.refuseNewRooms,
-  map.spawns.map((spawn) => spawn.position),
+  map.spawns,
 );
 loop = new AuthoritativeLoop((tick) => {
   const nowMs = performance.now();

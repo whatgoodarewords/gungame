@@ -6,6 +6,8 @@ import {
   GameMode,
   GravityVariant,
   JoinKind,
+  Ladder,
+  EntityKind,
   PROTOCOL_VERSION,
   RefusalCode,
   decodeFrame,
@@ -15,6 +17,7 @@ import {
   type EntityState,
   type HelloFrame,
   type SnapshotFrame,
+  type SnapshotEvent,
 } from "@gungame/protocol";
 import type { Cmd } from "@gungame/sim";
 
@@ -26,6 +29,7 @@ export interface NetworkSnapshot {
   readonly frame: SnapshotFrame;
   readonly entities: readonly EntityState[];
   readonly resetPrediction: boolean;
+  readonly events: readonly SnapshotEvent[];
 }
 
 export interface NetworkSessionOptions {
@@ -36,6 +40,7 @@ export interface NetworkSessionOptions {
   readonly onWelcome?: (
     mode: typeof GameMode[keyof typeof GameMode],
     variant: typeof GravityVariant[keyof typeof GravityVariant],
+    ladder: typeof Ladder[keyof typeof Ladder],
   ) => void;
 }
 
@@ -70,6 +75,8 @@ function joinHello(): HelloFrame {
   const variant = query.get("gravity") === "scoutz"
     ? GravityVariant.Scoutz
     : GravityVariant.Standard;
+  const ladder = query.get("ladder") === "arsenal" ? Ladder.Arsenal : Ladder.Classic;
+  const name = (query.get("name") ?? sessionStorage.getItem("gg:name") ?? "").slice(0, 16);
   return {
     type: FrameType.Hello,
     protocolVersion: PROTOCOL_VERSION,
@@ -83,6 +90,8 @@ function joinHello(): HelloFrame {
           : JoinKind.Quickplay,
     mode,
     variant,
+    ladder,
+    name,
     roomId,
     reconnectToken,
   };
@@ -102,10 +111,15 @@ function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void
     if (
       delta.position === undefined ||
       delta.velocity === undefined ||
-      delta.viewYaw === undefined ||
-      delta.viewPitch === undefined ||
-      delta.grounded === undefined ||
-      delta.alive === undefined
+      delta.kind === undefined ||
+      (delta.kind === EntityKind.Player && (
+        delta.viewYaw === undefined || delta.viewPitch === undefined ||
+        delta.grounded === undefined || delta.alive === undefined ||
+        delta.health === undefined || delta.weaponTier === undefined || delta.ammo === undefined
+      )) ||
+      (delta.kind === EntityKind.Projectile && (
+        delta.ownerId === undefined || delta.fireCmdSeq === undefined || delta.weaponId === undefined
+      ))
     ) {
       return;
     }
@@ -114,10 +128,17 @@ function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void
       generation: delta.generation,
       position: delta.position,
       velocity: delta.velocity,
-      viewYaw: delta.viewYaw,
-      viewPitch: delta.viewPitch,
-      grounded: delta.grounded,
-      alive: delta.alive,
+      viewYaw: delta.viewYaw ?? 0,
+      viewPitch: delta.viewPitch ?? 0,
+      grounded: delta.grounded ?? false,
+      alive: delta.alive ?? true,
+      kind: delta.kind,
+      health: delta.health ?? 0,
+      weaponTier: delta.weaponTier ?? 0,
+      ammo: delta.ammo ?? 0,
+      ownerId: delta.ownerId ?? 0,
+      fireCmdSeq: delta.fireCmdSeq ?? 0,
+      weaponId: delta.weaponId ?? 0,
     });
     return;
   }
@@ -130,6 +151,13 @@ function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void
     ...(delta.viewPitch === undefined ? {} : { viewPitch: delta.viewPitch }),
     ...(delta.grounded === undefined ? {} : { grounded: delta.grounded }),
     ...(delta.alive === undefined ? {} : { alive: delta.alive }),
+    ...(delta.kind === undefined ? {} : { kind: delta.kind }),
+    ...(delta.health === undefined ? {} : { health: delta.health }),
+    ...(delta.weaponTier === undefined ? {} : { weaponTier: delta.weaponTier }),
+    ...(delta.ammo === undefined ? {} : { ammo: delta.ammo }),
+    ...(delta.ownerId === undefined ? {} : { ownerId: delta.ownerId }),
+    ...(delta.fireCmdSeq === undefined ? {} : { fireCmdSeq: delta.fireCmdSeq }),
+    ...(delta.weaponId === undefined ? {} : { weaponId: delta.weaponId }),
   });
 }
 
@@ -221,7 +249,7 @@ export class NetworkSession {
         this.playerId = frame.playerId;
         this.roomId = frame.roomId;
         sessionStorage.setItem(`gg:reconnect:${frame.roomId}`, bytesToHex(frame.reconnectToken));
-        this.onWelcome?.(frame.mode, frame.variant);
+        this.onWelcome?.(frame.mode, frame.variant, frame.ladder);
         this.fsm.transition("baseline-install", now);
         return;
       }
@@ -247,11 +275,11 @@ export class NetworkSession {
         return;
       }
       for (const delta of frame.entities) applyDelta(this.entities, delta);
-      this.events.dedupe(frame.events);
+      const events = this.events.dedupe(frame.events);
       this.latestTick = Math.max(this.latestTick, frame.tick);
       const entityValues = [...this.entities.values()];
       this.interpolation.push(frame.tick, entityValues, this.playerId);
-      this.onSnapshot({ frame, entities: entityValues, resetPrediction });
+      this.onSnapshot({ frame, entities: entityValues, resetPrediction, events });
       if (frame.full) {
         this.channel.send(encodeFrame({
           type: FrameType.BaselineAck,

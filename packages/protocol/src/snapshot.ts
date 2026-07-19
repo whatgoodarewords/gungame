@@ -4,18 +4,32 @@ import { encodeFrame } from "./codec.js";
 import type { EntityDelta, EntityState, SnapshotEvent, SnapshotFrame } from "./types.js";
 
 function fullEntity(entity: EntityState, selfId: number): EntityDelta {
-  return {
+  const common: EntityDelta = {
     id: entity.id,
     generation: entity.generation,
     create: true,
     ...(entity.id === selfId ? { self: true } : {}),
     position: entity.position,
     velocity: entity.velocity,
-    viewYaw: entity.viewYaw,
-    viewPitch: entity.viewPitch,
-    grounded: entity.grounded,
-    alive: entity.alive,
+    kind: entity.kind,
   };
+  return entity.kind === 0
+    ? {
+        ...common,
+        viewYaw: entity.viewYaw,
+        viewPitch: entity.viewPitch,
+        grounded: entity.grounded,
+        alive: entity.alive,
+        health: entity.health,
+        weaponTier: entity.weaponTier,
+        ammo: entity.ammo,
+      }
+    : {
+        ...common,
+        ownerId: entity.ownerId,
+        fireCmdSeq: entity.fireCmdSeq,
+        weaponId: entity.weaponId,
+      };
 }
 
 function changedVec(
@@ -43,7 +57,15 @@ export function deltaEntities(
     const velocity = changedVec(entity.velocity, old.velocity) ? entity.velocity : undefined;
     const angles = entity.viewYaw !== old.viewYaw || entity.viewPitch !== old.viewPitch;
     const status = entity.grounded !== old.grounded || entity.alive !== old.alive;
-    if (position !== undefined || velocity !== undefined || angles || status) {
+    const combat =
+      entity.kind !== old.kind ||
+      entity.health !== old.health ||
+      entity.weaponTier !== old.weaponTier ||
+      entity.ammo !== old.ammo ||
+      entity.ownerId !== old.ownerId ||
+      entity.fireCmdSeq !== old.fireCmdSeq ||
+      entity.weaponId !== old.weaponId;
+    if (position !== undefined || velocity !== undefined || angles || status || combat) {
       result.push({
         id: entity.id,
         generation: entity.generation,
@@ -52,6 +74,15 @@ export function deltaEntities(
         ...(velocity === undefined ? {} : { velocity }),
         ...(angles ? { viewYaw: entity.viewYaw, viewPitch: entity.viewPitch } : {}),
         ...(status ? { grounded: entity.grounded, alive: entity.alive } : {}),
+        ...(combat ? {
+          kind: entity.kind,
+          health: entity.health,
+          weaponTier: entity.weaponTier,
+          ammo: entity.ammo,
+          ownerId: entity.ownerId,
+          fireCmdSeq: entity.fireCmdSeq,
+          weaponId: entity.weaponId,
+        } : {}),
       });
     }
   }
@@ -78,6 +109,7 @@ export interface PackSnapshotInput {
   readonly events: readonly SnapshotEvent[];
   readonly maxBytes?: number;
   readonly forceFull?: boolean;
+  readonly modeState?: SnapshotFrame["modeState"];
 }
 
 export interface PackedSnapshot {
@@ -101,6 +133,7 @@ export function packSnapshot(input: PackSnapshotInput): PackedSnapshot {
     baselineTick: input.baselineTick,
     entities: deltaEntities(input.entities, input.baselineEntities, input.selfId),
     events: input.events,
+    ...(input.modeState === undefined ? {} : { modeState: input.modeState }),
   };
   const deltaBytes = encodeFrame(delta);
   if (input.forceFull !== true && deltaBytes.length <= ceiling) {

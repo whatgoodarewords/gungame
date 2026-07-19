@@ -1,9 +1,11 @@
 import {
   ClientBaselineEpochs,
+  EntityKind,
   FrameType,
   GameMode,
   GravityVariant,
   JoinKind,
+  Ladder,
   PROTOCOL_VERSION,
   decodeFrame,
   encodeFrame,
@@ -15,6 +17,7 @@ import { TICK_DT } from "@gungame/shared";
 import {
   Buttons,
   DEFAULT,
+  SCOUTZ,
   createInitialState,
   step,
   type Cmd,
@@ -32,6 +35,9 @@ export interface BotMetrics {
   readonly protocolErrors: number;
   readonly sawRemoteMovement: boolean;
   readonly snapshots: number;
+  readonly sawProjectile: boolean;
+  readonly sawWinner: boolean;
+  readonly sawRestartAfterWinner: boolean;
 }
 
 export interface BotOptions {
@@ -39,6 +45,11 @@ export interface BotOptions {
   readonly url: string;
   readonly world?: CollisionWorld;
   readonly seed: number;
+  readonly mode?: typeof GameMode[keyof typeof GameMode];
+  readonly variant?: typeof GravityVariant[keyof typeof GravityVariant];
+  readonly ladder?: typeof Ladder[keyof typeof Ladder];
+  readonly create?: boolean;
+  readonly roomId?: string;
 }
 
 function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void {
@@ -50,20 +61,32 @@ function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void
     if (
       delta.position === undefined ||
       delta.velocity === undefined ||
-      delta.viewYaw === undefined ||
-      delta.viewPitch === undefined ||
-      delta.grounded === undefined ||
-      delta.alive === undefined
+      delta.kind === undefined ||
+      (delta.kind === EntityKind.Player && (
+        delta.viewYaw === undefined || delta.viewPitch === undefined ||
+        delta.grounded === undefined || delta.alive === undefined ||
+        delta.health === undefined || delta.weaponTier === undefined || delta.ammo === undefined
+      )) ||
+      (delta.kind === EntityKind.Projectile && (
+        delta.ownerId === undefined || delta.fireCmdSeq === undefined || delta.weaponId === undefined
+      ))
     ) return;
     current.set(delta.id, {
       id: delta.id,
       generation: delta.generation,
       position: delta.position,
       velocity: delta.velocity,
-      viewYaw: delta.viewYaw,
-      viewPitch: delta.viewPitch,
-      grounded: delta.grounded,
-      alive: delta.alive,
+      viewYaw: delta.viewYaw ?? 0,
+      viewPitch: delta.viewPitch ?? 0,
+      grounded: delta.grounded ?? false,
+      alive: delta.alive ?? true,
+      kind: delta.kind,
+      health: delta.health ?? 0,
+      weaponTier: delta.weaponTier ?? 0,
+      ammo: delta.ammo ?? 0,
+      ownerId: delta.ownerId ?? 0,
+      fireCmdSeq: delta.fireCmdSeq ?? 0,
+      weaponId: delta.weaponId ?? 0,
     });
     return;
   }
@@ -77,6 +100,13 @@ function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void
     ...(delta.viewPitch === undefined ? {} : { viewPitch: delta.viewPitch }),
     ...(delta.grounded === undefined ? {} : { grounded: delta.grounded }),
     ...(delta.alive === undefined ? {} : { alive: delta.alive }),
+    ...(delta.kind === undefined ? {} : { kind: delta.kind }),
+    ...(delta.health === undefined ? {} : { health: delta.health }),
+    ...(delta.weaponTier === undefined ? {} : { weaponTier: delta.weaponTier }),
+    ...(delta.ammo === undefined ? {} : { ammo: delta.ammo }),
+    ...(delta.ownerId === undefined ? {} : { ownerId: delta.ownerId }),
+    ...(delta.fireCmdSeq === undefined ? {} : { fireCmdSeq: delta.fireCmdSeq }),
+    ...(delta.weaponId === undefined ? {} : { weaponId: delta.weaponId }),
   });
 }
 
@@ -112,6 +142,14 @@ export class HeadlessBot {
   private reconnects = 0;
   private protocolErrors = 0;
   private sawMovement = false;
+  private sawProjectileEntity = false;
+  private winnerSeen = false;
+  private restartSeen = false;
+
+  private get moveParams() {
+    return this.options.mode === GameMode.Scoutzknivez ||
+      this.options.variant === GravityVariant.Scoutz ? SCOUTZ : DEFAULT;
+  }
 
   constructor(options: BotOptions) {
     this.options = options;
@@ -122,6 +160,10 @@ export class HeadlessBot {
 
   get ready(): Promise<void> {
     return this.readyPromise;
+  }
+
+  get joinedRoomId(): string {
+    return this.roomId;
   }
 
   start(): void {
@@ -143,6 +185,9 @@ export class HeadlessBot {
       protocolErrors: this.protocolErrors,
       sawRemoteMovement: this.sawMovement,
       snapshots: this.snapshotBytes.length,
+      sawProjectile: this.sawProjectileEntity,
+      sawWinner: this.winnerSeen,
+      sawRestartAfterWinner: this.restartSeen,
     };
   }
 
@@ -155,10 +200,18 @@ export class HeadlessBot {
         type: FrameType.Hello,
         protocolVersion: PROTOCOL_VERSION,
         buildHash: "dev",
-        joinKind: resume ? JoinKind.Resume : JoinKind.Quickplay,
-        mode: GameMode.GunGame,
-        variant: GravityVariant.Standard,
-        roomId: resume ? this.roomId : "",
+        joinKind: resume
+          ? JoinKind.Resume
+          : this.options.roomId !== undefined
+            ? JoinKind.Invite
+            : this.options.create === true
+              ? JoinKind.Create
+              : JoinKind.Quickplay,
+        mode: this.options.mode ?? GameMode.GunGame,
+        variant: this.options.variant ?? GravityVariant.Standard,
+        ladder: this.options.ladder ?? Ladder.Classic,
+        name: `Bot_${this.options.id}`,
+        roomId: resume ? this.roomId : this.options.roomId ?? "",
         reconnectToken: resume ? this.reconnectToken : new Uint8Array(),
       }));
     });
@@ -210,6 +263,11 @@ export class HeadlessBot {
       this.epochs.classifyTraffic(frame.baselineEpoch);
     }
     for (const delta of frame.entities) applyDelta(this.entities, delta);
+    if ([...this.entities.values()].some((entity) => entity.kind === EntityKind.Projectile)) {
+      this.sawProjectileEntity = true;
+    }
+    if ((frame.modeState?.winnerId ?? 0) !== 0) this.winnerSeen = true;
+    if (this.winnerSeen && frame.modeState?.winnerId === 0) this.restartSeen = true;
     this.latestSnapshotTick = Math.max(this.latestSnapshotTick, frame.tick);
     if (frame.full) {
       this.socket?.send(encodeFrame({
@@ -242,8 +300,8 @@ export class HeadlessBot {
           cmd,
           TICK_DT,
           this.options.world === undefined
-            ? { params: DEFAULT }
-            : { params: DEFAULT, world: this.options.world },
+            ? { params: this.moveParams }
+            : { params: this.moveParams, world: this.options.world },
         );
       }
       if (this.predicted !== undefined) this.corrections.push(distance(this.predicted, rebuilt));
@@ -273,17 +331,42 @@ export class HeadlessBot {
 
   private tick(): void {
     if (this.socket?.readyState !== WebSocket.OPEN || this.epochs.epoch === 0) return;
+    const self = this.entities.get(this.playerId);
+    const target = [...this.entities.values()]
+      .filter((entity) => entity.kind === EntityKind.Player && entity.id !== this.playerId && entity.alive)
+      .sort((left, right) => {
+        if (self === undefined) return left.id - right.id;
+        const leftDistance = Math.hypot(
+          left.position.x - self.position.x,
+          left.position.y - self.position.y,
+          left.position.z - self.position.z,
+        );
+        const rightDistance = Math.hypot(
+          right.position.x - self.position.x,
+          right.position.y - self.position.y,
+          right.position.z - self.position.z,
+        );
+        return leftDistance - rightDistance || left.id - right.id;
+      })[0];
+    const dx = (target?.position.x ?? 0) - (self?.position.x ?? 0);
+    const dz = (target?.position.z ?? -1) - (self?.position.z ?? 0);
+    const horizontal = Math.max(0.001, Math.hypot(dx, dz));
+    const dy = (target?.position.y ?? 0) + 1.25 - ((self?.position.y ?? 0) + 1.62);
+    const yaw = Math.atan2(-dx, -dz) * 180 / Math.PI;
+    const pitch = Math.atan2(dy, horizontal) * 180 / Math.PI;
     const phase = Math.floor((this.seq + this.options.seed) / 64) % 4;
-    let buttons = Buttons.Forward;
+    let buttons = Buttons.Forward | Buttons.Fire | Buttons.Zoom;
     buttons |= phase % 2 === 0 ? Buttons.Left : Buttons.Right;
     if (this.seq % 24 === 1) buttons |= Buttons.Jump;
+    const ladderLength = (this.options.ladder ?? Ladder.Classic) === Ladder.Arsenal ? 8 : 6;
+    if ((self?.weaponTier ?? 1) >= ladderLength) buttons |= Buttons.Melee;
     const cmd: Cmd = {
       seq: this.seq,
       tick: this.predicted?.tick ?? this.seq,
       buttons,
-      viewYaw: phase * 90,
-      viewPitch: 0,
-      fireFraction: 0,
+      viewYaw: yaw,
+      viewPitch: pitch,
+      fireFraction: (this.seq * 37 + this.options.seed) & 0xff,
       lastSnapshotTick: this.latestSnapshotTick,
       interpTargetTick: Math.max(0, this.latestSnapshotTick - 5),
       interpTargetFraction: 0,
@@ -296,8 +379,8 @@ export class HeadlessBot {
         cmd,
         TICK_DT,
         this.options.world === undefined
-          ? { params: DEFAULT }
-          : { params: DEFAULT, world: this.options.world },
+          ? { params: this.moveParams }
+          : { params: this.moveParams, world: this.options.world },
       );
     }
     this.socket.send(encodeFrame({

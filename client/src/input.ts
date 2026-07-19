@@ -21,6 +21,8 @@ export const Button = {
   Fire: 1 << 5,
   Duck: 1 << 6, // matches sim Buttons.Duck
   Zoom: 1 << 7, // client-local until the Phase 2 wire format pins it
+  Background: 1 << 8,
+  Melee: 1 << 9,
 } as const;
 
 const PITCH_LIMIT = (89 * Math.PI) / 180;
@@ -32,6 +34,7 @@ const KEY_BUTTON: Record<string, number> = {
   Space: Button.Jump,
   ControlLeft: Button.Duck,
   KeyC: Button.Duck,
+  KeyF: Button.Melee,
 };
 
 export class RawInput {
@@ -97,6 +100,10 @@ export class RawInput {
       if (b !== undefined) this.buttons &= ~b;
     });
     el.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.buttons |= Button.Background;
+      else this.buttons &= ~Button.Background;
+    });
   }
 
   static radPerCount(cm360: number, dpi: number): number {

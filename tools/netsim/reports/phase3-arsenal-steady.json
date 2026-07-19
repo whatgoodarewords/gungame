@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "transport": "ws",
+  "byteBoundary": "WebSocket binary payload (TCP payload before framing/TLS overhead)",
+  "profile": "steady",
+  "seed": 424242,
+  "bots": 12,
+  "durationSeconds": 30,
+  "mode": "gun-game",
+  "ladder": "ARSENAL",
+  "gravity": "scoutz",
+  "predictionCorrectionP95M": 0.22416007677310695,
+  "remoteEntityStallP95Ms": 1.7907079999931739,
+  "reconnectCount": 0,
+  "protocolErrors": 0,
+  "meanSnapshotBytes": 348.41514836022907,
+  "maxSnapshotBytes": 969,
+  "snapshots": 23052,
+  "movementMirrored": true,
+  "projectileCombatObserved": true,
+  "winnerObserved": true,
+  "restartObserved": true
+}

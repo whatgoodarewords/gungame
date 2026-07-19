@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EntityKind,
   EventJournal,
   FrameType,
   SNAPSHOT_SIZE_CEILING,
@@ -19,6 +20,13 @@ function players(tick: number, idOffset = 0): readonly EntityState[] {
     viewPitch: 0,
     grounded: true,
     alive: true,
+    kind: EntityKind.Player,
+    health: 100,
+    weaponTier: 1,
+    ammo: 0,
+    ownerId: 0,
+    fireCmdSeq: 0,
+    weaponId: 0,
   }));
 }
 
@@ -53,12 +61,12 @@ describe("snapshot serializer", () => {
       entities: players(2),
       baselineEntities: players(1, 100),
       events: [],
-      maxBytes: 450,
+      maxBytes: 500,
     });
     expect(packed.promotedToFull).toBe(true);
     expect(packed.frame.full).toBe(true);
     expect(packed.frame.entities).toHaveLength(12);
-    expect(packed.bytes.length).toBeLessThanOrEqual(450);
+    expect(packed.bytes.length).toBeLessThanOrEqual(500);
   });
 
   it("keeps the 12-player fixture mean below 400 bytes", () => {
@@ -86,12 +94,70 @@ describe("snapshot serializer", () => {
   it("repeats events until ack coverage and dedupes on the client", () => {
     const server = new EventJournal();
     const client = new EventJournal();
-    const event = { id: 1, tick: 4, kind: 2, actorId: 1, targetId: 2, amount: 50 };
+    const event = {
+      id: 1, tick: 4, kind: 2, actorId: 1, targetId: 2, amount: 50,
+      weaponId: 3, flags: 0,
+    };
     server.add(event);
     expect(server.pendingAfter(3)).toEqual([event]);
     expect(client.dedupe(server.pendingAfter(3))).toEqual([event]);
     expect(client.dedupe(server.pendingAfter(3))).toEqual([]);
     server.acknowledgeBaseline(4);
     expect(server.pendingAfter(0)).toEqual([]);
+  });
+
+  it("round-trips projectile ownership, player combat state, events, and compact mode state", () => {
+    const projectile: EntityState = {
+      id: 0x8000,
+      generation: 1,
+      kind: EntityKind.Projectile,
+      position: { x: 1, y: 2, z: 3 },
+      velocity: { x: 0, y: 0, z: -25 },
+      viewYaw: 0,
+      viewPitch: 0,
+      grounded: false,
+      alive: true,
+      health: 0,
+      weaponTier: 0,
+      ammo: 0,
+      ownerId: 7,
+      fireCmdSeq: 444,
+      weaponId: 9,
+    };
+    const packed = packSnapshot({
+      tick: 50,
+      lastProcessedCmdSeq: 444,
+      cmdArrivalMargin: 1,
+      baselineEpoch: 2,
+      baselineTick: 50,
+      selfId: 7,
+      entities: [players(50)[0]!, projectile],
+      baselineEntities: [],
+      events: [{
+        id: 9, tick: 50, kind: 4, actorId: 7, targetId: 2, amount: 100,
+        weaponId: 10, flags: 0b1_1001,
+      }],
+      modeState: {
+        mode: 0,
+        ladder: 1,
+        roundState: 1,
+        winnerId: 7,
+        restartTicksRemaining: 511,
+        teamScores: [0, 0],
+        scoreboard: [{ playerId: 7, kills: 8, deaths: 2, team: 0, tier: 8 }],
+      },
+      forceFull: true,
+    });
+    const decoded = decodeFrame(packed.bytes);
+    expect(decoded.type).toBe(FrameType.Snapshot);
+    if (decoded.type !== FrameType.Snapshot) throw new Error("wrong frame");
+    expect(decoded.entities.find((entity) => entity.id === projectile.id)).toMatchObject({
+      kind: EntityKind.Projectile,
+      ownerId: 7,
+      fireCmdSeq: 444,
+      weaponId: 9,
+    });
+    expect(decoded.modeState?.scoreboard[0]).toMatchObject({ playerId: 7, tier: 8 });
+    expect(decoded.events[0]).toMatchObject({ kind: 4, weaponId: 10, flags: 0b1_1001 });
   });
 });

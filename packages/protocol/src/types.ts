@@ -3,6 +3,8 @@ import type {
   GameMode,
   GravityVariant,
   JoinKind,
+  Ladder,
+  EntityKind,
   RefusalCode,
 } from "./constants.js";
 
@@ -15,6 +17,8 @@ export interface HelloFrame {
   readonly joinKind: ValueOf<typeof JoinKind>;
   readonly mode: ValueOf<typeof GameMode>;
   readonly variant: ValueOf<typeof GravityVariant>;
+  readonly ladder: ValueOf<typeof Ladder>;
+  readonly name: string;
   readonly roomId: string;
   readonly reconnectToken: Uint8Array;
 }
@@ -32,6 +36,7 @@ export interface WelcomeFrame {
   readonly maxDatagramSize: number;
   readonly mode: ValueOf<typeof GameMode>;
   readonly variant: ValueOf<typeof GravityVariant>;
+  readonly ladder: ValueOf<typeof Ladder>;
 }
 
 export interface CmdFrame {
@@ -57,6 +62,13 @@ export interface EntityState {
   readonly viewPitch: number;
   readonly grounded: boolean;
   readonly alive: boolean;
+  readonly kind: ValueOf<typeof EntityKind>;
+  readonly health: number;
+  readonly weaponTier: number;
+  readonly ammo: number;
+  readonly ownerId: number;
+  readonly fireCmdSeq: number;
+  readonly weaponId: number;
 }
 
 export interface EntityDelta {
@@ -71,6 +83,13 @@ export interface EntityDelta {
   readonly viewPitch?: number;
   readonly grounded?: boolean;
   readonly alive?: boolean;
+  readonly kind?: ValueOf<typeof EntityKind>;
+  readonly health?: number;
+  readonly weaponTier?: number;
+  readonly ammo?: number;
+  readonly ownerId?: number;
+  readonly fireCmdSeq?: number;
+  readonly weaponId?: number;
 }
 
 export interface SnapshotEvent {
@@ -80,6 +99,26 @@ export interface SnapshotEvent {
   readonly actorId: number;
   readonly targetId: number;
   readonly amount: number;
+  readonly weaponId: number;
+  readonly flags: number;
+}
+
+export interface ScoreboardEntry {
+  readonly playerId: number;
+  readonly kills: number;
+  readonly deaths: number;
+  readonly team: number;
+  readonly tier: number;
+}
+
+export interface SnapshotModeState {
+  readonly mode: ValueOf<typeof GameMode>;
+  readonly ladder: ValueOf<typeof Ladder>;
+  readonly roundState: number;
+  readonly winnerId: number;
+  readonly restartTicksRemaining: number;
+  readonly teamScores: readonly [number, number];
+  readonly scoreboard: readonly ScoreboardEntry[];
 }
 
 export interface SnapshotFrame {
@@ -92,6 +131,7 @@ export interface SnapshotFrame {
   readonly baselineTick: number;
   readonly entities: readonly EntityDelta[];
   readonly events: readonly SnapshotEvent[];
+  readonly modeState?: SnapshotModeState;
 }
 
 export interface BaselineAckFrame {

@@ -8,6 +8,9 @@ export const Buttons = {
   Jump: 1 << 4,
   Fire: 1 << 5,
   Duck: 1 << 6,
+  Zoom: 1 << 7,
+  Background: 1 << 8,
+  Melee: 1 << 9,
 } as const;
 
 export interface Cmd {

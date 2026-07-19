@@ -39,6 +39,8 @@ function refusalFor(result: Exclude<JoinResult, { readonly room: unknown }>): Re
       return RefusalCode.RoomCreateRefused;
     case "room-not-found":
       return RefusalCode.RoomNotFound;
+    case "invalid-name":
+      return RefusalCode.InvalidName;
   }
 }
 
@@ -216,6 +218,7 @@ export function createTransport(manager: RoomManager): TransportServer {
             maxDatagramSize: SNAPSHOT_SIZE_CEILING,
             mode: joined.room.config.mode,
             variant: joined.room.config.variant,
+            ladder: joined.room.config.ladder,
           }));
           data.fsm.transition("baseline-install", now);
           data.peer?.sendBaseline(joined.room.openBaseline(joined.slot.id, 0));
@@ -266,7 +269,7 @@ export function createTransport(manager: RoomManager): TransportServer {
     close: (ws) => {
       const data = ws.getUserData();
       connections.delete(data);
-      manager.rooms.get(data.roomId)?.disconnect(data.slotId, performance.now());
+      manager.rooms.get(data.roomId)?.disconnect(data.slotId, performance.now(), data.peer);
     },
   });
 

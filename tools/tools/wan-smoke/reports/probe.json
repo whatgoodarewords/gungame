@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "transport": "ws",
+  "environment": "wan",
+  "byteBoundary": "WebSocket binary payload (TCP payload before framing/TLS overhead)",
+  "profile": "wan",
+  "seed": 424242,
+  "bots": 2,
+  "durationSeconds": 20,
+  "predictionCorrectionP95M": 0.07742263218825128,
+  "remoteEntityStallP95Ms": 7.959792000001471,
+  "reconnectCount": 0,
+  "protocolErrors": 0,
+  "meanSnapshotBytes": 78.14810472840954,
+  "maxSnapshotBytes": 87,
+  "snapshots": 2559,
+  "movementMirrored": true
+}

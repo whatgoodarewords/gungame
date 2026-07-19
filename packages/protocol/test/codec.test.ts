@@ -5,6 +5,7 @@ import {
   GameMode,
   GravityVariant,
   JoinKind,
+  Ladder,
   PROTOCOL_VERSION,
   ProtocolError,
   decodeFrame,
@@ -40,6 +41,8 @@ describe("binary codec", () => {
         joinKind: JoinKind.Create,
         mode: GameMode.Scoutzknivez,
         variant: GravityVariant.Scoutz,
+        ladder: Ladder.Arsenal,
+        name: "Codec Bot",
         roomId: "",
         reconnectToken: new Uint8Array(),
       },
@@ -51,6 +54,7 @@ describe("binary codec", () => {
         maxDatagramSize: 1_100,
         mode: GameMode.GunGame,
         variant: GravityVariant.Standard,
+        ladder: Ladder.Classic,
       },
       cmd(),
       {
@@ -92,11 +96,16 @@ describe("binary codec", () => {
       joinKind: JoinKind.Quickplay,
       mode: GameMode.GunGame,
       variant: GravityVariant.Standard,
+      ladder: Ladder.Classic,
+      name: "Fuzz_Bot",
       roomId: "",
       reconnectToken: new Uint8Array(),
     });
     forgedHello[3] = 200;
     expect(() => decodeFrame(forgedHello)).toThrow();
+    expect(() => encodeFrame(cmd({ fireFraction: -1 }))).toThrow("uint8");
+    expect(() => encodeFrame(cmd({ fireFraction: 256 }))).toThrow("uint8");
+    expect(() => encodeFrame(cmd({ interpTargetFraction: 256 }))).toThrow("uint8");
   });
 
   it("survives deterministic protocol round-trip fuzz", () => {

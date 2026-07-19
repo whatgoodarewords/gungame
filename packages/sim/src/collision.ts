@@ -33,6 +33,11 @@ export interface SlideResult {
   readonly blocked: boolean;
 }
 
+export interface ProjectileSweepHit {
+  readonly point: Vec3;
+  readonly normal: Vec3;
+}
+
 export interface MoveCollisionOptions {
   readonly height?: number;
   readonly bottomOffset?: number;
@@ -97,6 +102,56 @@ export class CollisionWorld {
       strategy: 0,
     });
     this.killVolumes = killVolumes;
+  }
+
+  projectileInKillVolume(position: Vec3, radius = 0): boolean {
+    return this.killVolumes.some((volume) =>
+      position.x + radius >= volume.min.x && position.x - radius <= volume.max.x &&
+      position.y + radius >= volume.min.y && position.y - radius <= volume.max.y &&
+      position.z + radius >= volume.min.z && position.z - radius <= volume.max.z);
+  }
+
+  playerInKillVolume(position: Vec3, height: number = CAPSULE_HEIGHT): boolean {
+    return this.killVolumes.some((volume) =>
+      position.x + CAPSULE_RADIUS >= volume.min.x &&
+      position.x - CAPSULE_RADIUS <= volume.max.x &&
+      position.y + height >= volume.min.y &&
+      position.y <= volume.max.y &&
+      position.z + CAPSULE_RADIUS >= volume.min.z &&
+      position.z - CAPSULE_RADIUS <= volume.max.z);
+  }
+
+  playerCrossesKillVolume(from: Vec3, to: Vec3, height: number = CAPSULE_HEIGHT): boolean {
+    return this.crossesKillVolume(from, {
+      x: to.x - from.x,
+      y: to.y - from.y,
+      z: to.z - from.z,
+    }, height, 0);
+  }
+
+  sweepProjectile(from: Vec3, to: Vec3, radius = 0): ProjectileSweepHit | undefined {
+    const delta = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
+    const distance = delta.length();
+    if (distance <= COLLISION_EPSILON) return undefined;
+    delta.multiplyScalar(1 / distance);
+    // The BVH ray is exact for the projectile centre. Pulling the contact back
+    // by the projectile radius gives conservative sphere-like impact timing.
+    const hit = this.bvh.raycastFirst(
+      new Ray(toVector(from), delta),
+      DoubleSide,
+      0,
+      distance + radius,
+    );
+    if (hit === null || hit.distance - radius > distance) return undefined;
+    const travel = Math.max(0, hit.distance - radius);
+    return {
+      point: {
+        x: from.x + delta.x * travel,
+        y: from.y + delta.y * travel,
+        z: from.z + delta.z * travel,
+      },
+      normal: { x: -delta.x, y: -delta.y, z: -delta.z },
+    };
   }
 
   sweepCapsule(

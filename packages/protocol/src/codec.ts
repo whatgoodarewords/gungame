@@ -1,11 +1,13 @@
 import {
   EntityFlags,
+  EntityKind,
   FrameType,
   MAX_BUILD_HASH_BYTES,
   MAX_ENTITY_DELTAS,
   MAX_EVENTS,
   MAX_FRAME_BYTES,
   MAX_HELLO_BYTES,
+  MAX_PLAYER_NAME_BYTES,
   MAX_RECONNECT_TOKEN_BYTES,
   MAX_ROOM_ID_BYTES,
   SnapshotFlags,
@@ -76,6 +78,8 @@ function encodeHello(frame: HelloFrame): Uint8Array {
   writer.u8(frame.joinKind, "joinKind");
   writer.u8(frame.mode, "mode");
   writer.u8(frame.variant, "variant");
+  writer.u8(frame.ladder, "ladder");
+  writer.ascii(frame.name, MAX_PLAYER_NAME_BYTES, "name");
   writer.ascii(frame.roomId, MAX_ROOM_ID_BYTES, "roomId");
   writeToken(writer, frame.reconnectToken);
   const bytes = writer.finish();
@@ -107,9 +111,17 @@ function entityFlags(entity: EntityDelta): number {
   if (entity.velocity !== undefined) flags |= EntityFlags.Velocity;
   if (entity.viewYaw !== undefined || entity.viewPitch !== undefined) flags |= EntityFlags.Angles;
   if (entity.grounded !== undefined || entity.alive !== undefined) flags |= EntityFlags.Status;
+  if (
+    entity.kind !== undefined || entity.health !== undefined || entity.weaponTier !== undefined ||
+    entity.ammo !== undefined || entity.ownerId !== undefined || entity.fireCmdSeq !== undefined ||
+    entity.weaponId !== undefined
+  ) flags |= EntityFlags.Combat;
   if (entity.self === true) flags |= EntityFlags.Self;
   if ((flags & EntityFlags.Create) !== 0) {
-    flags |= EntityFlags.Position | EntityFlags.Velocity | EntityFlags.Angles | EntityFlags.Status;
+    flags |= EntityFlags.Position | EntityFlags.Velocity | EntityFlags.Combat;
+    if ((entity.kind ?? EntityKind.Player) === EntityKind.Player) {
+      flags |= EntityFlags.Angles | EntityFlags.Status;
+    }
   }
   if ((flags & EntityFlags.Delete) !== 0 && (flags & ~(EntityFlags.Delete | EntityFlags.Self)) !== 0) {
     throw new ProtocolError("delete delta cannot carry entity state");
@@ -150,6 +162,27 @@ function writeEntity(writer: Writer, entity: EntityDelta): void {
     }
     writer.u8((entity.grounded ? 1 : 0) | (entity.alive ? 2 : 0));
   }
+  if ((flags & EntityFlags.Combat) !== 0) {
+    if (entity.kind === undefined) throw new ProtocolError("entity kind missing");
+    writer.u8(entity.kind, "entity.kind");
+    if (entity.kind === EntityKind.Player) {
+      if (entity.health === undefined || entity.weaponTier === undefined || entity.ammo === undefined) {
+        throw new ProtocolError("player combat state missing");
+      }
+      writer.u8(entity.health, "entity.health");
+      writer.u8(entity.weaponTier, "entity.weaponTier");
+      writer.u8(entity.ammo, "entity.ammo");
+    } else if (entity.kind === EntityKind.Projectile) {
+      if (entity.ownerId === undefined || entity.fireCmdSeq === undefined || entity.weaponId === undefined) {
+        throw new ProtocolError("projectile ownership missing");
+      }
+      writer.u16(entity.ownerId, "entity.ownerId");
+      writer.u32(entity.fireCmdSeq, "entity.fireCmdSeq");
+      writer.u8(entity.weaponId, "entity.weaponId");
+    } else {
+      throw new ProtocolError("unknown entity kind");
+    }
+  }
 }
 
 function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
@@ -157,7 +190,8 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
   if (frame.events.length > MAX_EVENTS) throw new ProtocolError("too many events");
   const writer = new Writer();
   writer.u8(FrameType.Snapshot);
-  writer.u8(frame.full ? SnapshotFlags.Full : 0);
+  writer.u8((frame.full ? SnapshotFlags.Full : 0) |
+    (frame.modeState === undefined ? 0 : SnapshotFlags.ModeState));
   writer.u32(frame.tick, "tick");
   writer.u32(frame.lastProcessedCmdSeq, "lastProcessedCmdSeq");
   writer.i8(frame.cmdArrivalMargin, "cmdArrivalMargin");
@@ -165,6 +199,25 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
   writer.u32(frame.baselineTick, "baselineTick");
   writer.u8(frame.entities.length, "entityCount");
   writer.u8(frame.events.length, "eventCount");
+  if (frame.modeState !== undefined) {
+    const mode = frame.modeState;
+    if (mode.scoreboard.length > 12) throw new ProtocolError("too many scoreboard entries");
+    writer.u8(mode.mode, "modeState.mode");
+    writer.u8(mode.ladder, "modeState.ladder");
+    writer.u8(mode.roundState, "modeState.roundState");
+    writer.u16(mode.winnerId, "modeState.winnerId");
+    writer.u16(mode.restartTicksRemaining, "modeState.restartTicksRemaining");
+    writer.u8(mode.teamScores[0], "modeState.teamScore0");
+    writer.u8(mode.teamScores[1], "modeState.teamScore1");
+    writer.u8(mode.scoreboard.length, "modeState.scoreboardCount");
+    for (const entry of mode.scoreboard) {
+      writer.u16(entry.playerId, "scoreboard.playerId");
+      writer.u16(entry.kills, "scoreboard.kills");
+      writer.u16(entry.deaths, "scoreboard.deaths");
+      writer.u8(entry.team, "scoreboard.team");
+      writer.u8(entry.tier, "scoreboard.tier");
+    }
+  }
   for (const entity of frame.entities) writeEntity(writer, entity);
   for (const event of frame.events) {
     writer.u32(event.id, "event.id");
@@ -173,6 +226,8 @@ function encodeSnapshot(frame: SnapshotFrame): Uint8Array {
     writer.u16(event.actorId, "event.actorId");
     writer.u16(event.targetId, "event.targetId");
     writer.u16(event.amount, "event.amount");
+    writer.u8(event.weaponId, "event.weaponId");
+    writer.u8(event.flags, "event.flags");
   }
   return writer.finish();
 }
@@ -199,6 +254,7 @@ export function encodeFrame(frame: ProtocolFrame): Uint8Array {
       writer.u16(frame.maxDatagramSize, "maxDatagramSize");
       writer.u8(frame.mode, "mode");
       writer.u8(frame.variant, "variant");
+      writer.u8(frame.ladder, "ladder");
       bytes = writer.finish();
       break;
     }
@@ -242,7 +298,8 @@ function readEntity(reader: Reader): EntityDelta {
     EntityFlags.Velocity |
     EntityFlags.Angles |
     EntityFlags.Status |
-    EntityFlags.Self;
+    EntityFlags.Self |
+    EntityFlags.Combat;
   if ((flags & ~knownFlags) !== 0) throw new ProtocolError("unknown entity flags");
   const create = (flags & EntityFlags.Create) !== 0;
   const deleting = (flags & EntityFlags.Delete) !== 0;
@@ -275,12 +332,40 @@ function readEntity(reader: Reader): EntityDelta {
     : dequantizePitch(reader.i16());
   const status = (flags & EntityFlags.Status) === 0 ? undefined : reader.u8();
   if (status !== undefined && (status & ~3) !== 0) throw new ProtocolError("unknown status bits");
+  let kind: EntityDelta["kind"];
+  let health: number | undefined;
+  let weaponTier: number | undefined;
+  let ammo: number | undefined;
+  let ownerId: number | undefined;
+  let fireCmdSeq: number | undefined;
+  let weaponId: number | undefined;
+  if ((flags & EntityFlags.Combat) !== 0) {
+    const decodedKind = reader.u8();
+    if (decodedKind === EntityKind.Player) {
+      kind = EntityKind.Player;
+      health = reader.u8();
+      weaponTier = reader.u8();
+      ammo = reader.u8();
+    } else if (decodedKind === EntityKind.Projectile) {
+      kind = EntityKind.Projectile;
+      ownerId = reader.u16();
+      fireCmdSeq = reader.u32();
+      weaponId = reader.u8();
+    } else {
+      throw new ProtocolError("unknown entity kind");
+    }
+  }
   if (create && (
     position === undefined ||
     velocity === undefined ||
-    viewYaw === undefined ||
-    viewPitch === undefined ||
-    status === undefined
+    kind === undefined ||
+    (kind === EntityKind.Player && (
+      viewYaw === undefined || viewPitch === undefined || status === undefined ||
+      health === undefined || weaponTier === undefined || ammo === undefined
+    )) ||
+    (kind === EntityKind.Projectile && (
+      ownerId === undefined || fireCmdSeq === undefined || weaponId === undefined
+    ))
   )) {
     throw new ProtocolError("create delta is incomplete");
   }
@@ -296,6 +381,13 @@ function readEntity(reader: Reader): EntityDelta {
     ...(status === undefined
       ? {}
       : { grounded: (status & 1) !== 0, alive: (status & 2) !== 0 }),
+    ...(kind === undefined ? {} : { kind }),
+    ...(health === undefined ? {} : { health }),
+    ...(weaponTier === undefined ? {} : { weaponTier }),
+    ...(ammo === undefined ? {} : { ammo }),
+    ...(ownerId === undefined ? {} : { ownerId }),
+    ...(fireCmdSeq === undefined ? {} : { fireCmdSeq }),
+    ...(weaponId === undefined ? {} : { weaponId }),
   };
 }
 
@@ -305,6 +397,8 @@ function decodeHello(reader: Reader): HelloFrame {
   const joinKind = reader.u8() as HelloFrame["joinKind"];
   const mode = reader.u8() as HelloFrame["mode"];
   const variant = reader.u8() as HelloFrame["variant"];
+  const ladder = reader.u8() as HelloFrame["ladder"];
+  const name = reader.ascii(MAX_PLAYER_NAME_BYTES, "name");
   const roomId = reader.ascii(MAX_ROOM_ID_BYTES, "roomId");
   const reconnectToken = readToken(reader);
   reader.done();
@@ -315,6 +409,8 @@ function decodeHello(reader: Reader): HelloFrame {
     joinKind,
     mode,
     variant,
+    ladder,
+    name,
     roomId,
     reconnectToken,
   };
@@ -341,7 +437,9 @@ function decodeCmd(reader: Reader, length: number): CmdFrame {
 
 function decodeSnapshot(reader: Reader): SnapshotFrame {
   const flags = reader.u8();
-  if ((flags & ~SnapshotFlags.Full) !== 0) throw new ProtocolError("unknown snapshot flags");
+  if ((flags & ~(SnapshotFlags.Full | SnapshotFlags.ModeState)) !== 0) {
+    throw new ProtocolError("unknown snapshot flags");
+  }
   const tick = reader.u32();
   const lastProcessedCmdSeq = reader.u32();
   const cmdArrivalMargin = reader.i8();
@@ -351,6 +449,28 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
   const eventCount = reader.u8();
   if (entityCount > MAX_ENTITY_DELTAS) throw new ProtocolError("too many entity deltas");
   if (eventCount > MAX_EVENTS) throw new ProtocolError("too many events");
+  let modeState: SnapshotFrame["modeState"];
+  if ((flags & SnapshotFlags.ModeState) !== 0) {
+    const mode = reader.u8() as NonNullable<SnapshotFrame["modeState"]>["mode"];
+    const ladder = reader.u8() as NonNullable<SnapshotFrame["modeState"]>["ladder"];
+    const roundState = reader.u8();
+    const winnerId = reader.u16();
+    const restartTicksRemaining = reader.u16();
+    const teamScores = [reader.u8(), reader.u8()] as const;
+    const scoreboardCount = reader.u8();
+    if (scoreboardCount > 12) throw new ProtocolError("too many scoreboard entries");
+    const scoreboard = [];
+    for (let index = 0; index < scoreboardCount; index += 1) {
+      scoreboard.push({
+        playerId: reader.u16(),
+        kills: reader.u16(),
+        deaths: reader.u16(),
+        team: reader.u8(),
+        tier: reader.u8(),
+      });
+    }
+    modeState = { mode, ladder, roundState, winnerId, restartTicksRemaining, teamScores, scoreboard };
+  }
   const entities: EntityDelta[] = [];
   for (let index = 0; index < entityCount; index += 1) entities.push(readEntity(reader));
   const events = [];
@@ -362,6 +482,8 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
       actorId: reader.u16(),
       targetId: reader.u16(),
       amount: reader.u16(),
+      weaponId: reader.u8(),
+      flags: reader.u8(),
     });
   }
   reader.done();
@@ -375,6 +497,7 @@ function decodeSnapshot(reader: Reader): SnapshotFrame {
     baselineTick,
     entities,
     events,
+    ...(modeState === undefined ? {} : { modeState }),
   };
 }
 
@@ -404,6 +527,7 @@ export function decodeFrame(bytes: Uint8Array): ProtocolFrame {
         maxDatagramSize: reader.u16(),
         mode: reader.u8() as WelcomeFrame["mode"],
         variant: reader.u8() as WelcomeFrame["variant"],
+        ladder: reader.u8() as WelcomeFrame["ladder"],
       };
       reader.done();
       return frame;

@@ -5,6 +5,7 @@ import {
   GameMode,
   GravityVariant,
   JoinKind,
+  Ladder,
   PROTOCOL_VERSION,
   type HelloFrame,
 } from "@gungame/protocol";
@@ -46,6 +47,8 @@ function hello(overrides: Partial<HelloFrame> = {}): HelloFrame {
     joinKind: JoinKind.Quickplay,
     mode: GameMode.GunGame,
     variant: GravityVariant.Standard,
+    ladder: Ladder.Classic,
+    name: "Test Player",
     roomId: "",
     reconnectToken: new Uint8Array(),
     ...overrides,
@@ -89,6 +92,7 @@ describe("rooms and reconnect slots", () => {
         joinKind: JoinKind.Create,
         mode: GameMode.Scoutzknivez,
         variant: GravityVariant.Scoutz,
+        ladder: Ladder.Classic,
       }),
       new FakePeer(),
       0,
@@ -100,6 +104,7 @@ describe("rooms and reconnect slots", () => {
     expect(joined.room.config).toEqual({
       mode: GameMode.Scoutzknivez,
       variant: GravityVariant.Scoutz,
+      ladder: Ladder.Classic,
     });
     expect(Object.isFrozen(joined.room.config)).toBe(true);
   });

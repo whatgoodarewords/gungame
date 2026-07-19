@@ -3,6 +3,8 @@ import { vec3 } from "@gungame/shared";
 import type { State } from "./types.js";
 
 export * from "./collision.js";
+export * from "./combat.js";
+export * from "./modes.js";
 export * from "./params.js";
 export { step } from "./step.js";
 export type { StepOptions } from "./step.js";
