@@ -30,6 +30,8 @@ export class FpsCamera {
   /**
    * Per render frame. Position from interpolated sim state; angles raw from input.
    * duckProgress eases the eye with a Hermite spline (GoldSrc's view curve).
+   * kickPitch/kickYaw are the display-only recoil offsets (camera-kick J1) —
+   * composed here so input angles stay untouched by construction.
    */
   update(
     px: number,
@@ -39,6 +41,8 @@ export class FpsCamera {
     pitch: number,
     dtMs: number,
     duckProgress = 0,
+    kickPitch = 0,
+    kickYaw = 0,
   ): void {
     let dip = 0;
     if (this.dipT < 1) {
@@ -48,6 +52,6 @@ export class FpsCamera {
     const t = duckProgress * duckProgress * (3 - 2 * duckProgress);
     const eye = EYE_HEIGHT + (DUCK_EYE_HEIGHT - EYE_HEIGHT) * t;
     this.camera.position.set(px, py + eye, pz);
-    this.camera.rotation.set(pitch - dip, yaw, 0);
+    this.camera.rotation.set(pitch - dip + kickPitch, yaw + kickYaw, 0);
   }
 }

@@ -49,6 +49,7 @@ import { DEFAULT, SCOUTZ } from "../../packages/sim/src/index.js";
 import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
+import { CameraKick } from "./camera-kick.js";
 import { ClipThat } from "./clip-capture.js";
 import type {
   ProjectileView,
@@ -141,6 +142,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const viewmodelScene = new Scene();
   let userSettings: UserSettings = loadUserSettings(localStorage);
   const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight, userSettings.fov);
+  const cameraKick = new CameraKick();
   fpsCam.camera.layers.disable(1);
   scene.add(fpsCam.camera);
   const viewmodelCamera = new PerspectiveCamera(
@@ -813,7 +815,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let lastFrame = performance.now();
   let fpsSmoothed = 0;
   let lastWeapon: WeaponIdValue | undefined;
-  let nextLocalShotMs = 0;
   let c2pPhotonPending = false;
   let nextFootstepMs = 0;
   let nextWhooshMs = 0;
@@ -874,7 +875,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     // View angles + held-button peek for camera/HUD only — pulse consumption
     // moved to the sim tick via setTickInput (review finding 7: 144 Hz loss).
     const frame = input.peek();
-    const firePresentations = input.drainFirePresentations();
+    // Fire presentation comes from the predicted sim, not wall-clock cadence
+    // guessing: exact tick-quantized refire, freeze/empty-Goldie gated, and
+    // melee resolves to the knife — the same answers the server will give. (F2)
+    const firedWeapons = sim.drainFirePresentations();
     // Click-to-photon (F4). Close a sample only after the frame that actually
     // drew the shot presented — i.e. one rAF later, so the interval includes
     // render+composite+scanout (native-feel §1). `c2pPhotonPending` is set below
@@ -937,7 +941,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       );
       fpsCam.camera.lookAt(deathPosition.x, deathPosition.y + 0.9, deathPosition.z);
     } else {
-      fpsCam.update(px, py, pz, input.yaw, input.pitch, dtMs, duck);
+      cameraKick.update(dtMs);
+      fpsCam.update(
+        px, py, pz, input.yaw, input.pitch, dtMs, duck,
+        cameraKick.pitchOffset, cameraKick.yawOffset,
+      );
     }
     audio.setListener(
       fpsCam.camera.position,
@@ -1004,19 +1012,18 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       viewmodel?.setWeapon(displayedWeapon, viewmodelCaptureConfig);
     }
     if (viewmodelCaptureKick) viewmodel?.onFire();
-    if (
-      (firePresentations > 0 || (frame.buttons & Button.Fire) !== 0) &&
-      combat.alive &&
-      now >= nextLocalShotMs
-    ) {
+    // Each predicted-sim fire event presents exactly once. Multiple events in
+    // one render frame (SMG at low fps) still present once visually but keep
+    // the correct shot count for audio cadence.
+    for (const firedWeaponId of firedWeapons) {
       viewmodel?.onFire();
-      audio.playFire(combat.weaponId);
-      const weapon = WEAPONS[combat.weaponId];
+      cameraKick.fire(firedWeaponId, zoomed);
+      audio.playFire(firedWeaponId);
+      const weapon = WEAPONS[firedWeaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
         showAimTracer(weapon.range);
         impacts.ejectCasing(fpsCam.camera.position, input.yaw);
       }
-      nextLocalShotMs = now + WEAPONS[combat.weaponId].refireTicks * TICK_DT * 1_000;
       // A real muzzle response drew this frame — arm the click-to-photon close
       // for the next rAF (≈ this frame's present). (F4/S3)
       c2pPhotonPending = true;

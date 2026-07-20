@@ -201,20 +201,6 @@ export function resolveLiveInputElement(
   return ownerDocument.querySelector<HTMLElement>("#app canvas:last-of-type") ?? configured;
 }
 
-export class FirePresentationQueue {
-  private pending = 0;
-
-  enqueue(): void {
-    this.pending += 1;
-  }
-
-  drain(): number {
-    const count = this.pending;
-    this.pending = 0;
-    return count;
-  }
-}
-
 export class RawInput {
   yaw = 0;
   pitch = 0;
@@ -229,7 +215,6 @@ export class RawInput {
   private locked = false;
   private queuedJump = false;
   private queuedFire = false;
-  private readonly firePresentation = new FirePresentationQueue();
   private bindings: ControlBindings;
   private keyButtons = new Map<string, number>();
   private lockListeners = new Set<(locked: boolean) => void>();
@@ -404,14 +389,8 @@ export class RawInput {
     this.fireFraction = -1;
     this.queuedJump = false;
     this.queuedFire = false;
-    if (consumedFire) this.firePresentation.enqueue();
     this.tickStartMs = performance.now();
     return out;
-  }
-
-  /** Render-only fire presentation; authoritative input is consumed solely by sampleTick. */
-  drainFirePresentations(): number {
-    return this.firePresentation.drain();
   }
 
   get isLocked(): boolean {

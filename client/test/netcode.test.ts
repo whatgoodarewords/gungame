@@ -6,7 +6,7 @@ import {
   Ladder,
   type EntityState,
 } from "@gungame/protocol";
-import { TICK_DT, WeaponId } from "@gungame/shared";
+import { TICK_DT, WEAPONS, WeaponId } from "@gungame/shared";
 import { Buttons, createInitialState, CollisionWorld, type Cmd } from "@gungame/sim";
 
 import { ClockSync } from "../src/net/clock.js";
@@ -194,6 +194,76 @@ describe("prediction reconciliation", () => {
     expect(rebuilt.player.velocity).toEqual(predicted.player.velocity);
     expect(rebuilt.tick).toBe(2);
     expect(TICK_DT).toBe(1 / 64);
+  });
+});
+
+describe("fire presentation from the predicted sim (F2)", () => {
+  const cmd = (seq: number, buttons: number): Cmd => ({
+    seq,
+    tick: seq,
+    buttons,
+    viewYaw: 0,
+    viewPitch: 0,
+    fireFraction: 128,
+    lastSnapshotTick: 0,
+    interpTargetTick: 0,
+    interpTargetFraction: 0,
+  });
+
+  function armed(weaponId: (typeof WeaponId)[keyof typeof WeaponId]): PredictionReconciler {
+    const reconciler = new PredictionReconciler(createInitialState());
+    reconciler.configureCombat(1, 1, weaponId);
+    return reconciler;
+  }
+
+  it("held fire presents at exactly the weapon's tick-quantized refire cadence", () => {
+    const reconciler = armed(WeaponId.Smg);
+    const refire = WEAPONS[WeaponId.Smg].refireTicks;
+    const ticks = refire * 4;
+    for (let i = 1; i <= ticks; i += 1) reconciler.predict(cmd(i, Buttons.Fire));
+    // Shots at tick 1, 1+refire, 1+2*refire, 1+3*refire within the window.
+    expect(reconciler.drainFirePresentations()).toHaveLength(4);
+    // Drained means drained.
+    expect(reconciler.drainFirePresentations()).toHaveLength(0);
+  });
+
+  it("a reconcile mid-burst never re-emits or accelerates the cadence", () => {
+    const reconciler = armed(WeaponId.Smg);
+    const refire = WEAPONS[WeaponId.Smg].refireTicks;
+    reconciler.predict(cmd(1, Buttons.Fire));
+    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Smg]);
+    // Server acks cmd 1; replay happens every snapshot in reality. The
+    // authoritative tick stream is continuous with prediction (tick 1 here) —
+    // only epoch resets may rewind it, and those clear the gate explicitly.
+    reconciler.reconcile({ ...createInitialState(), tick: 1 }, 1);
+    // Next tick is still inside the refire window: no event, despite the
+    // reconcile having reset the projectile-replay fire gate.
+    reconciler.predict(cmd(2, Buttons.Fire));
+    expect(reconciler.drainFirePresentations()).toHaveLength(0);
+    // The cadence boundary emits again.
+    for (let i = 3; i <= 1 + refire; i += 1) reconciler.predict(cmd(i, Buttons.Fire));
+    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Smg]);
+  });
+
+  it("melee-modifier attacks present the knife, not the ladder weapon", () => {
+    const reconciler = armed(WeaponId.Scout);
+    reconciler.predict(cmd(1, Buttons.Fire | Buttons.Melee));
+    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Knife]);
+  });
+
+  it("round freeze and an empty ammo-tracked magazine suppress presentation", () => {
+    const frozen = armed(WeaponId.Pistol);
+    frozen.setPresentationGates(true, false);
+    frozen.predict(cmd(1, Buttons.Fire));
+    expect(frozen.drainFirePresentations()).toHaveLength(0);
+
+    const empty = armed(WeaponId.Goldie);
+    empty.setPresentationGates(false, true);
+    empty.predict(cmd(1, Buttons.Fire));
+    expect(empty.drainFirePresentations()).toHaveLength(0);
+    // But the melee modifier still lands with an empty Goldie.
+    empty.predict(cmd(2, Buttons.Fire | Buttons.Melee));
+    expect(empty.drainFirePresentations()).toEqual([WeaponId.Knife]);
   });
 });
 

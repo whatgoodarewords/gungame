@@ -12,7 +12,6 @@ import { ProjectileVisualSystem, RemoteCharacterSystem } from "../src/combat-vis
 import {
   Button,
   DEFAULT_CONTROL_BINDINGS,
-  FirePresentationQueue,
   buttonsForPressedCodes,
   formatButtonBits,
   loadControlBindings,
@@ -42,13 +41,6 @@ class MemoryStorage {
 }
 
 describe("phase 4c controls and settings", () => {
-  it("presents a tick-consumed quick fire once without making render consume input", () => {
-    const presentation = new FirePresentationQueue();
-    presentation.enqueue();
-    expect(presentation.drain()).toBe(1);
-    expect(presentation.drain()).toBe(0);
-  });
-
   it("uses mac-safe duck defaults and de-duplicates persisted rebinds", () => {
     expect(DEFAULT_CONTROL_BINDINGS.duck[0]).toBe("ShiftLeft");
     const rebound = rebindControl(DEFAULT_CONTROL_BINDINGS, "jump", "KeyW");

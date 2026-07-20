@@ -2,6 +2,7 @@ import {
   DEFAULT_FEEL,
   loadGameplayMap,
   TICK_DT,
+  WEAPONS,
   WeaponId,
   ladderWeapons,
   type WeaponIdValue,
@@ -23,6 +24,7 @@ import {
   GravityVariant,
   Ladder,
   MapId,
+  RoundState,
   type SnapshotEvent,
   type SnapshotModeState,
 } from "../../packages/protocol/src/index.js";
@@ -59,6 +61,12 @@ export interface SimHandle {
   setTickInput(source: () => FrameInput): void;
   getCombatState(): CombatView;
   drainCombatEvents(): readonly SnapshotEvent[];
+  /**
+   * Weapons fired by the predicted sim since the last drain, in tick order —
+   * the ONLY authority for local fire presentation (muzzle/audio/casing).
+   * Melee-modifier attacks resolve to the knife here, matching the server. (F2)
+   */
+  drainFirePresentations(): readonly WeaponIdValue[];
   getPingMs(): number;
 }
 
@@ -181,6 +189,7 @@ export function createPlayground(
     },
     getCombatState: () => combat,
     drainCombatEvents: () => combatEvents.splice(0),
+    drainFirePresentations: () => prediction?.drainFirePresentations() ?? [],
     getPingMs: () => network?.clock.roundTripMs ?? 0,
   };
 
@@ -284,6 +293,10 @@ export function createPlayground(
             ? WeaponId.Scout
             : ladderWeapons(welcomeLadder)[Math.max(0, self.weaponTier - 1)] ?? WeaponId.Pistol;
           prediction.configureCombat(self.id, self.generation, weaponId);
+          prediction.setPresentationGates(
+            frame.modeState?.roundState === RoundState.ScoreboardFreeze,
+            WEAPONS[weaponId].magazine > 0 && self.ammo <= 0,
+          );
           const predictedProjectiles = prediction.reconcileProjectiles(entities);
           combat = {
             selfId: self.id,

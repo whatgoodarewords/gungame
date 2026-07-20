@@ -10,6 +10,7 @@ const BALLISTIC: MoveParams = {
   airAccelerate: 0,
   groundAccelerate: 0,
   friction: 0,
+  stopSpeed: 2.5,
   jumpVelocity: 0,
 };
 

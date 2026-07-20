@@ -2,6 +2,7 @@ import {
   DEFAULT_FEEL,
   TICK_DT,
   WEAPONS,
+  WeaponId,
   type FeelParams,
   type Vec3,
   type WeaponIdValue,
@@ -45,6 +46,14 @@ export class PredictionReconciler {
   private ownerGeneration = 0;
   private weaponId: WeaponIdValue | undefined;
   private nextFireTick = 0;
+  // Fire-presentation state (F2). Deliberately SEPARATE from nextFireTick:
+  // that one resets on every reconcile so projectile replay stays correct,
+  // but presentation cadence must survive reconciles or held fire would
+  // re-trigger at snapshot rate instead of the weapon's refire rate.
+  private presentationNextFireTick = 0;
+  private readonly firedWeaponIds: WeaponIdValue[] = [];
+  private presentationFrozen = false;
+  private presentationAmmoEmpty = false;
 
   constructor(initial: State, world?: CollisionWorld) {
     this.predicted = initial;
@@ -85,7 +94,48 @@ export class PredictionReconciler {
       },
     );
     this.predicted = this.predictCombat(previous, moved, cmd);
+    // Presentation events come ONLY from the live predict path — reconcile
+    // replays the same cmds and must never re-emit a shot the player already
+    // saw. (F2)
+    this.emitFirePresentation(cmd, this.predicted.tick);
     return this.predicted;
+  }
+
+  /**
+   * Update the server-truth gates that suppress fire presentation: round
+   * freeze (server ignores fire while frozen) and an empty magazine on
+   * ammo-tracked weapons. Both are replicated state — at worst one RTT stale,
+   * which is far better than presenting shots the server will never resolve.
+   */
+  setPresentationGates(frozen: boolean, ammoEmpty: boolean): void {
+    this.presentationFrozen = frozen;
+    this.presentationAmmoEmpty = ammoEmpty;
+  }
+
+  /**
+   * Fired-weapon presentation queue since the last drain, in tick order.
+   * The melee modifier is resolved here (a melee attack presents the knife,
+   * not the ladder weapon), mirroring the server's weapon swap.
+   */
+  drainFirePresentations(): readonly WeaponIdValue[] {
+    if (this.firedWeaponIds.length === 0) return this.firedWeaponIds;
+    return this.firedWeaponIds.splice(0);
+  }
+
+  private emitFirePresentation(cmd: Cmd, tick: number): void {
+    // Mirrors the server exactly (rooms.fire): the Fire pulse triggers the
+    // shot; the Melee bit only swaps the resolved weapon to the knife.
+    if ((cmd.buttons & Buttons.Fire) === 0) return;
+    if (this.presentationFrozen) return;
+    // Before the first snapshot configures combat, present the server's
+    // tier-1 default so pre-welcome/practice fire is not silent.
+    const base = this.weaponId ?? WeaponId.Pistol;
+    const melee = (cmd.buttons & Buttons.Melee) !== 0;
+    const effective = melee ? WeaponId.Knife : base;
+    if (this.presentationAmmoEmpty && !melee) return;
+    if (tick < this.presentationNextFireTick) return;
+    this.firedWeaponIds.push(effective);
+    this.presentationNextFireTick = tick + WEAPONS[effective].refireTicks;
   }
 
   reconcile(
@@ -152,6 +202,8 @@ export class PredictionReconciler {
     this.projectileMatcher = new OwnProjectilePrediction();
     this.matchedProjectiles = [];
     this.nextFireTick = 0;
+    this.presentationNextFireTick = 0;
+    this.firedWeaponIds.length = 0;
   }
 
   reconcileProjectiles(entities: readonly EntityState[]): readonly ProjectileState[] {

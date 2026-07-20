@@ -273,3 +273,38 @@ describe("duck landing slide", () => {
     );
   });
 });
+
+describe("pm_stopspeed crisp stops (J2)", () => {
+  it("reaches a full stop from run speed within 0.45s of releasing input", () => {
+    let state = withPlayer(createInitialState(), {
+      position: { x: 0, y: 0, z: 0 },
+      velocity: { x: DEFAULT.runSpeed, y: 0, z: 0 },
+      grounded: true,
+    });
+    let stopTick = -1;
+    for (let tick = 1; tick <= 64; tick += 1) {
+      state = step(state, cmd(tick), TICK_DT, { world: floor, params: DEFAULT, feel: DEFAULT_FEEL });
+      if (Math.hypot(state.player.velocity.x, state.player.velocity.z) === 0) {
+        stopTick = tick;
+        break;
+      }
+    }
+    // Pure proportional friction never reaches zero (asymptotic drift — the
+    // "mushy stop"); Q3's stopspeed clamp makes low-speed decel linear.
+    expect(stopTick).toBeGreaterThan(0);
+    expect(stopTick * TICK_DT).toBeLessThan(0.45);
+  });
+
+  it("does not change deceleration above stopSpeed (top-speed friction identical)", () => {
+    const before = withPlayer(createInitialState(), {
+      position: { x: 0, y: 0, z: 0 },
+      velocity: { x: DEFAULT.runSpeed, y: 0, z: 0 },
+      grounded: true,
+    });
+    const after = step(before, cmd(1), TICK_DT, { world: floor, params: DEFAULT, feel: DEFAULT_FEEL });
+    const speed = Math.hypot(after.player.velocity.x, after.player.velocity.z);
+    // At 6.4 m/s the control value is the speed itself: one tick of classic
+    // proportional decay, unchanged by the clamp.
+    expect(speed).toBeCloseTo(DEFAULT.runSpeed * (1 - DEFAULT.friction * TICK_DT), 5);
+  });
+});

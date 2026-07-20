@@ -61,10 +61,13 @@ function wishVelocity(cmd: Cmd, runSpeed: number): { direction: Vec3; speed: num
   };
 }
 
-function friction(velocity: Vec3, amount: number, dt: number): Vec3 {
+function friction(velocity: Vec3, amount: number, dt: number, stopSpeed: number): Vec3 {
   const speed = Math.hypot(velocity.x, velocity.z);
   if (speed === 0) return velocity;
-  const newSpeed = Math.max(0, speed - speed * amount * dt);
+  // Q3 pmove: clamp the control value so low-speed deceleration is linear
+  // and actually reaches zero (pm_stopspeed) instead of asymptotic drift.
+  const control = Math.max(speed, stopSpeed);
+  const newSpeed = Math.max(0, speed - control * amount * dt);
   const scale = newSpeed / speed;
   return { x: velocity.x * scale, y: velocity.y, z: velocity.z * scale };
 }
@@ -308,6 +311,7 @@ export function step(
       velocity,
       params.friction * (sliding ? feel.slideFrictionScale : 1),
       dt,
+      params.stopSpeed,
     );
     if (!sliding || Math.hypot(velocity.x, velocity.z) < params.runSpeed) {
       const groundDirection = ground.hit === undefined
