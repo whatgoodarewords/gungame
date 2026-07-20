@@ -648,6 +648,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         showConnectionCard("room-full");
       } else if (code === RefusalCode.RoomNotFound) {
         showConnectionCard("room-not-found");
+      } else if (code === RefusalCode.InvalidName) {
+        // A name the server rejects can never join — a reconnect loop with the
+        // same name is a silent stuck-at-spawn. Send the player back to the
+        // name screen instead.
+        const url = new URL(location.href);
+        url.searchParams.delete("name");
+        location.assign(url.toString());
       } else {
         hud.setState(hudState.dispatch({ type: "connection-lost" }));
       }

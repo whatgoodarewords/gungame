@@ -213,6 +213,7 @@ export class RawInput {
   private tickMs: number;
   private pendingFireEventMs = -1;
   private locked = false;
+  private lockErrorRetried = false;
   private queuedJump = false;
   private queuedFire = false;
   private bindings: ControlBindings;
@@ -233,7 +234,14 @@ export class RawInput {
     this.bindings = loadControlBindings(localStorage);
     this.rebuildKeyButtons();
     document.addEventListener("pointerdown", (event) => {
-      if (event.target !== this.liveElement()) return;
+      // Any game canvas counts — the resilience ladder can swap/append
+      // canvases, and an identity check against one specific node turned
+      // "click to play" into a no-op when it pointed at the wrong canvas.
+      const target = event.target;
+      if (
+        !(target instanceof HTMLCanvasElement) ||
+        target.closest("#app") === null
+      ) return;
       this.markActivity();
       if (event.button !== 0 || this.locked) return;
       // Preserve the gesture as an actual shot while it also acquires lock.
@@ -242,12 +250,38 @@ export class RawInput {
       event.preventDefault();
     }, { capture: true });
     document.addEventListener("pointerlockchange", () => {
-      this.locked = document.pointerLockElement === this.liveElement();
+      // Containment, not identity: the render-resilience ladder can append a
+      // replacement canvas, so "the exact last-of-type canvas" may not be the
+      // element that received the lock. Any locked element inside the game
+      // root means the player is captured — movement events are document-level
+      // and do not care which canvas holds the lock. Identity comparison here
+      // left this.locked false while the pointer WAS locked: every input dead,
+      // cursor gone, "stuck at spawn". (Safari/fallback-canvas race)
+      const lockedElement = document.pointerLockElement;
+      this.locked = lockedElement !== null &&
+        (lockedElement === this.liveElement() ||
+          lockedElement.closest?.("#app") !== null);
+      document.querySelector<HTMLElement>("#app")?.setAttribute(
+        "data-lock-state",
+        this.locked ? "locked" : "unlocked",
+      );
       if (!this.locked) {
         this.buttons = 0;
         this.queuedJump = false;
       }
       for (const listener of this.lockListeners) listener(this.locked);
+    });
+    document.addEventListener("pointerlockerror", () => {
+      // Surface the failure class loudly — a silent lock error IS the
+      // "mouse moves a cursor, not the view" bug report. Retry the plain
+      // request at most once per gesture (the retry itself can error, and an
+      // unguarded handler would loop on the event).
+      console.error("pointer lock request failed (pointerlockerror)");
+      document.querySelector<HTMLElement>("#app")?.setAttribute("data-lock-state", "error");
+      if (!this.lockErrorRetried) {
+        this.lockErrorRetried = true;
+        this.requestFallbackLock();
+      }
     });
     document.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
@@ -345,6 +379,7 @@ export class RawInput {
 
   requestLock(): void {
     // unadjustedMovement gives raw counts; fall back where unsupported.
+    this.lockErrorRetried = false;
     const element = this.liveElement();
     if (!element.isConnected || element.ownerDocument !== document) {
       console.warn("pointer lock skipped: live canvas is not mounted");
