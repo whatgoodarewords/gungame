@@ -1,0 +1,11 @@
+Role: Codex GPT-5.6 lane "hotfix5 — env pipeline reconcile + room routing" (NORMATIVE: docs/SPEC.md; client/HOTFIX4-REPORT.md for the new validation contracts). You write all code; NO git ops; don't touch docs/, deploy/.
+
+Prime evidence from the live deploy (mega-sweep + curl): (a) ALL maps log "offline environment unavailable … safety lighting active" — the committed *_1k_pmrem.ktx2 files (tools/assets/prefilter-hdri.mjs output) fail hotfix4's new decode validation in client/src/environment-assets.ts (compressed-cubemap + consistent-dims checks). The pmrem files fetch fine (bundled ?url imports). Two pipeline generations disagree about the format. (b) The env-failure catch path itself throws "TypeError: Cannot read properties of undefined (reading 'length')" — a bug inside the fallback/diagnostics logging (find at/near main.ts:529 call chain). (c) Two sequential quickplay joins STILL land in different rooms (mega-sweep M2.humans-share-room fail) and a second client joining a created ARSENAL room via ?room= does not arrive in it (M2.invite-joins-arsenal-room fail) — the hotfix2/3 human-count ranking + room resolution has a residual defect; find it with a failing integration test FIRST (two joinHellos 3s apart → same roomId; then create-arsenal + guest join → same roomId + ladder). (d) WS closed once mid-60s-session in the sweep (M1.ws-stable open,close) — surface the hotfix3 close-code telemetry into a DOM data attribute (data-last-close) so external probes can read code+reason; if the close reproduces in your integration harness, fix the cause.
+
+Deliverables:
+1. Reconcile prefilter-hdri.mjs output format with environment-assets validation — pick ONE format, regenerate the four committed pmrem.ktx2 (you have the source .hdr files vendored), and add a BUILD-TIME validator (tools/assets) run in CI so a format drift can never reach runtime again. Env must actually apply on both backends (extend the dark-frame test to assert non-safety lighting when env loads: expose a data-env-state attribute).
+2. Fix the fallback-path TypeError (with a regression test).
+3. Fix room routing per (c) with the failing-test-first approach.
+4. Close-code surfacing per (d).
+Done: pnpm -r typecheck && test green; regenerated env assets validate in CI; the two room-routing integration tests pass.
+Report → client/HOTFIX5-REPORT.md progressively.
