@@ -7,8 +7,14 @@ export interface ConsumedCmd {
   readonly epochReference: "current" | "valid-stale";
 }
 
+interface AcceptedCmd {
+  readonly cmd: CmdFrame;
+  readonly epochReference: "current" | "valid-stale" | undefined;
+  readonly epochError: unknown | undefined;
+}
+
 export class CmdAcceptanceWindow {
-  private readonly accepted = new Map<number, CmdFrame>();
+  private readonly accepted = new Map<number, AcceptedCmd>();
   private processed = 0;
   private lastConsumedSnapshotTick = 0;
 
@@ -20,9 +26,23 @@ export class CmdAcceptanceWindow {
     return this.accepted.size;
   }
 
-  accept(cmd: CmdFrame): boolean {
+  accept(
+    cmd: CmdFrame,
+    classifyEpoch?: (epoch: number) => "current" | "valid-stale",
+  ): boolean {
     if (cmd.seq <= this.processed || this.accepted.has(cmd.seq)) return false;
-    this.accepted.set(cmd.seq, cmd);
+    let epochReference: "current" | "valid-stale" | undefined;
+    let epochError: unknown;
+    try {
+      epochReference = classifyEpoch?.(cmd.baselineEpoch);
+    } catch (error) {
+      epochError = error;
+    }
+    this.accepted.set(cmd.seq, {
+      cmd,
+      epochReference,
+      epochError,
+    });
     if (this.accepted.size > CMD_WINDOW_SIZE) {
       const oldest = this.sortedSeqs()[0];
       if (oldest !== undefined) {
@@ -47,11 +67,13 @@ export class CmdAcceptanceWindow {
     }
     const seq = this.sortedSeqs()[0];
     if (seq === undefined) return undefined;
-    const cmd = this.accepted.get(seq);
-    if (cmd === undefined) return undefined;
+    const accepted = this.accepted.get(seq);
+    if (accepted === undefined) return undefined;
     this.accepted.delete(seq);
     this.processed = Math.max(this.processed, seq);
-    const epochReference = classifyEpoch(cmd.baselineEpoch);
+    const { cmd } = accepted;
+    if (accepted.epochError !== undefined) throw accepted.epochError;
+    const epochReference = accepted.epochReference ?? classifyEpoch(cmd.baselineEpoch);
     if (epochReference === "current") {
       if (cmd.lastSnapshotTick < this.lastConsumedSnapshotTick) {
         throw new ProtocolError("lastSnapshotTick is non-monotonic");

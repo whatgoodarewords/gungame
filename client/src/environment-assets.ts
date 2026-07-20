@@ -1,5 +1,10 @@
 import {
   CubeReflectionMapping,
+  CubeTexture,
+  DataTexture,
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  RGBAFormat,
   RGB_ETC1_Format,
   RGB_ETC2_Format,
   RGB_PVRTC_4BPPV1_Format,
@@ -9,6 +14,7 @@ import {
   RGBA_PVRTC_4BPPV1_Format,
   RGBA_S3TC_DXT1_Format,
   RGBA_S3TC_DXT5_Format,
+  UnsignedByteType,
   type Scene,
   type Texture,
   type WebGPURenderer,
@@ -42,8 +48,14 @@ const FORMAT_FEATURE = new Map<number, string>([
 interface CompressedCubeFace {
   readonly width?: number;
   readonly height?: number;
-  readonly mipmaps?: readonly ArrayLike<unknown>[];
+  readonly mipmaps?: readonly {
+    readonly width?: number;
+    readonly height?: number;
+    readonly data?: ArrayLike<unknown>;
+  }[];
 }
+
+type RgbaMipData = Uint8Array & { width?: number; height?: number };
 
 export function validateEnvironmentTexture(
   renderer: WebGPURenderer,
@@ -73,11 +85,59 @@ export function validateEnvironmentTexture(
     (face.mipmaps?.length ?? 0) !== mipCount)) {
     throw new Error("offline environment cubemap faces have inconsistent dimensions or mip counts");
   }
+  for (const face of cube.image) {
+    for (let level = 0; level < mipCount; level += 1) {
+      const mip = face.mipmaps?.[level];
+      const expected = Math.max(1, 256 >> level);
+      if (mip?.width !== expected || mip.height !== expected || mip.data === undefined) {
+        throw new Error(
+          `offline environment cubemap faces have inconsistent dimensions at mip ${level}`,
+        );
+      }
+    }
+  }
   const backend = renderer.backend as unknown as { isWebGPUBackend?: boolean };
   const feature = cube.format === undefined ? undefined : FORMAT_FEATURE.get(cube.format);
   if (backend.isWebGPUBackend === true && feature !== undefined && !renderer.hasFeature(feature)) {
     throw new Error(`offline environment format ${cube.format} requires unavailable ${feature}`);
   }
+}
+
+/**
+ * WebGPURenderer r185's common texture path cannot upload a
+ * CompressedCubeTexture: it reads the absent texture-level `mipmaps` array and
+ * then treats the cube as a 2D compressed texture. KTX2Loader is forced to its
+ * RGBA32 fallback below, so normalize the validated decoder result into the
+ * regular CubeTexture/DataTexture representation supported by both backends.
+ */
+export function createUploadableEnvironmentTexture(texture: Texture): CubeTexture {
+  const source = texture as Texture & {
+    readonly image: readonly Required<CompressedCubeFace>[];
+  };
+  const imagesAt = (level: number): DataTexture[] => source.image.map((face) => {
+    const mip = face.mipmaps[level]!;
+    const data = mip.data as RgbaMipData;
+    const width = mip.width!;
+    const height = mip.height!;
+    // WebGLBackend reads mip dimensions from the typed array after unwrapping
+    // DataTexture; WebGPU reads them from DataTexture.image.
+    data.width = width;
+    data.height = height;
+    return new DataTexture(data, width, height, RGBAFormat, UnsignedByteType);
+  });
+  const cube = new CubeTexture(imagesAt(0));
+  (cube as unknown as { mipmaps: Array<{ images: DataTexture[] }> }).mipmaps =
+    Array.from({ length: 8 }, (_, index) => ({ images: imagesAt(index + 1) }));
+  cube.mapping = CubeReflectionMapping;
+  cube.format = RGBAFormat;
+  cube.type = UnsignedByteType;
+  cube.colorSpace = texture.colorSpace;
+  cube.generateMipmaps = false;
+  cube.minFilter = LinearMipmapLinearFilter;
+  cube.magFilter = LinearFilter;
+  cube.needsUpdate = true;
+  cube.userData.offlinePrefilteredMipCount = 9;
+  return cube;
 }
 
 export class OfflineEnvironmentAssets {
@@ -92,28 +152,46 @@ export class OfflineEnvironmentAssets {
       .setTranscoderPath(`${import.meta.env.BASE_URL}basis/`)
       .setWorkerLimit(1);
     this.loader.detectSupport(renderer);
+    // Decode UASTC to RGBA32 so the validated face/mip payload can be
+    // represented as an uploadable regular CubeTexture on both backends.
+    (this.loader as unknown as { workerConfig: Record<string, boolean> }).workerConfig = {
+      astcSupported: false,
+      astcHDRSupported: false,
+      etc1Supported: false,
+      etc2Supported: false,
+      dxtSupported: false,
+      bptcSupported: false,
+      pvrtcSupported: false,
+    };
   }
 
-  async install(scene: Scene, mapId: string): Promise<void> {
+  async install(scene: Scene, mapId: string): Promise<boolean> {
     const url = ENVIRONMENTS[mapId] ?? ENVIRONMENTS.Foundry!;
     const generation = ++this.generation;
+    let decoded: Texture | undefined;
+    let texture: CubeTexture | undefined;
     try {
-      const texture = await this.loader.loadAsync(url).catch((error: unknown) => {
+      decoded = await this.loader.loadAsync(url).catch((error: unknown) => {
         throw new Error(`offline environment KTX2 load failed for ${mapId}`, { cause: error });
       });
-      validateEnvironmentTexture(this.renderer, texture);
+      validateEnvironmentTexture(this.renderer, decoded);
+      texture = createUploadableEnvironmentTexture(decoded);
+      decoded.dispose();
+      decoded = undefined;
       this.renderer.initTexture(texture);
       if (generation !== this.generation) {
         texture.dispose();
-        return;
+        return false;
       }
       texture.mapping = CubeReflectionMapping;
-      texture.userData.offlinePrefilteredMipCount = 9;
       const previous = this.active;
       this.active = texture;
       scene.environment = texture;
       previous?.dispose();
+      return true;
     } catch (error) {
+      decoded?.dispose();
+      texture?.dispose();
       if (generation === this.generation) {
         scene.environment = null;
         this.active?.dispose();

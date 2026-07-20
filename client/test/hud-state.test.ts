@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { HudStateMachine } from "../src/hud-state.js";
 import { armInviteCopy, inviteUrl, reconnectStatusText } from "../src/hud.js";
-import { webSocketCloseForensics } from "../src/net/session.js";
-import { canonicalRoomUrl, roomIdFromUrl } from "../src/room-url.js";
+import { surfaceWebSocketClose, webSocketCloseForensics } from "../src/net/session.js";
+import { canonicalRoomUrl, quickplayUrl, roomIdFromUrl } from "../src/room-url.js";
 
 describe("HUD state machine", () => {
   it("moves through name, play, death, respawn, win, and next-round play", () => {
@@ -44,6 +44,12 @@ describe("HUD state machine", () => {
     });
   });
 
+  it("publishes close forensics through the stable data-last-close contract", () => {
+    const target = { dataset: {} } as HTMLElement;
+    expect(surfaceWebSocketClose(target, 4008, "Backpressure")).toBe("ws 4008 · backpressure");
+    expect(target.dataset.lastClose).toBe("ws 4008 · backpressure");
+  });
+
   it("replaces exhausted reconnect countdown copy with a rejoin action", () => {
     expect(reconnectStatusText(2)).toBe("reconnecting… 2");
     expect(reconnectStatusText()).toBe("connection lost — rejoin?");
@@ -67,6 +73,12 @@ describe("HUD state machine", () => {
       "https://example.test/gg/r/old?room=old&create=1&name=Ari&mode=scoutz&style=toon-cel",
       "new",
     )).toBe("https://example.test/gg/r/new?style=toon-cel");
+  });
+
+  it("turns a canonical room route back into a true quickplay URL", () => {
+    expect(quickplayUrl(
+      "https://example.test/gg/r/r000001?room=r000001&create=1&name=Ari&style=toon-cel",
+    )).toBe("https://example.test/gg/?name=Ari&style=toon-cel");
   });
 
   it("keeps the invite handler armed for repeated clicks", () => {

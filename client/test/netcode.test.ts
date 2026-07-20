@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { EntityKind, type EntityState } from "@gungame/protocol";
+import {
+  EntityKind,
+  JoinKind,
+  Ladder,
+  type EntityState,
+} from "@gungame/protocol";
 import { TICK_DT, WeaponId } from "@gungame/shared";
 import { Buttons, createInitialState, CollisionWorld, type Cmd } from "@gungame/sim";
 
 import { ClockSync } from "../src/net/clock.js";
+import { createJoinHello } from "../src/net/session.js";
 import { RemoteInterpolation } from "../src/net/interpolation.js";
 import { PredictionReconciler } from "../src/net/prediction.js";
+import { quickplayUrl } from "../src/room-url.js";
 import { OffRenderTickDriver } from "../src/tick-driver.js";
 
 function boxWorld(
@@ -46,6 +53,59 @@ function entity(generation: number, x: number): EntityState {
     weaponId: 0,
   };
 }
+
+describe("hello routing", () => {
+  it("keeps explicit legacy invites fresh when a copied tab inherited the owner's token", () => {
+    const hello = createJoinHello({
+      pathname: "/gg/",
+      search: "?room=r000042&name=Guest",
+      buildHash: "test",
+      storedReconnectToken: "00112233445566778899aabbccddeeff",
+    });
+
+    expect(hello.joinKind).toBe(JoinKind.Invite);
+    expect(hello.roomId).toBe("r000042");
+    expect(hello.reconnectToken).toHaveLength(0);
+  });
+
+  it("builds quickplay and ARSENAL-create hellos without residual room state", () => {
+    const quickplay = createJoinHello({
+      pathname: "/gg/",
+      search: "?name=First",
+      buildHash: "test",
+      storedReconnectToken: null,
+    });
+    const arsenal = createJoinHello({
+      pathname: "/gg/",
+      search: "?name=Owner&create=1&mode=gungame&ladder=arsenal",
+      buildHash: "test",
+      storedReconnectToken: null,
+    });
+
+    expect(quickplay.joinKind).toBe(JoinKind.Quickplay);
+    expect(quickplay.roomId).toBe("");
+    expect(arsenal.joinKind).toBe(JoinKind.Create);
+    expect(arsenal.ladder).toBe(Ladder.Arsenal);
+  });
+
+  it("turns a room-scoped page back into a fresh quickplay hello", () => {
+    const url = new URL(quickplayUrl(
+      "https://dev.sml.world/gg/r/r000042?name=Second&room=stale&create=1&ladder=arsenal",
+    ));
+    const hello = createJoinHello({
+      pathname: url.pathname,
+      search: url.search,
+      buildHash: "test",
+      storedReconnectToken: "00112233445566778899aabbccddeeff",
+    });
+
+    expect(url.pathname).toBe("/gg/");
+    expect(url.searchParams.get("name")).toBe("Second");
+    expect(hello.joinKind).toBe(JoinKind.Quickplay);
+    expect(hello.roomId).toBe("");
+    expect(hello.reconnectToken).toHaveLength(0);
+  });
+});
 
 describe("clock sync and pacing", () => {
   it("uses RTT/2, step-resyncs above 250 ms, and slews cmd bias at <=1 tick/s", () => {

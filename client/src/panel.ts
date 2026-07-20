@@ -74,6 +74,7 @@ export class DevPanel {
         gap:1px 8px;font-size:10px;color:#9db39d}
       #devpanel .perf-breakdown span{display:flex;justify-content:space-between;gap:4px}
       #devpanel .perf-breakdown b{font-weight:400;color:#e8f4e8}
+      #devpanel .perf-breakdown b.over-budget{color:#ff6b6b}
       #devpanel .render-diagnostic{align-items:flex-start}
       #devpanel .render-diagnostic span:last-child{max-width:176px;color:#ffbe7a;text-align:right;
         overflow-wrap:anywhere}
@@ -87,6 +88,8 @@ export class DevPanel {
       <span>post <b data-perf="post">0.00</b></span>
       <span>fx <b data-perf="particles">0.00</b></span>
       <span>chars <b data-perf="characters">0.00</b></span>
+      <span>frame p50/p99 <b data-feel="frame">— / —</b></span>
+      <span>click→photon p50/p95 <b data-feel="c2p">— / —</b></span>
     </div>
     <div class="row render-diagnostic"><span>render</span>
       <span id="gg-render-diagnostic">ok</span></div>
@@ -278,7 +281,12 @@ export class DevPanel {
     (input.nextElementSibling as HTMLElement).textContent = String(value);
   }
 
-  update(fps: number, drawCalls: number, breakdown: FrameBreakdown): void {
+  update(
+    fps: number,
+    drawCalls: number,
+    breakdown: FrameBreakdown,
+    feel?: { c2pMedianMs: number; c2pP95Ms: number; c2pSamples: number },
+  ): void {
     this.fpsEl.textContent = String(Math.round(fps));
     this.drawEl.textContent = String(drawCalls);
     for (const key of [
@@ -286,6 +294,26 @@ export class DevPanel {
     ] as const) {
       const value = this.perfEl.querySelector<HTMLElement>(`[data-perf="${key}"]`);
       if (value !== null) value.textContent = `${breakdown[key].toFixed(2)} ms`;
+    }
+    const frameFeel = this.perfEl.querySelector<HTMLElement>(`[data-feel="frame"]`);
+    if (frameFeel !== null) {
+      frameFeel.textContent = `${breakdown.frameMedian.toFixed(1)} / ${breakdown.frameP99.toFixed(1)} ms`;
+      // p99 ≤ 1.5× median is the native-feel jitter budget.
+      frameFeel.classList.toggle(
+        "over-budget",
+        breakdown.frameMedian > 0 && breakdown.frameP99 > breakdown.frameMedian * 1.5,
+      );
+    }
+    const c2pFeel = this.perfEl.querySelector<HTMLElement>(`[data-feel="c2p"]`);
+    if (c2pFeel !== null) {
+      c2pFeel.textContent = feel === undefined || feel.c2pSamples === 0
+        ? "— / —"
+        : `${feel.c2pMedianMs.toFixed(0)} / ${feel.c2pP95Ms.toFixed(0)} ms`;
+      // 35 ms median c2p budget at 120 Hz (native-feel §1).
+      c2pFeel.classList.toggle(
+        "over-budget",
+        feel !== undefined && feel.c2pSamples > 0 && feel.c2pMedianMs > 35,
+      );
     }
     const input = this.inputInspector();
     this.inputBitsEl.textContent = formatButtonBits(input.buttons);

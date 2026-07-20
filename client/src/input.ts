@@ -225,6 +225,7 @@ export class RawInput {
   private radPerCount: number;
   private tickStartMs = 0;
   private tickMs: number;
+  private pendingFireEventMs = -1;
   private locked = false;
   private queuedJump = false;
   private queuedFire = false;
@@ -281,7 +282,7 @@ export class RawInput {
       if (!this.locked) return;
       this.markActivity();
       if (e.button === 0) {
-        this.latchFire();
+        this.latchFire(e.timeStamp);
       }
       if (e.button === 2) this.buttons |= Button.Zoom;
     });
@@ -417,13 +418,24 @@ export class RawInput {
     return this.locked;
   }
 
-  private latchFire(): void {
+  private latchFire(eventMs = -1): void {
     this.buttons |= Button.Fire;
     this.queuedFire = true;
     const frac = (performance.now() - this.tickStartMs) / this.tickMs;
     this.fireFraction = Math.max(0, Math.min(255, Math.floor(frac * 256)));
     this.firedYaw = this.yaw;
     this.firedPitch = this.pitch;
+    if (eventMs >= 0 && this.pendingFireEventMs < 0) this.pendingFireEventMs = eventMs;
+  }
+
+  /**
+   * Timestamp (performance.now() timebase) of the oldest un-consumed fire event,
+   * or -1. Drained by the render loop to feed the click-to-photon estimator (F4).
+   */
+  takeFireEventMs(): number {
+    const value = this.pendingFireEventMs;
+    this.pendingFireEventMs = -1;
+    return value;
   }
 
   private rebuildKeyButtons(): void {

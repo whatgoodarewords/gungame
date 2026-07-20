@@ -34,8 +34,26 @@ export class OffRenderTickDriver {
     this.running = false;
   }
 
+  /**
+   * Sub-tick interpolation phase evaluated at `nowMs` rather than at the last
+   * driver wake. The accumulator + previousMs pair is only refreshed when the
+   * loop fires (a ~4 ms setTimeout, imprecise), so reading a bare accumulator
+   * from a 120–144 Hz render loop yields an alpha that is stale by a varying
+   * fraction of a tick every frame — visible as local-motion judder. Extrapolate
+   * forward to the caller's own clock instead. (F3)
+   */
+  alphaAt(nowMs: number): number {
+    const seconds = this.accumulatorSeconds + Math.max(0, (nowMs - this.previousMs) / 1_000);
+    return Math.min(1, seconds / this.tickSeconds);
+  }
+
   get alpha(): number {
-    return Math.min(1, this.accumulatorSeconds / this.tickSeconds);
+    return this.alphaAt(this.now());
+  }
+
+  /** Wall-clock time of the most recent consumed tick boundary (for fireFraction). */
+  get lastTickAtMs(): number {
+    return this.previousMs - this.accumulatorSeconds * 1_000;
   }
 
   private readonly loop = (): void => {

@@ -22,6 +22,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @gungame/tools assets:validate:environment
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - run: pnpm --filter @gungame/client build

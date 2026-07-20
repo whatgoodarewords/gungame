@@ -28,3 +28,13 @@ export function canonicalRoomUrl(currentHref: string, roomId: string): string {
   for (const key of ROOM_SCOPED_QUERY_KEYS) url.searchParams.delete(key);
   return url.toString();
 }
+
+export function quickplayUrl(currentHref: string): string {
+  const url = new URL(currentHref);
+  url.pathname = url.pathname.replace(ROOM_ROUTE, "");
+  if (!url.pathname.endsWith("/")) url.pathname += "/";
+  for (const key of ROOM_SCOPED_QUERY_KEYS) {
+    if (key !== "name") url.searchParams.delete(key);
+  }
+  return url.toString();
+}

@@ -2,6 +2,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
+import { validateOfflineEnvironmentKtx2 } from "./environment-contract.mjs";
+
 const root = resolve(import.meta.dirname, "../..");
 const vendor = join(root, "assets/vendor");
 const files = [];
@@ -30,6 +32,10 @@ if (normalizedAudio.length < 10) {
 }
 if (ktx2.length < 20 || pmrem.length !== 4 || hdri.length !== 4) {
   throw new Error(`texture acquisition incomplete: KTX2=${ktx2.length}, PMREM=${pmrem.length}, HDRI=${hdri.length}`);
+}
+
+for (const path of pmrem) {
+  validateOfflineEnvironmentKtx2(readFileSync(path), path);
 }
 
 for (const path of glbs) {
@@ -77,7 +83,10 @@ for (const path of ktx2) {
   }
   // Browser targets transcode Basis/UASTC to a 4x4 block GPU format. One byte
   // per texel plus the complete mip chain is a conservative ASTC/BC7 estimate.
-  runtimeTextureGpuBytes += Math.ceil(width * height * faces * 4 / 3);
+  // Offline environments deliberately use KTX2Loader's RGBA32 fallback before
+  // normalization to an uploadable CubeTexture on both renderer backends.
+  const runtimeBytesPerTexel = path.endsWith("_pmrem.ktx2") ? 4 : 1;
+  runtimeTextureGpuBytes += Math.ceil(width * height * faces * 4 / 3 * runtimeBytesPerTexel);
 }
 const gpuCeiling = 64 * 1024 * 1024;
 if (runtimeTextureGpuBytes > gpuCeiling) {

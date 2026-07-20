@@ -61,8 +61,9 @@ import { MatchHud } from "./hud.js";
 import { HudStateMachine } from "./hud-state.js";
 import { ImpactVisualSystem } from "./impact-visuals.js";
 import { Button, RawInput, rebindControl } from "./input.js";
-import { FrameBudgetMeter } from "./perf.js";
+import { FrameBudgetMeter, LatencyEstimator } from "./perf.js";
 import { OfflineEnvironmentAssets } from "./environment-assets.js";
+import { installEnvironmentWithFallback } from "./environment-state.js";
 import {
   likelyTouchOnly,
   showMobileGate,
@@ -109,13 +110,16 @@ import {
   bridgeWebGpuPipelineErrors,
   type RenderPipelineLike,
 } from "./render-runtime.js";
-import { canonicalRoomUrl } from "./room-url.js";
+import { canonicalRoomUrl, quickplayUrl } from "./room-url.js";
+import { surfaceWebSocketClose } from "./net/session.js";
 import "./style.css";
 
 const RAD2DEG = 180 / Math.PI;
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (appRoot === null) throw new Error("missing #app");
 const root: HTMLDivElement = appRoot;
+root.dataset.envState = "loading";
+root.dataset.lastClose = "none";
 
 function pointInside(
   point: { x: number; y: number; z: number },
@@ -155,6 +159,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   hud.setState(hudState.state);
   const audio = new GameAudio();
   const perf = new FrameBudgetMeter();
+  const latency = new LatencyEstimator();
   const impacts = new ImpactVisualSystem(scene);
   let clipMapName = "map";
   const clip = new ClipThat(canvas, () => clipMapName, () => audio.captureStream);
@@ -523,17 +528,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           ? "Cascade"
           : "Foundry";
     scene.add(mapMesh);
-    void environments.install(scene, mapMesh.name).catch((error: unknown) => {
-      activateBasicMaterialFallback();
-      recordRenderDiagnostic(
-        `offline environment unavailable for ${mapMesh?.name ?? "map"}; safety lighting active`,
-        error,
-      );
-      try {
-        applyStyle(currentStyleId);
-      } catch (fallbackError) {
-        recordRenderDiagnostic("environment basic-material fallback failed", fallbackError);
-      }
+    const environmentMapName = mapMesh.name;
+    void installEnvironmentWithFallback({
+      mapName: environmentMapName,
+      stateTarget: root,
+      install: () => environments.install(scene, environmentMapName),
+      activateSafetyMaterials: activateBasicMaterialFallback,
+      reapplyStyle: () => applyStyle(currentStyleId),
+      recordDiagnostic: recordRenderDiagnostic,
     });
     dressing?.dispose();
     dressing = dressingConstructor === undefined
@@ -627,6 +629,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     },
     onClose: (code, reason) => {
       networkClosed = true;
+      surfaceWebSocketClose(root, code, reason);
       const restarting = code === 1012 || reason.toLowerCase().includes("restart");
       if (restarting) showConnectionCard("server-restarting");
       hud.setConnectionTelemetry(code, reason);
@@ -848,6 +851,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     // moved to the sim tick via setTickInput (review finding 7: 144 Hz loss).
     const frame = input.peek();
     const firePresentations = input.drainFirePresentations();
+    // Click-to-photon: register any fire event delivered since the last frame,
+    // then close it against this rAF — the frame that draws the muzzle response. (F4)
+    const fireEventMs = input.takeFireEventMs();
+    if (fireEventMs >= 0) latency.markInput(fireEventMs);
+    latency.sampleAtPresent(now);
 
     const prev = sim.getPrevState().player;
     const curr = sim.getState().player;
@@ -873,7 +881,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         });
       });
     }
-    const alpha = sim.getAlpha();
+    const alpha = sim.getAlpha(now);
     const collision = {
       x: prev.position.x + (curr.position.x - prev.position.x) * alpha,
       y: prev.position.y + (curr.position.y - prev.position.y) * alpha,
@@ -946,7 +954,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const roundTripMs = sim.getPingMs();
     hud.setPing(roundTripMs, pingTone(roundTripMs));
     hud.setAfkWarning(now - input.lastActivityMs >= 20_000);
-    panel?.update(fpsSmoothed, renderer.info.render.drawCalls, perf.snapshot);
+    panel?.update(fpsSmoothed, renderer.info.render.drawCalls, perf.snapshot, {
+      c2pMedianMs: latency.medianMs,
+      c2pP95Ms: latency.p95Ms,
+      c2pSamples: latency.sampleCount,
+    });
     audio.setWindSpeed(horizontalSpeed);
     const surface: SurfaceMaterial = currentMode === GameMode.Scoutzknivez ? "stone" : "metal";
     if (curr.grounded && horizontalSpeed > 2.2 && now >= nextFootstepMs) {
@@ -1148,6 +1160,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     visualDebug.postMs = breakdown.post;
     visualDebug.particlesMs = breakdown.particles;
     visualDebug.charactersMs = breakdown.characters;
+    visualDebug.frameMedianMs = breakdown.frameMedian;
+    visualDebug.frameP99Ms = breakdown.frameP99;
+    visualDebug.clickToPhotonMedianMs = latency.medianMs;
+    visualDebug.clickToPhotonP95Ms = latency.p95Ms;
+    visualDebug.clickToPhotonSamples = latency.sampleCount;
     visualDebug.viewmodelConfig = viewmodelCaptureConfig === undefined
       ? -1
       : VIEWMODEL_CONFIGS.indexOf(viewmodelCaptureConfig);
@@ -1320,7 +1337,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
 }
 
 function urlForSelection(selection: MenuSelection): URL {
-  const url = new URL(location.href);
+  const url = new URL(
+    selection.create || selection.quickplay === true
+      ? quickplayUrl(location.href)
+      : location.href,
+  );
   url.searchParams.set("name", selection.name);
   if (selection.create) {
     url.searchParams.delete("room");

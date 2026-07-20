@@ -2,10 +2,25 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 
 const ROOT = new URL("../../", import.meta.url);
-const CACHED_HEADLESS_SHELL =
-  "/Users/mc/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell";
 const SYSTEM_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const { chromium } = await import("playwright");
+
+// Software rasterisation (swiftshader) segfaults on Apple Silicon; ANGLE Metal
+// is the only backend that survives a headless launch there. Linux CI has no
+// Metal, so it keeps swiftshader.
+const ANGLE_BACKENDS = process.env.GG_ANGLE
+  ? [process.env.GG_ANGLE]
+  : process.platform === "darwin"
+    ? ["metal", "swiftshader"]
+    : ["swiftshader"];
+
+function browserExecutable(): string {
+  const override = process.env.GG_BROWSER_PATH;
+  if (override !== undefined && existsSync(override)) return override;
+  // Honours PLAYWRIGHT_BROWSERS_PATH; never hardcode a machine-specific cache.
+  const resolved = chromium.executablePath();
+  return existsSync(resolved) ? resolved : SYSTEM_CHROME;
+}
 
 function start(command: readonly string[], environment: NodeJS.ProcessEnv = {}): ChildProcess {
   return spawn(command[0]!, command.slice(1), {
@@ -54,53 +69,94 @@ try {
     waitFor("http://127.0.0.1:5173/gg/"),
   ]);
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-  try {
-    browser = await chromium.launch({
-      headless: true,
-      timeout: 30_000,
-      executablePath: existsSync(chromium.executablePath())
-        ? chromium.executablePath()
-        : existsSync(CACHED_HEADLESS_SHELL)
-          ? CACHED_HEADLESS_SHELL
-          : SYSTEM_CHROME,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--use-angle=swiftshader",
-        "--disable-gpu-sandbox",
-      ],
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes("MachPortRendezvousServer") || !message.includes("Permission denied")) {
-      throw error;
+  let launchFailure = "";
+  for (const angle of ANGLE_BACKENDS) {
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        timeout: 60_000,
+        executablePath: browserExecutable(),
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          `--use-angle=${angle}`,
+          "--disable-gpu-sandbox",
+          "--enable-unsafe-webgpu",
+        ],
+      });
+      break;
+    } catch (error) {
+      launchFailure = `angle=${angle}: ${error instanceof Error ? error.message : String(error)}`;
     }
+  }
+  if (browser === null) {
+    // A host that cannot launch a GPU-backed browser must not be able to mark
+    // this suite green by accident: local dev may skip, CI never does.
+    const strict = process.env.CI !== undefined || process.env.GG_E2E_STRICT === "1";
+    if (strict) throw new Error(`dark-frame could not launch a browser (${launchFailure})`);
     console.log(JSON.stringify({
-      test: "webgl2-greybox-spawn-not-dark",
+      test: "webgl2-webgpu-greybox-spawn-not-dark-with-environment",
       skipped: true,
-      reason: "host sandbox denied Chromium Mach port registration",
+      reason: launchFailure || "no usable browser",
     }));
   }
   if (browser !== null) {
     try {
-    const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    const url = new URL("http://127.0.0.1:5173/gg/");
-    url.searchParams.set("name", "DarkFrameE2E");
-    url.searchParams.set("create", "1");
-    url.searchParams.set("mode", "gungame");
-    url.searchParams.set("map", "foundry");
-    url.searchParams.set("backend", "webgl2");
-    url.searchParams.set("style", "dev-grid");
-    await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() =>
-      (globalThis as unknown as {
-        __GG_VISUAL_DEBUG__?: { connected?: number };
-      }).__GG_VISUAL_DEBUG__?.connected === 1, undefined, { timeout: 30_000 });
-    await page.waitForTimeout(500);
+    for (const backend of ["webgl2", "webgpu"] as const) {
+      const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
+      const errors: string[] = [];
+      const consoleDiagnostics: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning") {
+          consoleDiagnostics.push(`${message.type()}: ${message.text()}`);
+        }
+      });
+      const url = new URL("http://127.0.0.1:5173/gg/");
+      url.searchParams.set("name", `DarkFrame-${backend}`);
+      url.searchParams.set("create", "1");
+      url.searchParams.set("mode", "gungame");
+      url.searchParams.set("map", "foundry");
+      if (backend === "webgl2") url.searchParams.set("backend", "webgl2");
+      url.searchParams.set("style", "dev-grid");
+      await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() =>
+        (globalThis as unknown as {
+          __GG_VISUAL_DEBUG__?: { connected?: number };
+        }).__GG_VISUAL_DEBUG__?.connected === 1, undefined, { timeout: 30_000 });
+      await page.waitForFunction(() => {
+        const browser = globalThis as unknown as {
+          document: {
+            querySelector(selector: string): { dataset: { envState?: string } } | null;
+          };
+        };
+        const state = browser.document.querySelector("#app")?.dataset.envState;
+        return state === "applied" || state === "safety";
+      }, undefined, { timeout: 30_000 });
+      const envState = await page.locator("#app").getAttribute("data-env-state");
+      if (envState !== "applied") {
+        const diagnostic = await page.locator("#gg-render-diagnostic").textContent().catch(() => null);
+        throw new Error(
+          `${backend} environment did not apply; data-env-state=${envState ?? "missing"}; ` +
+          `render-diagnostic=${diagnostic ?? "missing"}; console=${consoleDiagnostics.join(" | ") || "none"}`,
+        );
+      }
+      await page.waitForTimeout(500);
 
-    const pixels = await page.evaluate(() => {
+      // Read the compositor-backed canvas screenshot. Reading the default
+      // WebGL/WebGPU drawing buffer from a later task can legally return zeros
+      // when preserveDrawingBuffer is false, even though the presented frame is
+      // visible.
+      const screenshot = await page.locator("#app > canvas").screenshot({ type: "png" });
+      const screenshotUrl = `data:image/png;base64,${screenshot.toString("base64")}`;
+      const pixels = await page.evaluate(async (imageUrl) => {
+      interface BrowserImage {
+        width: number;
+        height: number;
+        src: string;
+        onload: (() => void) | null;
+        onerror: (() => void) | null;
+      }
       interface BrowserCanvas {
         width: number;
         height: number;
@@ -108,7 +164,7 @@ try {
           kind: "2d",
           options: { willReadFrequently: boolean },
         ): {
-          drawImage(source: BrowserCanvas, x: number, y: number, width: number, height: number): void;
+          drawImage(source: BrowserImage, x: number, y: number, width: number, height: number): void;
           getImageData(
             x: number,
             y: number,
@@ -119,14 +175,16 @@ try {
       }
       const browser = globalThis as unknown as {
         document: {
-          querySelector(selector: string): BrowserCanvas | null;
           createElement(tag: "canvas"): BrowserCanvas;
         };
+        Image: new () => BrowserImage;
       };
-      const source = browser.document.querySelector("#app > canvas");
-      if (source === null || source.width === 0 || source.height === 0) {
-        throw new Error("render canvas is unavailable");
-      }
+      const source = new browser.Image();
+      await new Promise<void>((resolve, reject) => {
+        source.onload = () => resolve();
+        source.onerror = () => reject(new Error("canvas screenshot decode failed"));
+        source.src = imageUrl;
+      });
       const sample = browser.document.createElement("canvas");
       sample.width = 160;
       sample.height = 100;
@@ -151,18 +209,30 @@ try {
         width: sample.width,
         height: sample.height,
       };
-    });
-    if (pixels.darkRatio > 0.9) {
-      throw new Error(
-        `dark-frame regression: ${(pixels.darkRatio * 100).toFixed(2)}% of spawn pixels are dark (>90%)`,
-      );
+      }, screenshotUrl);
+      if (pixels.darkRatio > 0.9) {
+        const diagnostic = await page.locator("#gg-render-diagnostic").textContent().catch(() => null);
+        throw new Error(
+          `${backend} dark-frame regression: ` +
+          `${(pixels.darkRatio * 100).toFixed(2)}% of spawn pixels are dark (>90%); ` +
+          `data-env-state=${envState}; render-diagnostic=${diagnostic ?? "missing"}; ` +
+          `console=${consoleDiagnostics.join(" | ") || "none"}`,
+        );
+      }
+      if (errors.length > 0) throw new Error(`${backend} page errors: ${errors.join(" | ")}`);
+      const lastClose = await page.locator("#app").getAttribute("data-last-close");
+      if (lastClose !== "none") {
+        throw new Error(`${backend} WebSocket closed during environment/frame probe: ${lastClose ?? "missing"}`);
+      }
+      console.log(JSON.stringify({
+        test: `${backend}-greybox-spawn-not-dark-with-environment`,
+        passed: true,
+        envState,
+        lastClose,
+        ...pixels,
+      }));
+      await page.close();
     }
-    if (errors.length > 0) throw new Error(`page errors: ${errors.join(" | ")}`);
-    console.log(JSON.stringify({
-      test: "webgl2-greybox-spawn-not-dark",
-      passed: true,
-      ...pixels,
-    }));
     } finally {
       await browser.close();
     }

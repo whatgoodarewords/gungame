@@ -60,6 +60,16 @@ export function webSocketCloseForensics(
   };
 }
 
+export function surfaceWebSocketClose(
+  target: Pick<HTMLElement, "dataset">,
+  code: number,
+  reason: string,
+): string {
+  const telemetry = webSocketCloseForensics(code, reason).telemetry;
+  target.dataset.lastClose = telemetry;
+  return telemetry;
+}
+
 function defaultUrl(): string {
   if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
     return "ws://localhost:8787/gg/ws";
@@ -80,11 +90,22 @@ function hexToBytes(value: string | null): Uint8Array {
   );
 }
 
-function joinHello(): HelloFrame {
-  const query = new URLSearchParams(location.search);
-  const roomId = roomIdFromUrl(location.pathname, location.search);
-  const reconnectToken = hexToBytes(sessionStorage.getItem(`gg:reconnect:${roomId}`));
+export interface JoinHelloLocation {
+  readonly pathname: string;
+  readonly search: string;
+  readonly buildHash: string;
+  readonly storedReconnectToken: string | null;
+}
+
+export function createJoinHello(source: JoinHelloLocation): HelloFrame {
+  const query = new URLSearchParams(source.search);
+  const requestedRoomId = roomIdFromUrl(source.pathname, source.search);
   const create = query.get("create") === "1";
+  const explicitLegacyInvite = (query.get("room") ?? "") !== "";
+  const reconnectToken = create || explicitLegacyInvite || requestedRoomId === ""
+    ? new Uint8Array()
+    : hexToBytes(source.storedReconnectToken);
+  const roomId = create ? "" : requestedRoomId;
   const mode = query.get("mode") === "scoutz"
     ? GameMode.Scoutzknivez
     : GameMode.GunGame;
@@ -105,14 +126,16 @@ function joinHello(): HelloFrame {
   return {
     type: FrameType.Hello,
     protocolVersion: PROTOCOL_VERSION,
-    buildHash: __BUILD_HASH__,
-    joinKind: reconnectToken.length === 16
-      ? JoinKind.Resume
-      : roomId !== ""
+    buildHash: source.buildHash,
+    joinKind: create
+      ? JoinKind.Create
+      : explicitLegacyInvite
         ? JoinKind.Invite
-        : create
-          ? JoinKind.Create
-          : JoinKind.Quickplay,
+        : reconnectToken.length === 16
+          ? JoinKind.Resume
+          : roomId !== ""
+            ? JoinKind.Invite
+            : JoinKind.Quickplay,
     mode,
     variant,
     ladder,
@@ -121,6 +144,16 @@ function joinHello(): HelloFrame {
     roomId,
     reconnectToken,
   };
+}
+
+function joinHello(): HelloFrame {
+  const roomId = roomIdFromUrl(location.pathname, location.search);
+  return createJoinHello({
+    pathname: location.pathname,
+    search: location.search,
+    buildHash: __BUILD_HASH__,
+    storedReconnectToken: sessionStorage.getItem(`gg:reconnect:${roomId}`),
+  });
 }
 
 function applyDelta(current: Map<number, EntityState>, delta: EntityDelta): void {

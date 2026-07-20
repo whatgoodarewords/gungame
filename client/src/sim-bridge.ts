@@ -51,7 +51,7 @@ export interface SimHandle {
   getRenderPosition(dtSeconds: number): State["player"]["position"];
   getRemotePlayers(nowMs: number): readonly InterpolatedEntity[];
   /** Fraction [0,1) of the current tick elapsed, for render interpolation. */
-  getAlpha(): number;
+  getAlpha(nowMs?: number): number;
   setParams(params: MoveParams): void;
   setFeel(feel: FeelParams): void;
   applyInput(frameInput: FrameInput): void;
@@ -164,7 +164,7 @@ export function createPlayground(
     getRenderPosition: (dtSeconds) =>
       prediction?.renderPosition(dtSeconds) ?? state.player.position,
     getRemotePlayers: (nowMs) => network?.remoteEntities(nowMs) ?? [],
-    getAlpha: () => tickDriver?.alpha ?? 0,
+    getAlpha: (nowMs = performance.now()) => tickDriver?.alphaAt(nowMs) ?? 0,
     setParams: (nextParams) => {
       params = { ...nextParams };
       prediction?.configure(params, feel);

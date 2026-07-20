@@ -310,9 +310,21 @@ export class Room {
     this.rules = new ModeRules(config.mode as 0 | 1, config.ladder as LadderIdValue);
   }
 
-  get connectedCount(): number {
+  get connectedHumanCount(): number {
     let count = 0;
-    for (const slot of this.players.values()) if (slot.peer !== undefined) count += 1;
+    for (const slot of this.players.values()) {
+      if (!slot.isBot && slot.peer !== undefined) count += 1;
+    }
+    return count;
+  }
+
+  get connectedCount(): number {
+    return this.connectedHumanCount;
+  }
+
+  get humanCount(): number {
+    let count = 0;
+    for (const slot of this.players.values()) if (!slot.isBot) count += 1;
     return count;
   }
 
@@ -330,7 +342,18 @@ export class Room {
 
   add(peer: PlayerPeer, nowMs: number, rawName = "Player"): JoinSuccess | undefined {
     this.expireHolds(nowMs);
+    if (this.humanCount >= MAX_PLAYERS) return undefined;
+    if (this.isFull) {
+      const fillBot = [...this.players.values()].find((slot) => slot.isBot);
+      if (fillBot === undefined) return undefined;
+      this.removePlayer(fillBot.id);
+    }
     return this.addSlot(peer, nowMs, rawName, false);
+  }
+
+  canAcceptHuman(nowMs: number): boolean {
+    this.expireHolds(nowMs);
+    return this.humanCount < MAX_PLAYERS;
   }
 
   private addSlot(
@@ -442,7 +465,10 @@ export class Room {
 
   acceptCmd(slotId: number, cmd: CmdFrame, nowMs: number): boolean {
     const slot = this.players.get(slotId);
-    const accepted = slot?.cmdWindow.accept(cmd) ?? false;
+    const accepted = slot?.cmdWindow.accept(
+      cmd,
+      (epoch) => slot.epochs.classifyReference(epoch),
+    ) ?? false;
     if (accepted && slot !== undefined) slot.lastInputMs = nowMs;
     return accepted;
   }
@@ -1290,8 +1316,8 @@ export class RoomManager {
       return this.addHuman(room, peer, nowMs, hello.name);
     }
     const candidates = [...this.rooms.values()]
-      .filter((room) => !room.isFull)
-      .sort((left, right) => right.connectedCount - left.connectedCount);
+      .filter((room) => room.canAcceptHuman(nowMs))
+      .sort((left, right) => right.connectedHumanCount - left.connectedHumanCount);
     let room = candidates[0];
     if (room === undefined) {
       if (this.admissionBlocked()) return { refusal: "room-create-refused" };

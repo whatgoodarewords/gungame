@@ -4,6 +4,7 @@ import {
   CmdAcceptanceWindow,
   FrameType,
   ProtocolError,
+  ServerBaselineEpochs,
   type CmdFrame,
 } from "../src/index.js";
 
@@ -54,6 +55,18 @@ describe("forward-sliding command window", () => {
     window.accept(cmd(2, 1, 2));
     expect(window.consume(() => "current")?.cmd.seq).toBe(1);
     expect(window.consume(() => "valid-stale")?.cmd.seq).toBe(2);
+  });
+
+  it("preserves arrival-time epoch classification across the baseline ack race", () => {
+    const epochs = new ServerBaselineEpochs();
+    const current = epochs.openFull(10);
+    const window = new CmdAcceptanceWindow();
+    expect(window.accept(cmd(1, 0, 0), (epoch) => epochs.classifyReference(epoch))).toBe(true);
+
+    epochs.acknowledge(current, 10);
+    expect(() => epochs.classifyReference(0)).toThrow("cross-epoch");
+    expect(window.consume((epoch) => epochs.classifyReference(epoch))?.epochReference)
+      .toBe("valid-stale");
   });
 
   it("recovers from a 500 ms (32 tick) outage within four ticks", () => {

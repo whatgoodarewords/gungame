@@ -4,3 +4,7 @@ dist/
 .pnpm-store*/
 *.tsbuildinfo
 .corepack/
+.DS_Store
+.cache/
+docs/bot-probe.png
+docs/gpu-probe.png

@@ -3,6 +3,14 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
+import {
+  ENVIRONMENT_FORMAT,
+  ENVIRONMENT_HDRI,
+  loadShippedBasisTranscoder,
+  validateOfflineEnvironmentDecode,
+  validateOfflineEnvironmentKtx2,
+} from "./environment-contract.mjs";
+
 // Deploy builds ship prebaked outputs in git; regeneration needs local tools
 // (magick/toktx/ffmpeg) that container builders lack (Prime deploy fix).
 if (process.env.GG_PREBAKED_ASSETS === "1") {
@@ -16,19 +24,14 @@ const toktx = join(
   "tools/vendor/ktx-expanded/KTX-Software-4.4.2-Darwin-arm64-tools.pkg",
   "Payload/usr/local/bin/toktx",
 );
-const hdri = [
-  "polyhaven/empty_warehouse_01/empty_warehouse_01_1k.hdr",
-  "polyhaven/industrial_sunset_02_puresky/industrial_sunset_02_puresky_1k.hdr",
-  "polyhaven/rogland_sunset/rogland_sunset_1k.hdr",
-  "polyhaven/overcast_industrial_courtyard/overcast_industrial_courtyard_1k.hdr",
-];
 const outputs = [];
+const basis = await loadShippedBasisTranscoder(root);
 
 function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
 }
 
-for (const relative of hdri) {
+for (const relative of ENVIRONMENT_HDRI) {
   const source = join(root, "assets/vendor", relative);
   const output = join(dirname(source), `${basename(source, ".hdr")}_pmrem.ktx2`);
   const scratch = mkdtempSync(join(tmpdir(), "gungame-pmrem-"));
@@ -73,15 +76,13 @@ for (const relative of hdri) {
     output, ...inputs,
   ]);
   const bytes = readFileSync(output);
-  const magic = Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb]);
-  if (!bytes.subarray(0, 8).equals(magic) || bytes.length < 64 * 1024) {
-    throw new Error(`invalid PMREM KTX2 output: ${output}`);
-  }
+  validateOfflineEnvironmentKtx2(bytes, output);
+  validateOfflineEnvironmentDecode(basis, bytes, output);
   outputs.push({ file: output.slice(root.length + 1), bytes: bytes.length });
 }
 
 console.log(JSON.stringify({
   prefiltered: outputs.length,
-  format: "KTX2 UASTC cubemap, 9-level offline roughness convolution",
+  format: ENVIRONMENT_FORMAT,
   outputs,
 }));
