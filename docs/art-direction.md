@@ -76,3 +76,25 @@ visual feature above pays rent against these budgets, measured, or it's cut:
 - **Elegance clause**: prefer one system that does a thing well over three
   toggles; any effect that can't justify its milliseconds in feel terms is
   deleted, per the no-theater standing bar.
+
+---
+
+## REGISTER PIVOT — 2026-07-20 (owner: "heavy ugly Tron. It doesn't feel good to play.")
+
+The moody-cinematic register (dark grounds, neon accents, industrial HDRIs,
+vignette+bloom) is **retired as the default**. It read as Tron and fought both
+legibility and speed perception. The genre's winners — Deadshot, Krunker,
+Venge — are all bright, warm, flat-lit, instantly readable; that register IS
+the product on a school Chromebook.
+
+Binding rules from this pivot:
+- Default style is `high-key`: bright day sky, hemisphere sky/ground fill,
+  warm sun with soft grounding shadows, warm light surfaces, saturated
+  readable actors, **zero post**. Crisp is the feature.
+- Flat-lighting styles skip the offline HDRI environment entirely
+  (`RenderStyle.flatLighting`) — env state "flat" is a success state.
+- Dark/moody styles remain available behind `?style=` for A/B and events,
+  never as the default.
+- Speed perception is an art deliverable: bright textured surfaces streaming
+  past the camera are motion cues; a dark low-contrast world swallows them
+  and reads "heavy" at identical m/s.

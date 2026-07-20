@@ -35,7 +35,7 @@ const map: GameplayMap = {
 
 describe("RenderStyle bake-off harness", () => {
   it("constructs every material, TSL post graph, palette, and fog/light rig", () => {
-    expect(RENDER_STYLE_IDS).toHaveLength(4);
+    expect(RENDER_STYLE_IDS).toHaveLength(5);
     for (const id of RENDER_STYLE_IDS) {
       const style = RENDER_STYLES[id];
       const materials = style.materials(map);
@@ -58,7 +58,22 @@ describe("RenderStyle bake-off harness", () => {
 
   it("selects valid query styles and safely defaults invalid values", () => {
     expect(renderStyleFromQuery("?style=toon-cel")).toBe("toon-cel");
-    expect(renderStyleFromQuery("?style=unknown")).toBe("dev-grid");
+    expect(renderStyleFromQuery("?style=dev-grid")).toBe("dev-grid");
+    // The default register is the genre's high-key daylight (owner pivot
+    // 2026-07-20) — dark Tron reads are opt-in only.
+    expect(renderStyleFromQuery("?style=unknown")).toBe("high-key");
+    expect(renderStyleFromQuery("")).toBe("high-key");
+  });
+
+  it("high-key is flat-lit with zero post (the anti-Tron contract)", () => {
+    const style = RENDER_STYLES["high-key"];
+    expect(style.flatLighting).toBe(true);
+    // Zero post: the chain must return its input unchanged.
+    const source = vec4(0.25, 0.5, 0.75, 1);
+    expect(style.postChain(source)).toBe(source);
+    // Bright register: sky-blue background, light warm surfaces.
+    expect(style.palette.background).toBeGreaterThan(0x808080);
+    expect(style.palette.surface).toBeGreaterThan(0xa0a0a0);
   });
 });
 

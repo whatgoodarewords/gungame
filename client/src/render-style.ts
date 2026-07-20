@@ -41,6 +41,7 @@ import type { GameplayMap } from "../../packages/shared/src/index.js";
 import { textureSetForMap, usingBasicMaterialFallback } from "./material-assets.js";
 
 export const RENDER_STYLE_IDS = [
+  "high-key",
   "dev-grid",
   "ink-duotone",
   "toon-cel",
@@ -79,6 +80,13 @@ export interface RenderStyle {
   readonly id: RenderStyleId;
   readonly label: string;
   readonly palette: RenderPalette;
+  /**
+   * Style provides its full lighting answer from the rig alone — skip the
+   * offline HDRI environment (IBL). The genre's high-key register wants flat,
+   * readable, deliberately un-cinematic light; the moody industrial HDRIs
+   * fight that on every map.
+   */
+  readonly flatLighting?: boolean;
   materials(map: GameplayMap, mapId?: number): RenderMaterials;
   postChain(source: Node<"vec4">): Node<"vec4">;
   fogLightRig(scene: Scene, map?: GameplayMap): StyleRig;
@@ -188,6 +196,89 @@ function tactilePost(source: Node<"vec4">): Node<"vec4"> {
   // avoids feeding a vec3 to ToneMappingNode, whose WebGPU setup reads alpha.
   return vec4(bloomed.mul(vignette), source.a);
 }
+
+// ---------------------------------------------------------------------------
+// high-key — the genre register (owner pivot 2026-07-20: "heavy ugly Tron").
+// Deadshot/Krunker/Venge all read bright, warm, flat-lit, instantly legible.
+// Bright day sky, sun with soft grounding shadows, sky/ground hemisphere fill,
+// warm light surfaces, saturated readable actors, ZERO post. Speed perception
+// lives here too: a bright textured world streaming past gives the motion cues
+// a dark low-contrast one swallows.
+// ---------------------------------------------------------------------------
+
+const highKeyPalette: RenderPalette = {
+  background: 0x9ed2f5,
+  surface: 0xd6d0c2,
+  actor: 0xe0483e,
+  accent: 0xff9042,
+  ink: 0x2b3036,
+};
+
+const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
+  scene.background = new Color(highKeyPalette.background);
+  // Haze starts far out: depth cue at range without dimming the play space.
+  const fog = new Fog(highKeyPalette.background, 95, 280);
+  scene.fog = fog;
+  const root = new Group();
+  root.name = "render-style-rig";
+  const safetyFill = new HemisphereLight(0xbfd8ff, 0x17191d, 0.15);
+  safetyFill.name = "render-safety-fill";
+  root.add(safetyFill);
+  // Sky/ground differential is the daylight look: cool from above, warm bounce
+  // from below. This carries most of the exposure so surfaces stay bright even
+  // facing away from the sun — flat and readable, never moody.
+  const sky = new HemisphereLight(0xcfe6ff, 0xcdb489, 1.05);
+  root.add(sky);
+  const key = new DirectionalLight(0xfff1d8, 2.0);
+  key.position.set(34, 62, 22);
+  key.castShadow = true;
+  const likelyMSeries = typeof navigator !== "undefined" &&
+    /Mac/.test(navigator.platform) && navigator.hardwareConcurrency >= 8;
+  const shadowSize = likelyMSeries ? 2048 : 1024;
+  key.shadow.mapSize.set(shadowSize, shadowSize);
+  key.shadow.bias = -0.00025;
+  key.shadow.normalBias = 0.018;
+  key.shadow.radius = 2.5;
+  if (map !== undefined) {
+    const extentX = Math.max(18, (map.bounds.max.x - map.bounds.min.x) * 0.55);
+    const extentZ = Math.max(18, (map.bounds.max.z - map.bounds.min.z) * 0.55);
+    key.shadow.camera.left = -extentX;
+    key.shadow.camera.right = extentX;
+    key.shadow.camera.top = extentZ;
+    key.shadow.camera.bottom = -extentZ;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
+    key.shadow.camera.updateProjectionMatrix();
+  }
+  root.add(key);
+  scene.add(root);
+  return {
+    root,
+    dispose: () => {
+      scene.remove(root);
+      if (scene.fog === fog) scene.fog = null;
+    },
+  };
+};
+
+const highKey: RenderStyle = {
+  id: "high-key",
+  label: "High key",
+  palette: highKeyPalette,
+  flatLighting: true,
+  materials: (_map, mapId) => {
+    if (usingBasicMaterialFallback()) return basicFallbackMaterials(highKeyPalette);
+    const materials = standardMaterials(highKeyPalette, 0.85);
+    // Texture detail stays (motion cues, surface identity) but on a warm light
+    // base — and no grid, no emissive accents on the world.
+    const map = triplanarMapMaterial(highKeyPalette, mapId);
+    return { ...materials, map };
+  },
+  // Zero post: no vignette, no bloom, no grade. ACES output transform at the
+  // pipeline level is the whole answer. Crisp is the feature.
+  postChain: (source) => source,
+  fogLightRig: makeDaylightRig,
+};
 
 const devPalette: RenderPalette = {
   background: 0x071018,
@@ -359,6 +450,7 @@ const brutalist: RenderStyle = {
 };
 
 export const RENDER_STYLES: Readonly<Record<RenderStyleId, RenderStyle>> = Object.freeze({
+  "high-key": highKey,
   "dev-grid": devGrid,
   "ink-duotone": inkDuotone,
   "toon-cel": toonCel,
@@ -367,5 +459,5 @@ export const RENDER_STYLES: Readonly<Record<RenderStyleId, RenderStyle>> = Objec
 
 export function renderStyleFromQuery(search: string): RenderStyleId {
   const candidate = new URLSearchParams(search).get("style");
-  return RENDER_STYLE_IDS.find((id) => id === candidate) ?? "dev-grid";
+  return RENDER_STYLE_IDS.find((id) => id === candidate) ?? "high-key";
 }

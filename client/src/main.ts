@@ -339,6 +339,32 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if (!pipeline.reportAsyncFailure(error)) showNonBlackTerminalFallback();
   };
 
+  let currentEnvironmentMapName: string | undefined;
+
+  /**
+   * Reconcile scene.environment with the active style. Flat-lighting styles
+   * (the high-key default) own their full lighting answer, so the offline HDRI
+   * is skipped entirely — env state reads "flat", which is a success state, not
+   * a fallback. IBL styles (re)install the map's environment as before.
+   */
+  const installEnvironmentForStyle = (): void => {
+    if (currentEnvironmentMapName === undefined) return;
+    if (currentStyle.flatLighting === true) {
+      scene.environment = null;
+      root.dataset.envState = "flat";
+      return;
+    }
+    const environmentMapName = currentEnvironmentMapName;
+    void installEnvironmentWithFallback({
+      mapName: environmentMapName,
+      stateTarget: root,
+      install: () => environments.install(scene, environmentMapName),
+      activateSafetyMaterials: activateBasicMaterialFallback,
+      reapplyStyle: () => applyStyle(currentStyleId),
+      recordDiagnostic: recordRenderDiagnostic,
+    });
+  };
+
   const applyStyle = (id: RenderStyleId): void => {
     pipeline.cancelPending();
     const nextStyle = RENDER_STYLES[id];
@@ -369,6 +395,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
     }
     viewmodel = nextViewmodel;
+    // Style families disagree about IBL (flat daylight vs HDRI); reconcile now,
+    // and again on rollback below once currentStyle is restored.
+    installEnvironmentForStyle();
     pipeline.replace(nextPipeline, () => {
       previous.rig?.dispose();
       if (previous.viewmodel !== undefined) {
@@ -395,6 +424,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         projectiles?.setMaterial(previous.materials.projectile);
       }
       if (nextMaterials !== previous.materials) disposeRenderMaterials(nextMaterials);
+      installEnvironmentForStyle();
       const url = new URL(location.href);
       url.searchParams.set("style", previous.id);
       history.replaceState(null, "", url);
@@ -528,15 +558,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           ? "Cascade"
           : "Foundry";
     scene.add(mapMesh);
-    const environmentMapName = mapMesh.name;
-    void installEnvironmentWithFallback({
-      mapName: environmentMapName,
-      stateTarget: root,
-      install: () => environments.install(scene, environmentMapName),
-      activateSafetyMaterials: activateBasicMaterialFallback,
-      reapplyStyle: () => applyStyle(currentStyleId),
-      recordDiagnostic: recordRenderDiagnostic,
-    });
+    currentEnvironmentMapName = mapMesh.name;
+    installEnvironmentForStyle();
     dressing?.dispose();
     dressing = dressingConstructor === undefined
       ? undefined
