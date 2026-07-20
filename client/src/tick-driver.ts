@@ -51,11 +51,6 @@ export class OffRenderTickDriver {
     return this.alphaAt(this.now());
   }
 
-  /** Wall-clock time of the most recent consumed tick boundary (for fireFraction). */
-  get lastTickAtMs(): number {
-    return this.previousMs - this.accumulatorSeconds * 1_000;
-  }
-
   private readonly loop = (): void => {
     if (!this.running) return;
     const currentMs = this.now();

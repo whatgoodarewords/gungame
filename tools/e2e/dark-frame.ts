@@ -224,12 +224,36 @@ try {
       if (lastClose !== "none") {
         throw new Error(`${backend} WebSocket closed during environment/frame probe: ${lastClose ?? "missing"}`);
       }
+      // Feel instrumentation (F4). CI renders through a software rasteriser, so
+      // the native-feel jitter budget (p99 <= 1.5x median) is NOT assertable
+      // here — that belongs to the real-hardware matrix. What CI *can* protect
+      // is that the meter itself stays wired: a silently-dead percentile ring
+      // would otherwise make every future feel regression invisible.
+      const feel = await page.evaluate(() => {
+        const debug = (globalThis as unknown as {
+          __GG_VISUAL_DEBUG__?: Record<string, number | string>;
+        }).__GG_VISUAL_DEBUG__ ?? {};
+        return {
+          frameMedianMs: Number(debug.frameMedianMs ?? 0),
+          frameP99Ms: Number(debug.frameP99Ms ?? 0),
+        };
+      });
+      if (!(feel.frameMedianMs > 0) || !(feel.frameP99Ms > 0)) {
+        throw new Error(
+          `${backend} frame-time percentiles are not populated ` +
+          `(median=${feel.frameMedianMs}, p99=${feel.frameP99Ms}) — the F4 meter is dead`,
+        );
+      }
+      if (feel.frameP99Ms < feel.frameMedianMs) {
+        throw new Error(`${backend} frame p99 (${feel.frameP99Ms}) below median (${feel.frameMedianMs})`);
+      }
       console.log(JSON.stringify({
         test: `${backend}-greybox-spawn-not-dark-with-environment`,
         passed: true,
         envState,
         lastClose,
         ...pixels,
+        ...feel,
       }));
       await page.close();
     }

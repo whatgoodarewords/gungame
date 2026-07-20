@@ -38,17 +38,18 @@ describe("frame budget meter", () => {
     expect(meter.snapshot).toBe(first);
   });
 
-  it("surfaces frame-time percentiles once the ring recomputes", () => {
+  it("surfaces frame-time percentiles and p99 catches jitter", () => {
     const meter = new FrameBudgetMeter();
-    // Recompute is throttled to every 30 pushes; drive a full window plus a
-    // single fat frame so p99 separates from the median.
-    for (let i = 0; i < 60; i += 1) {
+    // ~10% fat frames over a full 512-window so nearest-rank p99 lands on the
+    // outlier (round(0.99*511)=506, and the top ~5 are fat): median stays at 8,
+    // p99 must separate to 40 — a vacuous p99==median would fail this.
+    for (let i = 0; i < 512; i += 1) {
       meter.beginFrame(0);
-      meter.endFrame(i === 30 ? 40 : 8);
+      meter.endFrame(i % 10 === 0 ? 40 : 8);
     }
     const snap = meter.snapshot;
     expect(snap.frameMedian).toBeCloseTo(8, 5);
-    expect(snap.frameP99).toBeGreaterThanOrEqual(snap.frameMedian);
+    expect(snap.frameP99).toBeCloseTo(40, 5);
   });
 });
 
@@ -64,10 +65,11 @@ describe("click-to-photon estimator", () => {
     expect(est.sampleCount).toBe(1);
     expect(est.medianMs).toBeCloseTo(20, 5);
 
-    // Only the earliest un-presented input counts toward one sample.
+    // Latest input wins: a click that never produced a photon is overwritten by
+    // the next real click rather than lingering (the 200 is discarded).
     est.markInput(200);
     est.markInput(205);
-    est.sampleAtPresent(230); // 30 ms from the first
+    est.sampleAtPresent(230); // 25 ms from the latest
     expect(est.sampleCount).toBe(2);
 
     // Negative / absurd deltas are rejected (tab restore, clock skew).
@@ -76,8 +78,8 @@ describe("click-to-photon estimator", () => {
     est.markInput(0);
     est.sampleAtPresent(5000);
     expect(est.sampleCount).toBe(2);
-    // Nearest-rank over [20, 30]: p50 and p95 both land on the upper sample.
-    expect(est.medianMs).toBeCloseTo(30, 5);
+    // Nearest-rank over [20, 25]: p50 and p95 both land on the upper sample.
+    expect(est.medianMs).toBeCloseTo(25, 5);
     expect(est.p95Ms).toBeGreaterThanOrEqual(est.medianMs);
   });
 

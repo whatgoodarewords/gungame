@@ -212,4 +212,36 @@ describe("remote interpolation", () => {
     expect(sampled[0]?.generation).toBe(2);
     expect(sampled[0]?.position.x).toBe(10);
   });
+
+  it("dead-reckons by velocity when starved instead of freezing (F1)", () => {
+    const ws = new RemoteInterpolation("ws");
+    // Single buffered snapshot at tick 10, moving +1 unit/s along x.
+    ws.push(10, [entity(2, 0)], 1);
+    // Target one tick past the newest buffered state → starved.
+    const oneAhead = ws.sample(11, 0);
+    expect(ws.lastSampleStalled).toBe(true);
+    // Extrapolated forward, not frozen at x=0.
+    expect(oneAhead[0]!.position.x).toBeCloseTo((1 / 64) * 1, 6);
+
+    // Extrapolation is bounded to 2 ticks even far past the buffer.
+    const farAhead = ws.sample(100, 0);
+    expect(farAhead[0]!.position.x).toBeCloseTo((2 / 64) * 1, 6);
+    expect(ws.lastSampleStalled).toBe(true);
+  });
+
+  it("reports no stall and decays the adaptive delay when snapshots flow (F1)", () => {
+    const ws = new RemoteInterpolation("ws");
+    for (let i = 0; i < 10; i += 1) ws.noteStall(true);
+    expect(ws.delayTicks).toBe(7);
+
+    ws.push(10, [entity(1, 0)], 1);
+    ws.push(12, [entity(1, 20)], 1);
+    // Target sits inside the buffered span → healthy, not starved.
+    ws.sample(11, 0);
+    expect(ws.lastSampleStalled).toBe(false);
+
+    // Enough clean frames decay the widened delay back to the base floor of 5.
+    for (let i = 0; i < 60; i += 1) ws.noteStall(false);
+    expect(ws.delayTicks).toBe(5);
+  });
 });

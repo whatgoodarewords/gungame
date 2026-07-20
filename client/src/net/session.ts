@@ -279,7 +279,11 @@ export class NetworkSession {
 
   remoteEntities(nowMs: number): readonly InterpolatedEntity[] {
     const target = this.clock.interpolationTarget(nowMs, this.interpolation.delayTicks);
-    return this.interpolation.sample(target.tick, target.fraction);
+    const entities = this.interpolation.sample(target.tick, target.fraction);
+    // Feed the adaptive-delay controller: widen the buffer when we ran dry,
+    // decay back toward the base delay when snapshots are flowing again. (F1)
+    this.interpolation.noteStall(this.interpolation.lastSampleStalled);
+    return entities;
   }
 
   close(): void {

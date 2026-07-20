@@ -791,6 +791,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let fpsSmoothed = 0;
   let lastWeapon: WeaponIdValue | undefined;
   let nextLocalShotMs = 0;
+  let c2pPhotonPending = false;
   let nextFootstepMs = 0;
   let nextWhooshMs = 0;
   let lastYaw = input.yaw;
@@ -851,11 +852,17 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     // moved to the sim tick via setTickInput (review finding 7: 144 Hz loss).
     const frame = input.peek();
     const firePresentations = input.drainFirePresentations();
-    // Click-to-photon: register any fire event delivered since the last frame,
-    // then close it against this rAF — the frame that draws the muzzle response. (F4)
+    // Click-to-photon (F4). Close a sample only after the frame that actually
+    // drew the shot presented — i.e. one rAF later, so the interval includes
+    // render+composite+scanout (native-feel §1). `c2pPhotonPending` is set below
+    // when a muzzle response draws; closing here at the next rAF approximates
+    // that frame's present. Then register any new click for the next shot.
+    if (c2pPhotonPending) {
+      latency.sampleAtPresent(now);
+      c2pPhotonPending = false;
+    }
     const fireEventMs = input.takeFireEventMs();
     if (fireEventMs >= 0) latency.markInput(fireEventMs);
-    latency.sampleAtPresent(now);
 
     const prev = sim.getPrevState().player;
     const curr = sim.getState().player;
@@ -987,6 +994,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         impacts.ejectCasing(fpsCam.camera.position, input.yaw);
       }
       nextLocalShotMs = now + WEAPONS[combat.weaponId].refireTicks * TICK_DT * 1_000;
+      // A real muzzle response drew this frame — arm the click-to-photon close
+      // for the next rAF (≈ this frame's present). (F4/S3)
+      c2pPhotonPending = true;
     }
     const seconds = Math.max(0.001, dtMs / 1_000);
     viewmodel?.update(

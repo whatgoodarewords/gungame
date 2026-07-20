@@ -34,9 +34,10 @@ const SMOOTHING = 0.08;
 const FRAME_RING = 512;
 
 /**
- * Fixed-capacity percentile tracker over a ring of raw samples. Allocation-free
- * after construction: a scratch buffer is sorted in place on demand, throttled
- * so the sort cost stays off the per-frame path.
+ * Fixed-capacity percentile tracker over a ring of raw samples. The per-frame
+ * read path (cached p50/p95/p99 fields) neither sorts nor allocates; the sort
+ * is throttled into recompute() so it stays off the hot path. recompute() itself
+ * allocates two small typed-array views — negligible at its ~2 Hz cadence.
  */
 class PercentileRing {
   private readonly ring: Float64Array;
@@ -88,10 +89,19 @@ export class LatencyEstimator {
   private samples = 0;
   medianMs = 0;
   p95Ms = 0;
-  /** Earliest un-presented input wins, so latency reflects the worst-case wait. */
+  /**
+   * Record the click that a shot will answer. Latest-wins: an input that never
+   * produces a photon (fired during refire cooldown or while dead) is harmlessly
+   * overwritten by the next real click rather than lingering and mis-attaching.
+   */
   markInput(eventMs: number): void {
-    if (this.pendingEventMs < 0) this.pendingEventMs = eventMs;
+    this.pendingEventMs = eventMs;
   }
+  /**
+   * Close the pending sample against the presenting frame. Call this ONLY on a
+   * frame that actually drew the shot's response (a real photon) so cooldown/
+   * dead clicks never pollute the distribution with flattering no-op samples.
+   */
   sampleAtPresent(frameNowMs: number): void {
     if (this.pendingEventMs < 0) return;
     const latency = frameNowMs - this.pendingEventMs;
