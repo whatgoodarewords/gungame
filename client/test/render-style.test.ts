@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   Group,
+  HemisphereLight,
   Mesh,
   MeshBasicNodeMaterial,
   Scene,
@@ -16,8 +17,10 @@ import {
   renderStyleFromQuery,
 } from "../src/render-style.js";
 import {
+  FallbackRenderPipeline,
   RecoverableRenderPipeline,
   armRecoverableAnimationLoop,
+  bridgeWebGpuPipelineErrors,
   type RenderPipelineLike,
 } from "../src/render-runtime.js";
 import { disposeRenderMaterials, disposeSceneSubtree } from "../src/render-resources.js";
@@ -45,6 +48,9 @@ describe("RenderStyle bake-off harness", () => {
       const scene = new Scene();
       const rig = style.fogLightRig(scene);
       expect(scene.children).toContain(rig.root);
+      const safetyFill = rig.root.children.find((child) => child.name === "render-safety-fill");
+      expect(safetyFill).toBeInstanceOf(HemisphereLight);
+      expect((safetyFill as HemisphereLight).intensity).toBe(0.15);
       rig.dispose();
       expect(scene.children).not.toContain(rig.root);
     }
@@ -57,6 +63,89 @@ describe("RenderStyle bake-off harness", () => {
 });
 
 describe("live style pipeline reconstruction", () => {
+  it("falls through full, no-post, and direct stages without a black terminal state", () => {
+    const errors: string[] = [];
+    const renders: string[] = [];
+    const fallbacks: string[] = [];
+    const chain = new FallbackRenderPipeline([
+      {
+        label: "full",
+        create: () => {
+          throw new Error("synthetic TSL construction failure");
+        },
+      },
+      {
+        label: "no-post",
+        create: () => ({
+          render: () => {
+            renders.push("no-post");
+            throw new Error("synthetic fullscreen pipeline failure");
+          },
+          dispose: () => {},
+        }),
+      },
+      {
+        label: "direct",
+        create: () => ({
+          render: () => { renders.push("direct"); },
+          dispose: () => {},
+        }),
+      },
+    ], (label) => errors.push(label), (failed, next) => {
+      fallbacks.push(`${failed}->${next}`);
+    });
+    chain.render();
+    expect(errors).toEqual(["full", "no-post"]);
+    expect(fallbacks).toEqual(["full->no-post", "no-post->direct"]);
+    expect(renders).toEqual(["no-post", "direct"]);
+    expect(chain.activeLabel).toBe("direct");
+  });
+
+  it("advances an asynchronously failed WebGPU stage before the next frame", () => {
+    const renders: string[] = [];
+    const chain = new FallbackRenderPipeline([
+      {
+        label: "full",
+        create: () => ({
+          render: () => { renders.push("full"); },
+          dispose: () => {},
+        }),
+      },
+      {
+        label: "no-post",
+        create: () => ({
+          render: () => { renders.push("no-post"); },
+          dispose: () => {},
+        }),
+      },
+    ], () => {});
+    chain.render();
+    expect(chain.handleAsyncError?.(new Error("WGSL validation"))).toBe(true);
+    expect(chain.handleAsyncError?.(new Error("same-frame WGSL detail"))).toBe(true);
+    expect(chain.activeLabel).toBe("no-post");
+    chain.render();
+    expect(renders).toEqual(["full", "no-post"]);
+  });
+
+  it("bridges only asynchronous WebGPU render-pipeline validation errors", () => {
+    const observed: string[] = [];
+    const output: unknown[][] = [];
+    const fakeConsole = {
+      error: (...args: unknown[]) => { output.push(args); },
+    };
+    const restore = bridgeWebGpuPipelineErrors(
+      (error) => observed.push(error.message),
+      fakeConsole,
+    );
+    fakeConsole.error("ordinary application error");
+    fakeConsole.error("WebGPURenderer: Render pipeline creation failed (RenderPipeline): bad WGSL");
+    restore();
+    expect(output).toHaveLength(2);
+    expect(observed).toEqual([
+      "WebGPURenderer: Render pipeline creation failed (RenderPipeline): bad WGSL",
+    ]);
+  });
+
   it("disposes rejected/map-replaced materials and owned scene subtrees exactly once", () => {
     const shared = new MeshBasicNodeMaterial();
     const map = new MeshBasicNodeMaterial();

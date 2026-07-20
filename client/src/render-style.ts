@@ -1,5 +1,4 @@
 import {
-  ACESFilmicToneMapping,
   AmbientLight,
   BackSide,
   Color,
@@ -8,6 +7,7 @@ import {
   Fog,
   FogExp2,
   Group,
+  HemisphereLight,
   MeshBasicNodeMaterial,
   MeshStandardNodeMaterial,
   MeshToonNodeMaterial,
@@ -33,13 +33,12 @@ import {
   step,
   texture,
   textureLoad,
-  toneMapping,
   vec3,
   vec4,
 } from "three/tsl";
 
 import type { GameplayMap } from "../../packages/shared/src/index.js";
-import { textureSetForMap } from "./material-assets.js";
+import { textureSetForMap, usingBasicMaterialFallback } from "./material-assets.js";
 
 export const RENDER_STYLE_IDS = [
   "dev-grid",
@@ -98,6 +97,9 @@ const makeRig = (
   scene.fog = fog;
   const root = new Group();
   root.name = "render-style-rig";
+  const safetyFill = new HemisphereLight(0xbfd8ff, 0x17191d, 0.15);
+  safetyFill.name = "render-safety-fill";
+  root.add(safetyFill);
   root.add(new AmbientLight(ambient, intensity * 0.28));
   const key = new DirectionalLight(sun, intensity);
   key.position.set(28, 54, 18);
@@ -144,6 +146,18 @@ const standardMaterials = (palette: RenderPalette, roughness = 0.9): RenderMater
   return { map, actor, projectile, viewmodel };
 };
 
+const basicFallbackMaterials = (palette: RenderPalette): RenderMaterials => {
+  const map = new MeshBasicNodeMaterial();
+  map.colorNode = color(palette.surface);
+  const actor = new MeshBasicNodeMaterial();
+  actor.colorNode = color(palette.actor);
+  const projectile = new MeshBasicNodeMaterial();
+  projectile.colorNode = color(palette.accent);
+  const viewmodel = new MeshBasicNodeMaterial();
+  viewmodel.colorNode = color(palette.accent);
+  return { map, actor, projectile, viewmodel };
+};
+
 function triplanarMapMaterial(
   palette: RenderPalette,
   mapId?: number,
@@ -170,8 +184,9 @@ function tactilePost(source: Node<"vec4">): Node<"vec4"> {
   const bloomed = source.rgb.add(source.rgb.mul(bloomMask).mul(0.12));
   const centered = screenUV.sub(0.5);
   const vignette = float(1).sub(centered.dot(centered).mul(0.16)).clamp(0.91, 1);
-  const aces = toneMapping(ACESFilmicToneMapping, 1, bloomed.mul(vignette));
-  return vec4(aces, source.a);
+  // ACES is applied by RenderPipeline's output transform. Keeping it there
+  // avoids feeding a vec3 to ToneMappingNode, whose WebGPU setup reads alpha.
+  return vec4(bloomed.mul(vignette), source.a);
 }
 
 const devPalette: RenderPalette = {
@@ -187,6 +202,7 @@ const devGrid: RenderStyle = {
   label: "Dev grid",
   palette: devPalette,
   materials: (_map, mapId) => {
+    if (usingBasicMaterialFallback()) return basicFallbackMaterials(devPalette);
     const materials = standardMaterials(devPalette, 0.95);
     const map = triplanarMapMaterial(devPalette, mapId);
     const p = positionWorld.mul(0.5);
@@ -247,6 +263,7 @@ const inkDuotone: RenderStyle = {
   label: "Ink duotone",
   palette: inkPalette,
   materials: (_map, mapId) => {
+    if (usingBasicMaterialFallback()) return basicFallbackMaterials(inkPalette);
     const materials = standardMaterials(inkPalette, 1);
     const map = triplanarMapMaterial(inkPalette, mapId);
     return { ...materials, map };
@@ -283,6 +300,7 @@ const toonCel: RenderStyle = {
   label: "Toon cel",
   palette: toonPalette,
   materials: (_map) => {
+    if (usingBasicMaterialFallback()) return basicFallbackMaterials(toonPalette);
     const map = new MeshToonNodeMaterial();
     map.colorNode = color(toonPalette.surface);
     const actor = new MeshToonNodeMaterial();
@@ -322,10 +340,12 @@ const brutalist: RenderStyle = {
   id: "brutalist-approx",
   label: "Brutalist approx",
   palette: brutalistPalette,
-  materials: (_map, mapId) => ({
-    ...standardMaterials(brutalistPalette, 0.98),
-    map: triplanarMapMaterial(brutalistPalette, mapId),
-  }),
+  materials: (_map, mapId) => usingBasicMaterialFallback()
+    ? basicFallbackMaterials(brutalistPalette)
+    : {
+      ...standardMaterials(brutalistPalette, 0.98),
+      map: triplanarMapMaterial(brutalistPalette, mapId),
+    },
   postChain: tactilePost,
   fogLightRig: (scene, map) => makeRig(
     scene,

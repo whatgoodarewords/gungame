@@ -25,6 +25,7 @@ export interface PanelBindings {
   inputInspector: () => InputInspectorSnapshot;
   settings: UserSettings;
   onSettings: (settings: UserSettings) => void;
+  diagnostic?: string;
 }
 
 export class DevPanel {
@@ -34,6 +35,7 @@ export class DevPanel {
   private inputLockEl: HTMLElement;
   private inputEventsEl: HTMLElement;
   private perfEl: HTMLElement;
+  private diagnosticEl: HTMLElement;
   private inputs = new Map<string, HTMLInputElement>();
   private readonly inputInspector: () => InputInspectorSnapshot;
 
@@ -72,6 +74,9 @@ export class DevPanel {
         gap:1px 8px;font-size:10px;color:#9db39d}
       #devpanel .perf-breakdown span{display:flex;justify-content:space-between;gap:4px}
       #devpanel .perf-breakdown b{font-weight:400;color:#e8f4e8}
+      #devpanel .render-diagnostic{align-items:flex-start}
+      #devpanel .render-diagnostic span:last-child{max-width:176px;color:#ffbe7a;text-align:right;
+        overflow-wrap:anywhere}
     </style>
     <h3>diagnostics</h3><div class="row"><span id="gg-fps">0</span><span>fps</span>
       <span id="gg-draws">0</span><span>draws</span></div>
@@ -83,6 +88,8 @@ export class DevPanel {
       <span>fx <b data-perf="particles">0.00</b></span>
       <span>chars <b data-perf="characters">0.00</b></span>
     </div>
+    <div class="row render-diagnostic"><span>render</span>
+      <span id="gg-render-diagnostic">ok</span></div>
     <h3 style="margin-top:10px">movement</h3>
     <div class="presets" id="gg-presets"></div>
     <div id="gg-params"></div>
@@ -127,6 +134,8 @@ export class DevPanel {
     this.inputLockEl = root.querySelector("#gg-input-lock")!;
     this.inputEventsEl = root.querySelector("#gg-input-events")!;
     this.perfEl = root.querySelector("#gg-perf-breakdown")!;
+    this.diagnosticEl = root.querySelector("#gg-render-diagnostic")!;
+    this.setDiagnostic(bind.diagnostic ?? "ok");
 
     const style = root.querySelector<HTMLSelectElement>("#gg-style")!;
     for (const id of bind.styles) style.add(new Option(id, id));
@@ -255,6 +264,11 @@ export class DevPanel {
       input.addEventListener("input", emitSettings);
     }
     emitSettings();
+  }
+
+  setDiagnostic(message: string): void {
+    this.diagnosticEl.textContent = message;
+    this.diagnosticEl.title = message;
   }
 
   private setParam(key: string, value: number): void {

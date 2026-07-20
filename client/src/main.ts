@@ -1,4 +1,5 @@
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
   BufferAttribute,
   BufferGeometry,
@@ -70,7 +71,10 @@ import {
   type MenuController,
   type MenuSelection,
 } from "./menu.js";
-import { initializeMaterialAssets } from "./material-assets.js";
+import {
+  activateBasicMaterialFallback,
+  initializeMaterialAssets,
+} from "./material-assets.js";
 import { matchStatsShareText, updatePersonalBest } from "./match-stats.js";
 import { DevPanel } from "./panel.js";
 import {
@@ -98,7 +102,13 @@ import {
 } from "./settings.js";
 import { PrecisionWeaponViewmodel as WeaponViewmodel } from "./precision-viewmodel.js";
 import { VIEWMODEL_CONFIGS, VIEWMODEL_MOTION } from "./viewmodels.js";
-import { RecoverableRenderPipeline, armRecoverableAnimationLoop } from "./render-runtime.js";
+import {
+  FallbackRenderPipeline,
+  RecoverableRenderPipeline,
+  armRecoverableAnimationLoop,
+  bridgeWebGpuPipelineErrors,
+  type RenderPipelineLike,
+} from "./render-runtime.js";
 import { canonicalRoomUrl } from "./room-url.js";
 import "./style.css";
 
@@ -121,6 +131,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const viewmodelCaptureConfig = VIEWMODEL_CONFIGS[Number(query.get("vmconfig"))];
   const viewmodelCaptureKick = query.get("vmkick") === "1";
   const canvas = document.createElement("canvas");
+  canvas.style.background = "#24313b";
   root.appendChild(canvas);
   const scene = new Scene();
   const viewmodelScene = new Scene();
@@ -168,9 +179,18 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     forceWebGL: query.get("backend") === "webgl2",
     logarithmicDepthBuffer: query.get("backend") === "webgl2",
   });
+  renderer.toneMapping = ACESFilmicToneMapping;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  await renderer.init();
-  await initializeMaterialAssets(renderer);
+  try {
+    await renderer.init();
+  } catch (error) {
+    root.style.background = "#24313b";
+    const fallbackUrl = new URL(location.href);
+    fallbackUrl.searchParams.set("backend", "webgl2");
+    hud.showRenderQualityReduced(fallbackUrl.toString());
+    console.error("renderer initialization failed after WebGPU/WebGL2 fallback", error);
+    throw error;
+  }
   const environments = new OfflineEnvironmentAssets(renderer);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
@@ -209,27 +229,110 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let reconnectScheduled = false;
   let reconnectCountdownTimer: ReturnType<typeof setInterval> | undefined;
   const nameplates = new Map<number, HTMLElement>();
-
-  const constructPipeline = (style: typeof currentStyle): RenderPipeline => {
-    const scenePass = style.id === "toon-cel"
-      ? toonOutlinePass(scene, fpsCam.camera, new Color(style.palette.ink), 0.0035, 1)
-      : pass(scene, fpsCam.camera);
-    const weaponPass = pass(viewmodelScene, viewmodelCamera);
-    const composited = vec4(
-      mix(scenePass.rgb, weaponPass.rgb, weaponPass.a),
-      scenePass.a.max(weaponPass.a),
-    );
-    return new RenderPipeline(renderer, style.postChain(composited));
+  let panel: DevPanel | undefined;
+  const diagnostics: string[] = [];
+  const errorMessage = (error: unknown): string =>
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  const recordRenderDiagnostic = (
+    context: string,
+    error: unknown,
+    log = true,
+  ): void => {
+    const message = `${context}: ${errorMessage(error)}`;
+    diagnostics.push(message);
+    if (diagnostics.length > 8) diagnostics.shift();
+    panel?.setDiagnostic(message);
+    if (log) console.error(context, error);
   };
+  const webgl2FallbackUrl = (): string => {
+    const url = new URL(location.href);
+    url.searchParams.set("backend", "webgl2");
+    return url.toString();
+  };
+  const showForcedWebGlHint = (): void => {
+    hud.showRenderQualityReduced(webgl2FallbackUrl());
+  };
+  const showNonBlackTerminalFallback = (): void => {
+    canvas.style.visibility = "hidden";
+    root.style.background = "#24313b";
+    showForcedWebGlHint();
+  };
+
+  const constructPipeline = (style: typeof currentStyle): FallbackRenderPipeline =>
+    new FallbackRenderPipeline([
+      {
+        label: `${style.id}:full`,
+        create: () => {
+          const scenePass = style.id === "toon-cel"
+            ? toonOutlinePass(scene, fpsCam.camera, new Color(style.palette.ink), 0.0035, 1)
+            : pass(scene, fpsCam.camera);
+          const weaponPass = pass(viewmodelScene, viewmodelCamera);
+          const composited = vec4(
+            mix(scenePass.rgb, weaponPass.rgb, weaponPass.a),
+            scenePass.a.max(weaponPass.a),
+          );
+          return new RenderPipeline(renderer, style.postChain(composited));
+        },
+      },
+      {
+        label: `${style.id}:plain-no-post`,
+        create: () => new RenderPipeline(renderer, pass(scene, fpsCam.camera)),
+      },
+      {
+        label: `${style.id}:plain-webgl2-hint`,
+        create: (): RenderPipelineLike => {
+          const safeMaterial = new MeshBasicNodeMaterial({ color: style.palette.surface });
+          return {
+            render: () => {
+              const previousEnvironment = scene.environment;
+              const previousOverride = scene.overrideMaterial;
+              scene.environment = null;
+              scene.overrideMaterial = safeMaterial;
+              try {
+                renderer.render(scene, fpsCam.camera);
+              } finally {
+                scene.overrideMaterial = previousOverride;
+                scene.environment = previousEnvironment;
+              }
+            },
+            dispose: () => safeMaterial.dispose(),
+          };
+        },
+      },
+    ], (label, error) => {
+      recordRenderDiagnostic(`render stage failed (${label})`, error);
+    }, (failedLabel, nextLabel) => {
+      panel?.setDiagnostic(`fallback ${failedLabel} → ${nextLabel}`);
+      if (nextLabel.endsWith(":plain-webgl2-hint")) showForcedWebGlHint();
+    });
 
   rig = currentStyle.fogLightRig(scene, currentMap);
   const pipeline = new RecoverableRenderPipeline(
     constructPipeline(currentStyle),
-    (error) => console.error(
-      `render style rebuild failed (${query.get("backend") === "webgl2" ? "webgl2" : "webgpu"})`,
-      error,
-    ),
+    (error) => {
+      recordRenderDiagnostic("render pipeline recovery exhausted", error);
+      showNonBlackTerminalFallback();
+    },
   );
+  bridgeWebGpuPipelineErrors((error) => {
+    if (!pipeline.reportAsyncFailure(error)) showNonBlackTerminalFallback();
+  });
+  (renderer as unknown as { onError: (info: unknown) => void }).onError = (info): void => {
+    const detail = typeof info === "string"
+      ? { api: "renderer", type: "error", message: info, originalEvent: undefined }
+      : info as {
+        api?: string;
+        type?: string;
+        message?: string;
+        originalEvent?: unknown;
+      };
+    const error = new Error(
+      `${detail.api ?? "renderer"} ${detail.type ?? "error"}: ${detail.message ?? "unknown"}`,
+      { cause: detail.originalEvent },
+    );
+    recordRenderDiagnostic("renderer backend error", error);
+    if (!pipeline.reportAsyncFailure(error)) showNonBlackTerminalFallback();
+  };
 
   const applyStyle = (id: RenderStyleId): void => {
     pipeline.cancelPending();
@@ -292,6 +395,20 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       history.replaceState(null, "", url);
     });
   };
+
+  void initializeMaterialAssets(renderer).then(() => {
+    if (currentMap !== undefined) applyStyle(currentStyleId);
+  }).catch((error: unknown) => {
+    activateBasicMaterialFallback();
+    recordRenderDiagnostic("PBR KTX2 unavailable; basic materials active", error);
+    if (currentMap !== undefined) {
+      try {
+        applyStyle(currentStyleId);
+      } catch (fallbackError) {
+        recordRenderDiagnostic("basic material fallback application failed", fallbackError);
+      }
+    }
+  });
 
   const installVisualMap = (
     map: GameplayMap,
@@ -407,7 +524,16 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           : "Foundry";
     scene.add(mapMesh);
     void environments.install(scene, mapMesh.name).catch((error: unknown) => {
-      console.warn(`offline environment unavailable for ${mapMesh?.name ?? "map"}`, error);
+      activateBasicMaterialFallback();
+      recordRenderDiagnostic(
+        `offline environment unavailable for ${mapMesh?.name ?? "map"}; safety lighting active`,
+        error,
+      );
+      try {
+        applyStyle(currentStyleId);
+      } catch (fallbackError) {
+        recordRenderDiagnostic("environment basic-material fallback failed", fallbackError);
+      }
     });
     dressing?.dispose();
     dressing = dressingConstructor === undefined
@@ -512,7 +638,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const params = { ...SCOUTZ };
   let jumpBufferMs = 80;
   sim.setParams(params);
-  const panel = new DevPanel({
+  panel = new DevPanel({
     params: { ...params, jumpBufferMs },
     onParamChange: (key, value) => {
       if (key === "jumpBufferMs") {
@@ -538,6 +664,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       input.setBindings(rebindControl(input.controlBindings, action, code));
     },
     settings: userSettings,
+    diagnostic: diagnostics.at(-1) ?? "ok",
     onSettings: (settings) => {
       userSettings = settings;
       saveUserSettings(localStorage, settings);
@@ -555,7 +682,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         url.searchParams.set("style", id);
         history.replaceState(null, "", url);
       } catch (error) {
-        console.error("render style application failed before pipeline activation", error);
+        recordRenderDiagnostic("render style application failed before pipeline activation", error);
         if (currentStyleId !== previousId) applyStyle(previousId);
       }
     },
@@ -655,11 +782,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   };
   window.addEventListener("resize", resize);
   resize();
-  try {
-    applyStyle(currentStyleId);
-  } catch (error) {
-    console.error("initial render style application failed", error);
-  }
 
   let wasGrounded = true;
   let lastFrame = performance.now();
@@ -824,7 +946,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const roundTripMs = sim.getPingMs();
     hud.setPing(roundTripMs, pingTone(roundTripMs));
     hud.setAfkWarning(now - input.lastActivityMs >= 20_000);
-    panel.update(fpsSmoothed, renderer.info.render.drawCalls, perf.snapshot);
+    panel?.update(fpsSmoothed, renderer.info.render.drawCalls, perf.snapshot);
     audio.setWindSpeed(horizontalSpeed);
     const surface: SurfaceMaterial = currentMode === GameMode.Scoutzknivez ? "stone" : "metal";
     if (curr.grounded && horizontalSpeed > 2.2 && now >= nextFootstepMs) {
@@ -1217,6 +1339,7 @@ function urlForSelection(selection: MenuSelection): URL {
 async function startFrontDoor(): Promise<void> {
   root.style.background = "#0e131b";
   const canvas = document.createElement("canvas");
+  canvas.style.background = "#24313b";
   root.appendChild(canvas);
   showNameEntry(root, (selection) => location.assign(urlForSelection(selection)));
   const query = new URLSearchParams(location.search);
@@ -1225,6 +1348,7 @@ async function startFrontDoor(): Promise<void> {
     antialias: true,
     forceWebGL: query.get("backend") === "webgl2",
   });
+  renderer.toneMapping = ACESFilmicToneMapping;
   try {
     await renderer.init();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

@@ -664,6 +664,7 @@ canvas {
 
 .tier-banner,
 .how-to-toast,
+.render-quality-toast,
 .afk-warning {
   position: absolute;
   left: 50%;
@@ -704,6 +705,21 @@ canvas {
 }
 
 .how-to-toast.visible { opacity: 1; }
+
+.render-quality-toast {
+  top: 1rem;
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.45rem 0.65rem;
+  color: #ffd3a0;
+  background: rgb(20 10 4 / 88%);
+  border: 1px solid rgb(255 173 86 / 58%);
+  pointer-events: auto;
+}
+
+.render-quality-toast a { color: #fff; }
+.render-quality-toast.visible { opacity: 1; }
 
 .afk-warning {
   top: 12%;

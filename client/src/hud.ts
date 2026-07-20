@@ -65,6 +65,7 @@ export class MatchHud {
   private readonly invite: HTMLElement;
   private readonly pointerOverlay: HTMLButtonElement;
   private readonly toast: HTMLElement;
+  private readonly qualityToast: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly ping: HTMLElement;
   private readonly afk: HTMLElement;
@@ -99,6 +100,8 @@ export class MatchHud {
       <div class="win-overlay"><strong>round complete</strong><div class="match-stats-screen"><div class="match-stats-values"></div><button type="button">share</button></div></div>
       <div class="tier-banner"></div>
       <div class="how-to-toast"></div>
+      <div class="render-quality-toast"><strong>visual quality reduced</strong>
+        <a>reload with WebGL2</a></div>
       <div class="afk-warning"></div>
       <div class="trial-timer"></div>
       <div class="clip-toast"><span></span><button type="button">clip</button></div>
@@ -134,6 +137,7 @@ export class MatchHud {
     this.invite = root.querySelector(".invite-copy")!;
     this.pointerOverlay = root.querySelector(".resume-overlay")!;
     this.toast = root.querySelector(".how-to-toast")!;
+    this.qualityToast = root.querySelector(".render-quality-toast")!;
     this.banner = root.querySelector(".tier-banner")!;
     this.ping = root.querySelector(".hud-ping")!;
     this.afk = root.querySelector(".afk-warning")!;
@@ -141,6 +145,12 @@ export class MatchHud {
     this.reloadButton.onclick = () => location.reload();
     root.querySelector<HTMLButtonElement>(".rejoin-button")!.onclick = () => this.rejoin?.();
     this.pointerOverlay.onclick = () => this.resume?.();
+  }
+
+  showRenderQualityReduced(webgl2Url: string): void {
+    const link = this.qualityToast.querySelector<HTMLAnchorElement>("a")!;
+    link.href = webgl2Url;
+    this.qualityToast.classList.add("visible");
   }
 
   setStatus(status: HudStatus): void {
