@@ -310,6 +310,30 @@ install fully post-first-frame (the fallback plumbing already exists,
 - Interp delay pins (3/5/7 ticks) match spec; don't retune, just wire F1.
 - WS one-slot backpressure policy (`transport.ts`) matches spec; verified, leave alone.
 
+## Status log
+
+- **F3 — SHIPPED** (`ca96e09`, live). `alphaAt(nowMs)` on the driver; render loop
+  passes its own `performance.now()`. Unit tests in `client/test/tick-driver.test.ts`.
+  *Deferred sub-part:* the `fireFraction`/`tickStartMs` stamping is unchanged — the
+  staleness there is bounded by the wake interval and only shifts a sub-tick lerp
+  fraction, so it was judged not worth perturbing the verified-good sub-tick fire
+  contract. The scaffolding (`lastTickAtMs`) was removed rather than left dead.
+  *Unverified:* the 120 Hz CoV < 5 % acceptance run needs real hardware.
+- **F4 — SHIPPED** (`ca96e09` + `efb9cfa`, live). `PercentileRing` → frame
+  median/p99 in `FrameBudgetMeter`; `LatencyEstimator` → click-to-photon.
+  Both in the dev panel (red past budget) and `__GG_VISUAL_DEBUG__`. c2p closes
+  one rAF after a real muzzle draws, so the interval includes render+present and
+  no-photon clicks (cooldown/dead) are never sampled.
+  *Partial:* CI asserts only that the meter is populated and self-consistent —
+  the p99 ≤ 1.5× median and c2p ≤ 35 ms budgets are NOT gated in CI because the
+  runner is a software rasteriser. They belong to the real-hardware matrix.
+  c2p-in-CI needs synthetic input; fold into F8.
+- **F1 — SHIPPED** (`efb9cfa`, live). Starvation detected at sample time,
+  velocity dead-reckoning bounded to 2 ticks, `noteStall` wired so the adaptive
+  delay widens under loss and decays to the 5-tick floor.
+  *Unverified:* the netsim burst-profile acceptance (remote-stall p95 < 100 ms)
+  has not been run — needs the netsim harness, not just unit tests.
+
 ## Rollout order
 
 F3+F4 land first (tiny, and F4's meters are the acceptance instrument for everything
