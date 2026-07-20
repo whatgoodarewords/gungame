@@ -2,14 +2,17 @@ import {
   Box3,
   CircleGeometry,
   CylinderGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshBasicNodeMaterial,
+  PlaneGeometry,
   PointLight,
   Vector3,
   type Material,
   type Object3D,
 } from "three/webgpu";
+import { color } from "three/tsl";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
@@ -78,6 +81,10 @@ export class PrecisionWeaponViewmodel {
   private disposed = false;
   private equipElapsedMs: number = VIEWMODEL_MOTION.equipMs;
   private recoil = 0;
+  private readonly muzzleFlash: Group;
+  private readonly muzzleFlashMaterial: MeshBasicNodeMaterial;
+  private muzzleFlashAgeMs = 0;
+  private shotIndex = 0;
   private rackElapsedMs = Number.POSITIVE_INFINITY;
   private backpushElapsedMs = Number.POSITIVE_INFINITY;
   private landingElapsedMs = Number.POSITIVE_INFINITY;
@@ -101,6 +108,31 @@ export class PrecisionWeaponViewmodel {
     this.muzzleLight.name = "viewmodel-muzzle-flash-light";
     this.muzzleLight.position.set(0, 0.04, -0.62);
     this.weaponMount.add(this.muzzleLight);
+    // Visible flash geometry (combat-juice J3): two crossed quads + a center
+    // disc in ONE group at the muzzle. Normal alpha blending, NOT additive —
+    // additive washes out to nothing against the bright high-key sky.
+    const flashMaterial = new MeshBasicNodeMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    flashMaterial.colorNode = color(0xffd977);
+    this.muzzleFlashMaterial = flashMaterial;
+    const flash = new Group();
+    flash.name = "viewmodel-muzzle-flash";
+    const petalGeometry = new PlaneGeometry(0.14, 0.14);
+    const petalA = new Mesh(petalGeometry, flashMaterial);
+    const petalB = new Mesh(petalGeometry, flashMaterial);
+    petalB.rotation.z = Math.PI / 2;
+    const core = new Mesh(new CircleGeometry(0.05, 10), flashMaterial);
+    core.position.z = 0.001;
+    flash.add(petalA, petalB, core);
+    flash.position.copy(this.muzzleLight.position);
+    flash.visible = false;
+    flash.traverse((node) => node.layers.set(1));
+    this.muzzleFlash = flash;
+    this.weaponMount.add(flash);
     this.addProceduralArms();
     this.addContactShadow();
     if (this.loadAssets) void this.loadArms();
@@ -158,7 +190,13 @@ export class PrecisionWeaponViewmodel {
     this.recoil = 1;
     this.rackElapsedMs = 0;
     this.backpushElapsedMs = 0;
-    this.muzzleLight.intensity = 5.5;
+    // With the flash quad present the light double-counts at 5.5 (J3).
+    this.muzzleLight.intensity = 4.0;
+    this.muzzleFlashAgeMs = 0;
+    this.muzzleFlash.visible = true;
+    this.shotIndex += 1;
+    // Deterministic golden-angle roll: never repeats visibly, no RNG.
+    this.muzzleFlash.rotation.z = this.shotIndex * 137.5 * (Math.PI / 180);
   }
 
   onLand(): void {
@@ -177,6 +215,16 @@ export class PrecisionWeaponViewmodel {
     this.equipElapsedMs = Math.min(VIEWMODEL_MOTION.equipMs, this.equipElapsedMs + dtMs);
     this.recoil *= Math.exp(-dtMs / VIEWMODEL_MOTION.recoilDecayMs);
     this.muzzleLight.intensity *= Math.exp(-dtMs / 18);
+    if (this.muzzleFlash.visible) {
+      this.muzzleFlashAgeMs += dtMs;
+      const life = 1 - this.muzzleFlashAgeMs / 45; // 45 ms = 2-3 frames
+      if (life <= 0) {
+        this.muzzleFlash.visible = false;
+        this.muzzleFlashMaterial.opacity = 0;
+      } else {
+        this.muzzleFlashMaterial.opacity = 0.9 * life;
+      }
+    }
     this.rackElapsedMs += dtMs;
     this.backpushElapsedMs += dtMs;
     this.landingElapsedMs += dtMs;

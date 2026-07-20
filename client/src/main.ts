@@ -5,8 +5,6 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
-  Line,
-  LineBasicMaterial,
   Mesh,
   MeshBasicNodeMaterial,
   PCFSoftShadowMap,
@@ -50,6 +48,7 @@ import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
 import { CameraKick } from "./camera-kick.js";
+import { TracerSystem } from "./tracer-system.js";
 import { ClipThat } from "./clip-capture.js";
 import type {
   ProjectileView,
@@ -758,54 +757,33 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   });
   hud.setPointerLock(input.isLocked);
 
-  // Shared per-session tracer resources (review finding 9: zero per-shot GPU allocation).
-  const tracerMaterialPlain = new LineBasicMaterial({ color: 0xffffff });
-  const tracerMaterialHeadshot = new LineBasicMaterial({ color: 0xffdd55 });
-  const aimTracerMaterial = new LineBasicMaterial({ transparent: true, opacity: 0.8 });
-  const impactGeometry = new SphereGeometry(0.08, 6, 4);
+  // Pooled ember streaks (combat-juice J4): zero per-shot allocation, visible
+  // on the daylight register. Both the local aim tracer and the hit-confirm
+  // tracer feed one instanced pool.
+  const tracers = new TracerSystem(scene);
   const showTracer = (
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
-    headshot: boolean,
+    _headshot: boolean,
     rocket = false,
   ): void => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(Float32Array.of(
-      from.x, from.y + 1.55, from.z,
-      to.x, to.y + 0.95, to.z,
-    ), 3));
-    const tracer = new Line(geometry, headshot ? tracerMaterialHeadshot : tracerMaterialPlain);
-    const impact = new Mesh(
-      impactGeometry,
-      materials?.projectile ?? tracerMaterialPlain,
-    );
-    impact.position.set(to.x, to.y + 0.95, to.z);
-    scene.add(tracer, impact);
+    tracers.spawn(from.x, from.y + 1.55, from.z, to.x, to.y + 0.95, to.z);
     impacts.impact(
       to,
       currentMode === GameMode.Scoutzknivez ? 0xb9a98a : 0x8997a1,
       rocket,
     );
-    setTimeout(() => {
-      scene.remove(tracer);
-      geometry.dispose();
-    }, 40);
-    setTimeout(() => scene.remove(impact), 120);
   };
 
   const showAimTracer = (range: number): void => {
     fpsCam.camera.getWorldPosition(aimOrigin);
     fpsCam.camera.getWorldDirection(aimDirection);
     aimEnd.copy(aimOrigin).addScaledVector(aimDirection, range);
-    const geometry = new BufferGeometry().setFromPoints([aimOrigin, aimEnd]);
-    aimTracerMaterial.color.set(currentStyle.palette.accent);
-    const tracer = new Line(geometry, aimTracerMaterial);
-    tracer.name = "hitscan-tracer";
-    scene.add(tracer);
-    setTimeout(() => {
-      scene.remove(tracer);
-      geometry.dispose();
-    }, 40);
+    // Start the streak slightly forward/below the eye so it reads as leaving
+    // the muzzle, not the forehead.
+    aimOrigin.addScaledVector(aimDirection, 0.9);
+    aimOrigin.y -= 0.12;
+    tracers.spawn(aimOrigin.x, aimOrigin.y, aimOrigin.z, aimEnd.x, aimEnd.y, aimEnd.z);
   };
 
   const resize = (): void => {
@@ -823,6 +801,49 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let fpsSmoothed = 0;
   let lastWeapon: WeaponIdValue | undefined;
   let c2pPhotonPending = false;
+  // Stuck-diagnostics chip: when the player is spawned but the game is not
+  // actually playable, say WHY on screen in plain words. One screenshot of
+  // this chip replaces a whole remote-debugging session.
+  const stuckChip = document.createElement("div");
+  stuckChip.id = "gg-stuck-chip";
+  stuckChip.style.cssText =
+    "position:fixed;left:50%;bottom:18%;transform:translateX(-50%);" +
+    "background:rgba(20,22,26,.92);color:#ffd977;font:13px/1.5 ui-monospace,monospace;" +
+    "padding:10px 16px;border-radius:6px;z-index:60;display:none;max-width:520px;" +
+    "text-align:center;white-space:pre-line";
+  root.appendChild(stuckChip);
+  let stuckSinceMs = -1;
+  let nextStuckCheckMs = 0;
+  const updateStuckChip = (now: number, frozen: boolean): void => {
+    if (now < nextStuckCheckMs) return;
+    nextStuckCheckMs = now + 1_000;
+    const combatNow = sim.getCombatState();
+    const net = sim.getNetStats();
+    const lockState = root.getAttribute("data-lock-state") ?? "never-requested";
+    let problem = "";
+    if (networkClosed || combatNow.selfId === 0) {
+      problem = `not connected — ${root.dataset.lastClose ?? "no close recorded"}\n` +
+        "(auto-reconnect is running; if this persists, screenshot this chip)";
+    } else if (frozen) {
+      problem = "round frozen (scoreboard) — respawns when the next round starts";
+    } else if (!input.isLocked) {
+      problem = `mouse not captured (lock: ${lockState}) — click the game world`;
+    } else if (net.sentCmds > 128 && net.ackedCmdSeq === 0) {
+      problem = `server is not processing input (${net.sentCmds} cmds sent, 0 acked)\n` +
+        "screenshot this chip — this is the bug";
+    }
+    if (problem === "") {
+      stuckSinceMs = -1;
+      stuckChip.style.display = "none";
+      return;
+    }
+    if (stuckSinceMs < 0) stuckSinceMs = now;
+    // Grace period so normal transitions (join, brief unlock) never flash it.
+    if (now - stuckSinceMs > 3_000) {
+      stuckChip.textContent = problem;
+      stuckChip.style.display = "block";
+    }
+  };
   let nextFootstepMs = 0;
   let nextWhooshMs = 0;
   let lastYaw = input.yaw;
@@ -954,6 +975,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         cameraKick.pitchOffset, cameraKick.yawOffset,
       );
     }
+    tracers.update(dtMs, fpsCam.camera);
     audio.setListener(
       fpsCam.camera.position,
       fpsCam.camera.getWorldDirection(listenerDirection),
@@ -1268,6 +1290,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
     const frozen = mode?.roundState === RoundState.ScoreboardFreeze;
     hud.setState(hudState.dispatch({ type: "snapshot", alive: combat.alive, frozen }));
+    updateStuckChip(now, frozen);
     if (mode !== undefined) {
       const heading = mode.mode === GameMode.Scoutzknivez
         ? `${mode.teamScores[0]} — ${mode.teamScores[1]}`

@@ -68,6 +68,8 @@ export interface SimHandle {
    */
   drainFirePresentations(): readonly WeaponIdValue[];
   getPingMs(): number;
+  /** Command-pipeline health for the stuck-diagnostics chip. */
+  getNetStats(): { readonly sentCmds: number; readonly ackedCmdSeq: number };
 }
 
 export interface CombatView {
@@ -143,6 +145,7 @@ export function createPlayground(
   };
   const combatEvents: SnapshotEvent[] = [];
 
+  let lastAckedCmdSeq = 0;
   let tickInput: (() => FrameInput) | undefined;
   const tick = (): void => {
     if (world === undefined) return;
@@ -191,6 +194,7 @@ export function createPlayground(
     drainCombatEvents: () => combatEvents.splice(0),
     drainFirePresentations: () => prediction?.drainFirePresentations() ?? [],
     getPingMs: () => network?.clock.roundTripMs ?? 0,
+    getNetStats: () => ({ sentCmds: nextSeq - 1, ackedCmdSeq: lastAckedCmdSeq }),
   };
 
   let mapLoadSequence = 0;
@@ -271,6 +275,7 @@ export function createPlayground(
                 .catch((error: unknown) => console.error(error));
             }
           }
+          lastAckedCmdSeq = Math.max(lastAckedCmdSeq, frame.lastProcessedCmdSeq);
           const self = entities.find((entity) =>
             entity.id === network?.selfId && entity.kind === EntityKind.Player);
           if (self === undefined || prediction === undefined) return;
