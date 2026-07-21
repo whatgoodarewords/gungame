@@ -115,6 +115,7 @@ app.get("/gg/healthz", (response) => {
     .writeHeader("Content-Type", "application/json; charset=utf-8")
     .end(JSON.stringify({
       ok: true,
+      buildHash: __BUILD_HASH__,
       tick: metrics.tick,
       tickP95Ms: metrics.aggregateP95Ms,
       rooms: rooms.rooms.size,

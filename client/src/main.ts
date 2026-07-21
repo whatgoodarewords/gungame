@@ -179,6 +179,31 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   input.onLockChange((locked) => hud.setPointerLock(locked));
   hud.onResume(() => input.requestLock());
 
+  // Stale-client watchdog: a long-lived tab (or bfcache resurrection) can run
+  // a days-old bundle against a new server forever — old physics, old maps,
+  // version-refused joins that read as "stuck at spawn". Poll the server's
+  // build and self-update the moment they diverge.
+  const watchdogTimer = setInterval(() => {
+    void fetch("/gg/healthz", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : undefined)
+      .then((health: { buildHash?: string } | undefined) => {
+        const serverBuild = health?.buildHash;
+        if (serverBuild === undefined || serverBuild === "" || serverBuild === __BUILD_HASH__) {
+          sessionStorage.removeItem("gg:stale-reloaded");
+          return;
+        }
+        clearInterval(watchdogTimer);
+        // One automatic reload per session — if the mismatch survives a
+        // reload something else is wrong and looping would make it worse.
+        if (sessionStorage.getItem("gg:stale-reloaded") === serverBuild) return;
+        sessionStorage.setItem("gg:stale-reloaded", serverBuild);
+        stuckChip.textContent = "new version available — updating…";
+        stuckChip.style.display = "block";
+        setTimeout(() => location.reload(), 1_200);
+      })
+      .catch(() => undefined);
+  }, 45_000);
+
   const renderer = new WebGPURenderer({
     canvas,
     antialias: true,
