@@ -214,6 +214,8 @@ export class RawInput {
   private pendingFireEventMs = -1;
   private locked = false;
   private lockErrorRetried = false;
+  /** Which event stream feeds aim ("pointerrawupdate" | "mousemove"). */
+  aimSource = "mousemove";
   private queuedJump = false;
   private queuedFire = false;
   private bindings: ControlBindings;
@@ -283,20 +285,43 @@ export class RawInput {
         this.requestFallbackLock();
       }
     });
-    document.addEventListener("mousemove", (e) => {
-      if (!this.locked) return;
-      this.markActivity();
-      // movementX/Y are raw counts under unadjustedMovement — no OS accel.
-      const next = pointerAnglesAfterDelta(
-        this.yaw,
-        this.pitch,
-        e.movementX,
-        e.movementY,
-        this.radPerCount,
-      );
+    // Aim input source (native-feel §1 / F8): pointerrawupdate delivers mouse
+    // deltas off the rAF-aligned coalescing path — Chromium batches mousemove
+    // to frame cadence, adding up to a frame of aim latency and staling the
+    // click-latched fire angles. Feature-detect; mousemove stays as the only
+    // handler where rawupdate is unsupported (Safari/Firefox).
+    const applyPointerDelta = (dx: number, dy: number): void => {
+      const next = pointerAnglesAfterDelta(this.yaw, this.pitch, dx, dy, this.radPerCount);
       this.yaw = next.yaw;
       this.pitch = next.pitch;
-    });
+    };
+    const rawUpdateSupported = "onpointerrawupdate" in window;
+    this.aimSource = rawUpdateSupported ? "pointerrawupdate" : "mousemove";
+    if (rawUpdateSupported) {
+      document.addEventListener("pointerrawupdate", (event) => {
+        if (!this.locked) return;
+        this.markActivity();
+        const raw = event as PointerEvent;
+        // Coalesced events carry the full delta trail since the last dispatch.
+        const coalesced = typeof raw.getCoalescedEvents === "function"
+          ? raw.getCoalescedEvents()
+          : [];
+        if (coalesced.length > 0) {
+          for (const sample of coalesced) {
+            applyPointerDelta(sample.movementX, sample.movementY);
+          }
+        } else {
+          applyPointerDelta(raw.movementX, raw.movementY);
+        }
+      });
+    } else {
+      document.addEventListener("mousemove", (e) => {
+        if (!this.locked) return;
+        this.markActivity();
+        // movementX/Y are raw counts under unadjustedMovement — no OS accel.
+        applyPointerDelta(e.movementX, e.movementY);
+      });
+    }
     document.addEventListener("mousedown", (e) => {
       if (!this.locked) return;
       this.markActivity();

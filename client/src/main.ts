@@ -1231,6 +1231,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     visualDebug.inputButtons = inputDebug.buttons;
     visualDebug.inputLocked = inputDebug.locked ? 1 : 0;
     visualDebug.inputYaw = input.yaw;
+    visualDebug.aimSource = input.aimSource;
     const breakdown = perf.snapshot;
     visualDebug.frameMs = breakdown.frame;
     visualDebug.renderMs = breakdown.render;

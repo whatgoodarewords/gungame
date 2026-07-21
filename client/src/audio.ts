@@ -226,17 +226,26 @@ export class GameAudio {
   }
 
   hitmarker(damage: number): void {
-    this.tone(220 + Math.max(0, Math.min(100, damage)) * 5.2, 0.052, 0.085);
+    // Damage-pitched THOCK: click transient + short damped body — reads as
+    // contact, not as a UI beep. Pitch still scales with damage (info intact).
+    const pitch = 240 + Math.max(0, Math.min(100, damage)) * 4.6;
+    this.play(recipe(0.012, 0.85, 3_400, 8_000, 0.07, 0.05));
+    this.play(recipe(0.055, 0.25, pitch, 3_000, 0.1, 0.5), undefined, 1, 0.004);
   }
 
   headshot(): void {
-    this.tone(1_120, 0.12, 0.095);
+    // Brighter double-tick above the hitmarker — the dopamine differentiator.
+    this.play(recipe(0.012, 0.8, 4_200, 9_000, 0.08, 0.05));
+    this.play(recipe(0.08, 0.15, 1_480, 5_200, 0.11, 0.35), undefined, 1, 0.006);
+    this.play(recipe(0.07, 0.15, 1_970, 5_800, 0.08, 0.3), undefined, 1, 0.03);
   }
 
   killConfirm(streak = 1): void {
+    // Low thock + rising two-note confirm; streak raises the melody.
     const rise = Math.min(4, Math.max(0, streak - 1)) * 55;
-    this.tone(690 + rise, 0.15, 0.12);
-    this.tone(920 + rise, 0.11, 0.1, 0.045);
+    this.play(recipe(0.09, 0.35, 190, 1_800, 0.16, 0.4));
+    this.play(recipe(0.11, 0.08, 690 + rise, 4_200, 0.12, 0.12), undefined, 1, 0.03);
+    this.play(recipe(0.13, 0.08, 985 + rise, 4_600, 0.11, 0.1), undefined, 1, 0.085);
   }
 
   airshot(): void {
