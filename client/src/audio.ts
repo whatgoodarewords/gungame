@@ -1,5 +1,6 @@
 import { NEAR_MISS_DIALS, WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
 import { AUDIO_SAMPLE_URLS } from "./asset-manifest.js";
+import { GUNSHOT_PARAMS, renderGunshot } from "./gunshot-synth.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
 
@@ -100,6 +101,7 @@ export function renderRecipe(
 
 export class GameAudio {
   private context: AudioContext | undefined;
+  private readonly gunshotBuffers = new Map<number, AudioBuffer>();
   private master: GainNode | undefined;
   private compressor: DynamicsCompressorNode | undefined;
   private windGain: GainNode | undefined;
@@ -119,6 +121,46 @@ export class GameAudio {
     void this.context.resume();
     this.ensureLoops();
     this.preloadSamples();
+    this.prerenderGunshots();
+  }
+
+  /** Render every designed gunshot once at unlock: zero first-shot DSP cost. */
+  private prerenderGunshots(): void {
+    if (this.context === undefined || this.gunshotBuffers.size > 0) return;
+    for (const [id, params] of Object.entries(GUNSHOT_PARAMS)) {
+      if (params === undefined) continue;
+      const samples = renderGunshot(params, this.context.sampleRate);
+      const buffer = this.context.createBuffer(1, samples.length, this.context.sampleRate);
+      buffer.copyToChannel(samples, 0);
+      this.gunshotBuffers.set(Number(id), buffer);
+    }
+  }
+
+  private playGunshot(
+    weaponId: WeaponIdValue,
+    position?: { x: number; y: number; z: number },
+  ): boolean {
+    if (this.context === undefined) return false;
+    this.prerenderGunshots();
+    const buffer = this.gunshotBuffers.get(weaponId);
+    if (buffer === undefined) return false;
+    this.ensureMaster();
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    if (position === undefined) source.connect(this.master!);
+    else {
+      const panner = this.context.createPanner();
+      panner.panningModel = "HRTF";
+      panner.distanceModel = "inverse";
+      panner.refDistance = 2;
+      panner.maxDistance = 90;
+      panner.positionX.value = position.x;
+      panner.positionY.value = position.y;
+      panner.positionZ.value = position.z;
+      source.connect(panner).connect(this.master!);
+    }
+    source.start();
+    return true;
   }
 
   setMaster(volume: number, muted: boolean): void {
@@ -156,6 +198,9 @@ export class GameAudio {
   }
 
   playFire(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
+    // Designed four-layer gunshots (gunshot-synth) carry ballistic weapons
+    // whole — no extra layers needed, the crack/body/thump/tail are baked in.
+    if (this.playGunshot(weaponId, position)) return;
     const sampled = weaponId === WeaponId.Arc
       ? AUDIO_SAMPLE_URLS.laserSmall
       : weaponId === WeaponId.Peacemaker
@@ -165,8 +210,7 @@ export class GameAudio {
           : undefined;
     const sampledBody = sampled !== undefined && this.playSample(sampled, position, 0.55);
     if (!sampledBody) this.play(FIRE_RECIPES[weaponId], position);
-    // Mechanical transient + room tail remain separate layers even when a
-    // sampled body is available.
+    // Mechanical transient + room tail for the non-designed paths.
     this.play(recipe(0.022, 0.32, 1_180 + weaponId * 23, 7_500, 0.11, 0.04),
       position, 1, 0);
     this.play(recipe(0.22, 0.58, 82 + weaponId * 3, 1_500, 0.13, 0.18),
