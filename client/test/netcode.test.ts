@@ -231,7 +231,9 @@ describe("fire presentation from the predicted sim (F2)", () => {
     const reconciler = armed(WeaponId.Smg);
     const refire = WEAPONS[WeaponId.Smg].refireTicks;
     reconciler.predict(cmd(1, Buttons.Fire));
-    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Smg]);
+    expect(reconciler.drainFirePresentations()).toEqual([
+      { weaponId: WeaponId.Smg, burstIndex: 0 },
+    ]);
     // Server acks cmd 1; replay happens every snapshot in reality. The
     // authoritative tick stream is continuous with prediction (tick 1 here) —
     // only epoch resets may rewind it, and those clear the gate explicitly.
@@ -242,13 +244,19 @@ describe("fire presentation from the predicted sim (F2)", () => {
     expect(reconciler.drainFirePresentations()).toHaveLength(0);
     // The cadence boundary emits again.
     for (let i = 3; i <= 1 + refire; i += 1) reconciler.predict(cmd(i, Buttons.Fire));
-    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Smg]);
+    // Cadence boundary emits again — still inside the burst window, so the
+    // spray index advances instead of resetting.
+    expect(reconciler.drainFirePresentations()).toEqual([
+      { weaponId: WeaponId.Smg, burstIndex: 1 },
+    ]);
   });
 
   it("melee-modifier attacks present the knife, not the ladder weapon", () => {
     const reconciler = armed(WeaponId.Scout);
     reconciler.predict(cmd(1, Buttons.Fire | Buttons.Melee));
-    expect(reconciler.drainFirePresentations()).toEqual([WeaponId.Knife]);
+    expect(reconciler.drainFirePresentations()).toEqual([
+      { weaponId: WeaponId.Knife, burstIndex: 0 },
+    ]);
   });
 
   it("round freeze and an empty ammo-tracked magazine suppress presentation", () => {
@@ -263,7 +271,9 @@ describe("fire presentation from the predicted sim (F2)", () => {
     expect(empty.drainFirePresentations()).toHaveLength(0);
     // But the melee modifier still lands with an empty Goldie.
     empty.predict(cmd(2, Buttons.Fire | Buttons.Melee));
-    expect(empty.drainFirePresentations()).toEqual([WeaponId.Knife]);
+    expect(empty.drainFirePresentations()).toEqual([
+      { weaponId: WeaponId.Knife, burstIndex: 0 },
+    ]);
   });
 });
 

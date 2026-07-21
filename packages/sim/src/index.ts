@@ -30,3 +30,5 @@ export function createInitialState(playerId = "player-0"): State {
     },
   };
 }
+export { continuesBurst, effectiveSpreadDegrees, sprayOffsetDegrees } from "./accuracy.js";
+export type { AccuracyState } from "./accuracy.js";

@@ -17,7 +17,7 @@ export interface UserSettings {
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = Object.freeze({
-  fov: 105,
+  fov: 95,
   masterVolume: 0.8,
   muted: false,
   crosshair: Object.freeze({
@@ -75,9 +75,13 @@ export function crosshairGapPixels(
   scoped: boolean,
   viewportHeight: number,
   fovDegrees: number,
+  liveSpreadDegrees?: number,
 ): number {
   if (scoped) return 0;
-  const spread = weapon.spreadDegrees;
+  // Live-honest bloom (hybrid meta): when the caller supplies the current
+  // effective spread (velocity/air-aware), the crosshair renders the exact
+  // cone the server will roll — the mechanic teaches itself.
+  const spread = liveSpreadDegrees ?? weapon.spreadDegrees;
   if (spread <= 0) return settings.gap;
   const projection = viewportHeight / (2 * Math.tan(fovDegrees * Math.PI / 360));
   return Math.min(48, settings.gap + Math.tan(spread * Math.PI / 180) * projection);

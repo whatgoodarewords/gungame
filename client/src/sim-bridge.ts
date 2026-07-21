@@ -66,7 +66,7 @@ export interface SimHandle {
    * the ONLY authority for local fire presentation (muzzle/audio/casing).
    * Melee-modifier attacks resolve to the knife here, matching the server. (F2)
    */
-  drainFirePresentations(): readonly WeaponIdValue[];
+  drainFirePresentations(): ReadonlyArray<{ weaponId: WeaponIdValue; burstIndex: number }>;
   getPingMs(): number;
   /** Command-pipeline health for the stuck-diagnostics chip. */
   getNetStats(): { readonly sentCmds: number; readonly ackedCmdSeq: number };

@@ -32,6 +32,25 @@ export interface WeaponDefinition {
   readonly pellets: number;
   readonly spreadDegrees: number;
   readonly scopedSpreadDegrees: number;
+  /**
+   * Velocity-based accuracy (hybrid-meta-spec): spread lerps from
+   * spreadDegrees to moveSpreadDegrees as horizontal speed rises from
+   * accurateSpeedFraction*runSpeed to runSpeed; airborne floors at
+   * airSpreadDegrees. 0 moveSpreadDegrees = exempt (mobility-identity
+   * weapons: melee/beam/projectile).
+   */
+  readonly moveSpreadDegrees: number;
+  readonly airSpreadDegrees: number;
+  readonly accurateSpeedFraction: number;
+  /** Scoped-while-moving spread (the scout discipline); 0 = n/a. */
+  readonly scopedMoveSpreadDegrees: number;
+  /**
+   * Deterministic spray pattern for automatics: [yawDeg, pitchDeg] offset per
+   * burst index (index 0 MUST be [0,0] — first-shot accuracy is sacred).
+   * Applied server-side to the fire direction and client-side to the camera
+   * kick from this same table: the CS spray-control contract by construction.
+   */
+  readonly sprayPattern: ReadonlyArray<readonly [number, number]>;
   readonly refireTicks: number;
   readonly range: number;
   readonly meleeConeCos: number;
@@ -55,6 +74,21 @@ export interface WeaponDefinition {
 
 const ticks = (seconds: number): number => Math.ceil(seconds * 64);
 
+const EMPTY_PATTERN: ReadonlyArray<readonly [number, number]> = Object.freeze([]);
+
+// Rising kick then horizontal weave; magnitudes are cumulative offsets from
+// the aim direction at each burst index. First entry is always [0,0].
+const RIFLE_SPRAY: ReadonlyArray<readonly [number, number]> = Object.freeze([
+  [0, 0], [0.05, 0.7], [-0.1, 1.5], [0.15, 2.4], [-0.2, 3.3], [0.3, 4.0],
+  [0.8, 4.4], [1.4, 4.5], [0.6, 4.6], [-0.6, 4.5], [-1.3, 4.4], [-0.7, 4.5],
+] as Array<readonly [number, number]>);
+
+const SMG_SPRAY: ReadonlyArray<readonly [number, number]> = Object.freeze([
+  [0, 0], [0.04, 0.4], [-0.08, 0.9], [0.1, 1.4], [-0.12, 1.9], [0.16, 2.3],
+  [0.4, 2.5], [0.8, 2.6], [0.4, 2.6], [-0.3, 2.6], [-0.8, 2.5], [-0.4, 2.6],
+  [0.3, 2.6], [0.7, 2.5], [0.2, 2.6], [-0.5, 2.6],
+] as Array<readonly [number, number]>);
+
 function weapon(
   value: Pick<WeaponDefinition, "id" | "key" | "displayName" | "kind" | "damage"> &
     Partial<Omit<WeaponDefinition, "id" | "key" | "displayName" | "kind" | "damage">>,
@@ -65,6 +99,11 @@ function weapon(
     pellets: 1,
     spreadDegrees: 0,
     scopedSpreadDegrees: 0,
+    moveSpreadDegrees: 0,
+    airSpreadDegrees: 0,
+    accurateSpeedFraction: 0.34,
+    scopedMoveSpreadDegrees: 0,
+    sprayPattern: EMPTY_PATTERN,
     refireTicks: ticks(0.25),
     range: 100,
     meleeConeCos: Math.cos((38 * Math.PI) / 180),
@@ -92,23 +131,31 @@ export const WEAPONS: Readonly<Record<WeaponIdValue, WeaponDefinition>> = Object
   [WeaponId.Pistol]: weapon({
     id: WeaponId.Pistol, key: "pistol", displayName: "Pistol", kind: "hitscan",
     damage: 34, headMultiplier: 1.75, spreadDegrees: 0.35, refireTicks: ticks(0.24),
+    moveSpreadDegrees: 2.2, airSpreadDegrees: 5.0, accurateSpeedFraction: 0.34,
   }),
   [WeaponId.Smg]: weapon({
     id: WeaponId.Smg, key: "smg", displayName: "SMG", kind: "hitscan",
     damage: 20, headMultiplier: 1.5, spreadDegrees: 1.25, refireTicks: ticks(0.085),
+    moveSpreadDegrees: 2.0, airSpreadDegrees: 4.0, accurateSpeedFraction: 0.55,
+    sprayPattern: SMG_SPRAY,
   }),
   [WeaponId.Shotgun]: weapon({
     id: WeaponId.Shotgun, key: "shotgun", displayName: "Shotgun", kind: "pellet",
     damage: 14, pellets: 8, spreadDegrees: 5.5, refireTicks: ticks(0.82), range: 45,
+    moveSpreadDegrees: 6.5, airSpreadDegrees: 8.0, accurateSpeedFraction: 0.45,
   }),
   [WeaponId.Rifle]: weapon({
     id: WeaponId.Rifle, key: "rifle", displayName: "Rifle", kind: "hitscan",
     damage: 28, headMultiplier: 2, spreadDegrees: 0.18, refireTicks: ticks(0.11),
+    moveSpreadDegrees: 3.4, airSpreadDegrees: 7.0, accurateSpeedFraction: 0.30,
+    sprayPattern: RIFLE_SPRAY,
   }),
   [WeaponId.Scout]: weapon({
     id: WeaponId.Scout, key: "scout", displayName: "Scout", kind: "hitscan",
     damage: 110, headMultiplier: 1, spreadDegrees: 2.8, scopedSpreadDegrees: 0.03,
     refireTicks: ticks(1.18), scopedMoveSpeedScale: 0.92,
+    moveSpreadDegrees: 6.0, airSpreadDegrees: 9.0, accurateSpeedFraction: 0.25,
+    scopedMoveSpreadDegrees: 1.2,
   }),
   [WeaponId.Knife]: weapon({
     id: WeaponId.Knife, key: "knife", displayName: "Knife", kind: "melee",
@@ -117,10 +164,12 @@ export const WEAPONS: Readonly<Record<WeaponIdValue, WeaponDefinition>> = Object
   [WeaponId.Sidewinder]: weapon({
     id: WeaponId.Sidewinder, key: "sidewinder", displayName: "Sidewinder", kind: "hitscan",
     damage: 34, headBonus: 26, spreadDegrees: 0.22, refireTicks: ticks(0.22),
+    moveSpreadDegrees: 2.2, airSpreadDegrees: 5.0, accurateSpeedFraction: 0.34,
   }),
   [WeaponId.Boomstick]: weapon({
     id: WeaponId.Boomstick, key: "boomstick", displayName: "Boomstick", kind: "pellet",
     damage: 9, pellets: 20, spreadDegrees: 7.2, refireTicks: ticks(1.05), range: 42,
+    moveSpreadDegrees: 8.2, airSpreadDegrees: 10.0, accurateSpeedFraction: 0.45,
   }),
   [WeaponId.Arc]: weapon({
     id: WeaponId.Arc, key: "arc", displayName: "Arc", kind: "beam",
@@ -144,11 +193,14 @@ export const WEAPONS: Readonly<Record<WeaponIdValue, WeaponDefinition>> = Object
     id: WeaponId.Deadeye, key: "deadeye", displayName: "Deadeye", kind: "hitscan",
     damage: 55, headMultiplier: 2, spreadDegrees: 3, scopedSpreadDegrees: 0.025,
     refireTicks: ticks(0.92), scopedMoveSpeedScale: 0.92,
+    moveSpreadDegrees: 6.0, airSpreadDegrees: 9.0, accurateSpeedFraction: 0.25,
+    scopedMoveSpreadDegrees: 1.1,
   }),
   [WeaponId.Goldie]: weapon({
     id: WeaponId.Goldie, key: "goldie", displayName: "Goldie", kind: "hitscan",
     damage: 125, spreadDegrees: 0.08, refireTicks: ticks(1.2), magazine: 1,
     reloadTicks: ticks(1.2),
+    moveSpreadDegrees: 1.5, airSpreadDegrees: 4.0, accurateSpeedFraction: 0.30,
   }),
 });
 

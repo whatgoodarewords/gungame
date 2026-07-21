@@ -46,6 +46,7 @@ import {
   CAPSULE_HEIGHT,
   CAPSULE_RADIUS,
   DEFAULT,
+  continuesBurst,
   DUCKED_CAPSULE_HEIGHT,
   ModeRules,
   ProjectileSystem,
@@ -129,6 +130,8 @@ export interface PlayerSlot {
   deaths: number;
   ammo: number;
   nextFireTick: number;
+  lastShotTick: number;
+  burstIndex: number;
   reloadTick: number;
   peer: PlayerPeer | undefined;
   tokenHex: string;
@@ -397,6 +400,8 @@ export class Room {
       deaths: 0,
       ammo: initialAmmo(weaponId),
       nextFireTick: 0,
+      lastShotTick: -1_000,
+      burstIndex: 0,
       reloadTick: 0,
       cmdWindow: new CmdAcceptanceWindow(),
       snapshots: new SnapshotRing(),
@@ -668,6 +673,11 @@ export class Room {
     const weapon = this.currentWeapon(slot, cmd.buttons);
     if (serverTick < slot.nextFireTick) return;
     if (weapon.id === WeaponId.Goldie && slot.ammo <= 0) return;
+    // Deterministic spray: continue the burst inside 1.8x refire, else reset.
+    slot.burstIndex = continuesBurst(weapon, slot.lastShotTick, serverTick)
+      ? slot.burstIndex + 1
+      : 0;
+    slot.lastShotTick = serverTick;
     slot.nextFireTick = serverTick + weapon.refireTicks;
     if (weapon.id === WeaponId.Goldie) {
       slot.ammo = 0;
@@ -727,6 +737,15 @@ export class Room {
       scoped: (cmd.buttons & Buttons.Zoom) !== 0,
       targets,
       shooterDucked: slot.state.player.ducked,
+      // Velocity-based accuracy + spray (hybrid meta): the movement state the
+      // shot is judged against is the slot's state at execution.
+      shooterHorizontalSpeed: Math.hypot(
+        slot.state.player.velocity.x,
+        slot.state.player.velocity.z,
+      ),
+      shooterGrounded: slot.state.player.grounded,
+      runSpeed: DEFAULT.runSpeed,
+      burstIndex: slot.burstIndex,
     };
     const hits = weapon.kind === "melee"
       ? [resolveMelee(input)].filter((hit) => hit !== undefined)

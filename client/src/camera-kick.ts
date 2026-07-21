@@ -9,7 +9,8 @@
 // and reads as jitter, not punch). Recovery: critically-damped exponential —
 // no overshoot, overshoot is aim noise.
 
-import { WeaponId, type WeaponIdValue } from "@gungame/shared";
+import { WEAPONS, WeaponId, type WeaponIdValue } from "@gungame/shared";
+import { sprayOffsetDegrees } from "@gungame/sim";
 
 interface KickSpec {
   /** Vertical kick per shot, degrees (positive = muzzle rises). */
@@ -57,11 +58,29 @@ export class CameraKick {
   private decayTauMs = 100;
   private shotIndex = 0;
 
-  /** Register one fired shot (from the predicted-sim presentation queue). */
-  fire(weaponId: WeaponIdValue, scoped: boolean): void {
+  /**
+   * Register one fired shot (from the predicted-sim presentation queue).
+   * Spray-pattern weapons take their kick from the SAME table the server
+   * rotates bullets by (delta between consecutive burst entries), so
+   * counter-steering the camera compensates the true bullet path — the CS
+   * spray-control contract. Non-pattern weapons keep the fixed table.
+   */
+  fire(weaponId: WeaponIdValue, scoped: boolean, burstIndex = 0): void {
     const kick = KICKS[weaponId] ?? NO_KICK;
-    if (kick.pitchDeg === 0 && kick.yawDeg === 0) return;
+    const weapon = WEAPONS[weaponId];
     const scale = scoped ? ADS_SCALE : 1;
+    if (weapon !== undefined && weapon.sprayPattern.length > 0) {
+      const here = sprayOffsetDegrees(weapon, burstIndex);
+      const prev = sprayOffsetDegrees(weapon, burstIndex - 1);
+      // Pattern rotates the bullet up/right by (yaw,pitch); the camera rises
+      // by the same delta so the player's counter-pull cancels both.
+      this.targetPitch += Math.max(0.05, here[1] - prev[1]) * DEG * scale;
+      this.targetYaw += (here[0] - prev[0]) * DEG * scale;
+      this.decayTauMs = Math.max(1, kick.recover90Ms / LN10);
+      this.shotIndex += 1;
+      return;
+    }
+    if (kick.pitchDeg === 0 && kick.yawDeg === 0) return;
     this.shotIndex += 1;
     this.targetPitch += kick.pitchDeg * DEG * scale;
     this.targetYaw += kick.yawDeg * DEG * scale * (this.shotIndex % 2 === 0 ? -1 : 1);

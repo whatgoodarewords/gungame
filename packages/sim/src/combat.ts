@@ -1,3 +1,4 @@
+import { effectiveSpreadDegrees, sprayOffsetDegrees } from "./accuracy.js";
 import {
   MAX_HEALTH,
   NEAR_MISS_DIALS,
@@ -309,6 +310,12 @@ export interface HitscanInput {
   readonly scoped: boolean;
   readonly targets: readonly HitscanTarget[];
   readonly shooterDucked?: boolean;
+  /** Velocity-based accuracy (hybrid meta). Omitted = legacy planted spread. */
+  readonly shooterHorizontalSpeed?: number;
+  readonly shooterGrounded?: boolean;
+  readonly runSpeed?: number;
+  /** Deterministic spray: burst index into the weapon's pattern table. */
+  readonly burstIndex?: number;
 }
 
 /** Resolves the fire-contract ray against rewound target capsules. */
@@ -319,8 +326,17 @@ export function resolveHitscan(input: HitscanInput): readonly CombatHit[] {
     input.fireFraction,
     input.shooterDucked ?? false,
   );
-  const base = fireDirection(input.yaw, input.pitch);
-  const spread = input.scoped ? input.weapon.scopedSpreadDegrees : input.weapon.spreadDegrees;
+  // Deterministic spray offset rotates the aim itself (learnable, mirrored by
+  // the client camera kick from the same table); the residual RNG cone then
+  // widens with movement state (velocity-based accuracy).
+  const spray = sprayOffsetDegrees(input.weapon, input.burstIndex ?? 0);
+  const base = fireDirection(input.yaw + spray[0], input.pitch + spray[1]);
+  const spread = effectiveSpreadDegrees(input.weapon, {
+    horizontalSpeed: input.shooterHorizontalSpeed ?? 0,
+    grounded: input.shooterGrounded ?? true,
+    runSpeed: input.runSpeed ?? 6.4,
+    scoped: input.scoped,
+  });
   const pelletCount = Math.max(1, input.weapon.pellets);
   const hits: CombatHit[] = [];
   for (let pellet = 0; pellet < pelletCount; pellet += 1) {

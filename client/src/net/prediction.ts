@@ -11,6 +11,7 @@ import { EntityKind, type EntityState } from "@gungame/protocol";
 import {
   DEFAULT,
   Buttons,
+  continuesBurst,
   OwnProjectilePrediction,
   ProjectileSystem,
   fireDirection,
@@ -51,7 +52,9 @@ export class PredictionReconciler {
   // but presentation cadence must survive reconciles or held fire would
   // re-trigger at snapshot rate instead of the weapon's refire rate.
   private presentationNextFireTick = 0;
-  private readonly firedWeaponIds: WeaponIdValue[] = [];
+  private presentationLastShotTick = -1_000;
+  private presentationBurstIndex = 0;
+  private readonly firedEvents: Array<{ weaponId: WeaponIdValue; burstIndex: number }> = [];
   private presentationFrozen = false;
   private presentationAmmoEmpty = false;
 
@@ -117,9 +120,9 @@ export class PredictionReconciler {
    * The melee modifier is resolved here (a melee attack presents the knife,
    * not the ladder weapon), mirroring the server's weapon swap.
    */
-  drainFirePresentations(): readonly WeaponIdValue[] {
-    if (this.firedWeaponIds.length === 0) return this.firedWeaponIds;
-    return this.firedWeaponIds.splice(0);
+  drainFirePresentations(): ReadonlyArray<{ weaponId: WeaponIdValue; burstIndex: number }> {
+    if (this.firedEvents.length === 0) return this.firedEvents;
+    return this.firedEvents.splice(0);
   }
 
   private emitFirePresentation(cmd: Cmd, tick: number): void {
@@ -134,8 +137,15 @@ export class PredictionReconciler {
     const effective = melee ? WeaponId.Knife : base;
     if (this.presentationAmmoEmpty && !melee) return;
     if (tick < this.presentationNextFireTick) return;
-    this.firedWeaponIds.push(effective);
-    this.presentationNextFireTick = tick + WEAPONS[effective].refireTicks;
+    const weapon = WEAPONS[effective];
+    // Mirror the server's burst rule so the camera-kick pattern index matches
+    // the bullet-path pattern index (hybrid meta spray parity).
+    this.presentationBurstIndex = continuesBurst(weapon, this.presentationLastShotTick, tick)
+      ? this.presentationBurstIndex + 1
+      : 0;
+    this.presentationLastShotTick = tick;
+    this.firedEvents.push({ weaponId: effective, burstIndex: this.presentationBurstIndex });
+    this.presentationNextFireTick = tick + weapon.refireTicks;
   }
 
   reconcile(
@@ -203,7 +213,9 @@ export class PredictionReconciler {
     this.matchedProjectiles = [];
     this.nextFireTick = 0;
     this.presentationNextFireTick = 0;
-    this.firedWeaponIds.length = 0;
+    this.presentationLastShotTick = -1_000;
+    this.presentationBurstIndex = 0;
+    this.firedEvents.length = 0;
   }
 
   reconcileProjectiles(entities: readonly EntityState[]): readonly ProjectileState[] {

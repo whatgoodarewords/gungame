@@ -43,7 +43,7 @@ import {
   RefusalCode,
   RoundState,
 } from "../../packages/protocol/src/index.js";
-import { DEFAULT, SCOUTZ } from "../../packages/sim/src/index.js";
+import { DEFAULT, SCOUTZ, effectiveSpreadDegrees } from "../../packages/sim/src/index.js";
 import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
@@ -995,6 +995,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         zoomed,
         window.innerHeight,
         fpsCam.camera.fov,
+        // Live-honest bloom: the exact velocity/air-aware cone the server
+        // rolls for this state (hybrid meta) — the crosshair teaches the
+        // stop-to-shoot rhythm.
+        effectiveSpreadDegrees(WEAPONS[combat.weaponId], {
+          horizontalSpeed: Math.hypot(curr.velocity.x, curr.velocity.z),
+          grounded: curr.grounded,
+          runSpeed: (currentMode === GameMode.Scoutzknivez ? SCOUTZ : DEFAULT).runSpeed,
+          scoped: zoomed,
+        }),
       ),
       zoomed,
     );
@@ -1044,11 +1053,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     // Each predicted-sim fire event presents exactly once. Multiple events in
     // one render frame (SMG at low fps) still present once visually but keep
     // the correct shot count for audio cadence.
-    for (const firedWeaponId of firedWeapons) {
+    for (const fired of firedWeapons) {
       viewmodel?.onFire();
-      cameraKick.fire(firedWeaponId, zoomed);
-      audio.playFire(firedWeaponId);
-      const weapon = WEAPONS[firedWeaponId];
+      cameraKick.fire(fired.weaponId, zoomed, fired.burstIndex);
+      audio.playFire(fired.weaponId);
+      const weapon = WEAPONS[fired.weaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
         showAimTracer(weapon.range);
         impacts.ejectCasing(fpsCam.camera.position, input.yaw);
