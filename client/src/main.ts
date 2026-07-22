@@ -197,6 +197,18 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   input.onLockChange((locked) => hud.setPointerLock(locked));
   hud.onResume(() => input.requestLock());
 
+  // Fullscreen-first PLAY (native-feel §2): visible browser chrome is the #1
+  // "browser game" tell. Enter fullscreen on the same click gesture that
+  // captures the pointer; localStorage opt-out; Esc exits as usual.
+  document.addEventListener("pointerdown", (event) => {
+    if (localStorage.getItem("gg:fullscreen") === "0") return;
+    if (document.fullscreenElement !== null) return;
+    const target = event.target;
+    if (!(target instanceof HTMLCanvasElement) || target.closest("#app") === null) return;
+    void document.documentElement.requestFullscreen({ navigationUI: "hide" })
+      .catch(() => undefined);
+  });
+
   // Stale-client watchdog: a long-lived tab (or bfcache resurrection) can run
   // a days-old bundle against a new server forever — old physics, old maps,
   // version-refused joins that read as "stuck at spawn". Poll the server's
@@ -1382,6 +1394,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
             WEAPONS[event.weaponId as WeaponIdValue]?.kind === "projectile",
           );
           audio.playImpact(event.weaponId as WeaponIdValue, target.position);
+          // Ember-confetti hit language (J6): the victim visibly takes the
+          // hit, colored to the actor palette so it reads on daylight.
+          impacts.hitBurst(target.position, currentStyle.palette.actor, false);
         }
         setTimeout(() => {
           hud.hitmarker.classList.remove("visible");
@@ -1398,6 +1413,12 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
       if (event.kind === EventKind.Kill) {
         const suicide = (event.flags & EventFlags.Suicide) !== 0;
+        const victim = remotes.find((remote) => remote.id === event.targetId);
+        if (victim !== undefined) {
+          impacts.hitBurst(victim.position, currentStyle.palette.actor, true);
+        } else if (event.targetId === combat.selfId) {
+          impacts.hitBurst(curr.position, currentStyle.palette.accent, true);
+        }
         const killLine = suicide
           ? `P${event.targetId} suicide`
           : `P${event.actorId} → P${event.targetId}${headshot ? " [HEAD]" : ""}`;
