@@ -249,8 +249,10 @@ export class GameAudio {
   }
 
   airshot(): void {
-    this.tone(1_380, 0.2, 0.12);
-    this.tone(1_840, 0.16, 0.09, 0.055);
+    // Bright shaped chime, not raw sines: tiny click + two ringing notes.
+    this.play(recipe(0.012, 0.8, 4_800, 9_500, 0.07, 0.05));
+    this.play(recipe(0.16, 0.1, 1_380, 6_200, 0.11, 0.18), undefined, 1, 0.008);
+    this.play(recipe(0.14, 0.1, 1_840, 6_800, 0.09, 0.15), undefined, 1, 0.06);
   }
 
   impressive(chain: number): void {
@@ -261,17 +263,20 @@ export class GameAudio {
 
   foundrySigil(): void {
     [392, 523.25, 659.25, 783.99].forEach((frequency, index) =>
-      this.tone(frequency, 0.24, 0.09, index * 0.095));
+      this.play(recipe(0.22, 0.14, frequency, 4_200, 0.08, 0.12), undefined, 1, index * 0.095));
   }
 
   tierUp(): void {
-    this.tone(520, 0.14, 0.08);
-    this.tone(780, 0.18, 0.09, 0.07);
+    // The reward jingle keeps its rising two-note contour but as shaped
+    // chimes with a mechanical click — texture, not a test tone.
+    this.play(recipe(0.014, 0.75, 2_800, 7_500, 0.06, 0.06));
+    this.play(recipe(0.12, 0.12, 520, 3_400, 0.11, 0.16), undefined, 1, 0.01);
+    this.play(recipe(0.16, 0.12, 780, 3_900, 0.1, 0.14), undefined, 1, 0.075);
   }
 
   lastTierWarning(): void {
-    this.tone(185, 0.28, 0.055);
-    this.tone(247, 0.32, 0.045, 0.11);
+    this.play(recipe(0.24, 0.3, 185, 1_400, 0.09, 0.25));
+    this.play(recipe(0.28, 0.3, 247, 1_600, 0.075, 0.22), undefined, 1, 0.11);
   }
 
   footstep(

@@ -829,6 +829,16 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   // Stuck-diagnostics chip: when the player is spawned but the game is not
   // actually playable, say WHY on screen in plain words. One screenshot of
   // this chip replaces a whole remote-debugging session.
+  // Visible build tag: ends every "am I on the new build?" debate in one
+  // glance. Doubles as the staleness tell the watchdog can't give old tabs.
+  const buildTag = document.createElement("div");
+  buildTag.id = "gg-build-tag";
+  buildTag.textContent = `build ${__BUILD_HASH__.slice(0, 7)}`;
+  buildTag.style.cssText =
+    "position:fixed;right:8px;bottom:6px;color:rgba(255,255,255,.38);" +
+    "font:10px/1 ui-monospace,monospace;z-index:55;pointer-events:none";
+  root.appendChild(buildTag);
+
   const stuckChip = document.createElement("div");
   stuckChip.id = "gg-stuck-chip";
   stuckChip.style.cssText =

@@ -56,10 +56,11 @@ describe("designed gunshot synthesis", () => {
       if (params === undefined) continue;
       const samples = renderGunshot(params, 48_000);
       expect(samples.length).toBe(Math.ceil(params.duration * 48_000));
+      let bad = 0;
       for (const v of samples) {
-        expect(Number.isFinite(v)).toBe(true);
-        expect(Math.abs(v)).toBeLessThanOrEqual(1);
+        if (!Number.isFinite(v) || Math.abs(v) > 1) bad += 1;
       }
+      expect(bad).toBe(0);
     }
   });
 });
