@@ -114,6 +114,24 @@ import { canonicalRoomUrl, quickplayUrl } from "./room-url.js";
 import { surfaceWebSocketClose } from "./net/session.js";
 import "./style.css";
 
+// Root-scope service-worker eviction: the host domain's PWA service worker
+// (scope "/") intercepts /gg/* navigations and can pin players to a stale
+// bundle across quits and hard refreshes — two days of "are you sure it's
+// live?" traced to exactly this. The game registers no SW of its own; any
+// registration whose scope does not live under /gg is foreign here and gets
+// unregistered so the NEXT load always reaches the server.
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      if (!new URL(registration.scope).pathname.startsWith("/gg")) {
+        void registration.unregister().then((ok) => {
+          if (ok) console.warn(`unregistered foreign service worker: ${registration.scope}`);
+        });
+      }
+    }
+  }).catch(() => undefined);
+}
+
 const RAD2DEG = 180 / Math.PI;
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (appRoot === null) throw new Error("missing #app");
