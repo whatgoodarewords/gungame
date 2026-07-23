@@ -166,7 +166,13 @@ export class PrecisionWeaponViewmodel {
     this.weaponMount.add(flash);
     this.addProceduralArms();
     this.addContactShadow();
-    if (this.loadAssets) void this.loadArms();
+    // WRAD skinned arms DISABLED (CI-eyes r13): the bind-pose skinned rig
+    // reparents the weapon mount into its hierarchy and a collapsed skeleton
+    // drags the whole first-person layer to garbage transforms (probe: first
+    // mesh ~1m ABOVE the eye; r9 showed the giant misshapen arm). Procedural
+    // arms + real gun GLBs on clean transforms until the specced bone-pose
+    // pass (character-visual-spec P5) lands with screenshot proof.
+    // if (this.loadAssets) void this.loadArms();
     this.applyViewmodelLayer();
   }
 
