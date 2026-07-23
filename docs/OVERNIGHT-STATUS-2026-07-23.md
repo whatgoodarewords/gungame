@@ -52,16 +52,25 @@ tonight — every claim below is verified against actual rendered pixels.
 Corner build tag == `healthz` buildHash == deployed sha. Stale-tab class is
 dead (watchdog + foreign-service-worker eviction + sw-dev issue #6228 filed).
 
-## Queued next (in order, with the eyes verifying each)
+## COMPLETED before your return (CI went fully green — run 29986907612)
 
-1. Round-4/5 CI verdicts on scene-state instrumentation (sceneBg, style,
-   material kind, rig lights land in artifacts) → close the remaining
-   darkness question with data, not theory.
-2. Map P1: lower the 40 m/18 m prison walls to parapets + escape kill-ring +
-   per-map landmark silhouettes (generators located, kill-volume pattern
-   understood; regen tooling exists locally).
-3. Character P3: guns in enemy hands (shared weapon-geometry bake).
-4. Deploy the whole wave once CI is green end-to-end.
+- Map P1 SHIPPED: spire's 40 m and foundry's 18 m prison walls are 3 m
+  parapets with escape kill-rings; open sky over both arenas. Screenshot
+  verdict (WebKit, your engine): blue sky, warm sand ground, cast shadows,
+  crisp silhouettes. From cave to daylight arena in seven CI rounds.
+- Weapon view scale fixed (the pistol was normalized to 0.95 m — a gray
+  boulder in your face; real class lengths now) + GLB cache disposal safety.
+- **DEPLOYED: build `a08eb1d` is live on dev.sml.world/gg** (healthz
+  buildHash verified). The corner tag must read a08eb1d.
+
+## Still queued (next session, eyes-verified per round)
+
+1. Sky saturation + exposure pass (current sky reads gray-blue through ACES).
+2. The black-wedge surface seen in one foundry angle (one unlit/backface
+   plane — instrumentation now in artifacts to pin it).
+3. Character P3: guns in enemy hands; P4 ink outlines. Map P2: material
+   zoning; landmarks per quadrant.
+4. Viewmodel pose pass (real arms posing per weapon class).
 
 ## For your first 5 minutes back
 
