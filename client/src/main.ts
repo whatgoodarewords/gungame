@@ -596,9 +596,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if (mapMesh !== undefined) {
       scene.remove(mapMesh);
     }
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
-    geometry.setIndex(new BufferAttribute(map.collision.indices, 1));
+    const indexed = new BufferGeometry();
+    indexed.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
+    indexed.setIndex(new BufferAttribute(map.collision.indices, 1));
+    // Face-split before normals: shared-vertex averaging turned every hard
+    // architectural edge into mushy blob shading (map-architecture-spec P1).
+    const geometry = indexed.toNonIndexed();
+    indexed.dispose();
     geometry.computeVertexNormals();
     materials = currentStyle.materials(map, mapId);
     characters?.setMaterial(materials.actor);
@@ -1332,6 +1336,19 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     visualDebug.inputLocked = inputDebug.locked ? 1 : 0;
     visualDebug.inputYaw = input.yaw;
     visualDebug.aimSource = input.aimSource;
+    // Scene-state truth for CI eyes: kills whole classes of remote guessing.
+    visualDebug.sceneBg = scene.background instanceof Color
+      ? scene.background.getHexString()
+      : String(scene.background);
+    visualDebug.styleId = currentStyleId;
+    visualDebug.mapMaterialKind = materials === undefined
+      ? "none"
+      : (materials.map as { colorNode?: unknown }).colorNode !== undefined
+        ? "node-material"
+        : "plain";
+    visualDebug.rigChildren = rig === undefined
+      ? "none"
+      : rig.root.children.map((child) => child.type).join(",");
     const breakdown = perf.snapshot;
     visualDebug.frameMs = breakdown.frame;
     visualDebug.renderMs = breakdown.render;
@@ -1576,9 +1593,11 @@ async function startFrontDoor(): Promise<void> {
       if (!response.ok) throw new Error(`front-door map load failed: HTTP ${response.status}`);
       const map = loadGameplayMap(await response.arrayBuffer());
       style.fogLightRig(scene);
-      const geometry = new BufferGeometry();
-      geometry.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
-      geometry.setIndex(new BufferAttribute(map.collision.indices, 1));
+      const indexedFrontDoor = new BufferGeometry();
+      indexedFrontDoor.setAttribute("position", new BufferAttribute(map.collision.positions, 3));
+      indexedFrontDoor.setIndex(new BufferAttribute(map.collision.indices, 1));
+      const geometry = indexedFrontDoor.toNonIndexed();
+      indexedFrontDoor.dispose();
       geometry.computeVertexNormals();
       scene.add(new Mesh(geometry, style.materials(map).map));
       mapCenter = {

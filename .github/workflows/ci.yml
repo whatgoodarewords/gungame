@@ -26,6 +26,8 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - run: pnpm --filter @gungame/client build
+        env:
+          GG_PREBAKED_ASSETS: "1"
       - run: pnpm --filter @gungame/client size
 
   gameplay:

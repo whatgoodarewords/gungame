@@ -229,6 +229,14 @@ try {
       // here — that belongs to the real-hardware matrix. What CI *can* protect
       // is that the meter itself stays wired: a silently-dead percentile ring
       // would otherwise make every future feel regression invisible.
+      // The percentile ring recomputes every 30 frames; slow CI rasterizers
+      // need a warm-up window before the meter is meaningfully populated.
+      await page.waitForFunction(() => {
+        const debug = (globalThis as unknown as {
+          __GG_VISUAL_DEBUG__?: Record<string, number | string>;
+        }).__GG_VISUAL_DEBUG__ ?? {};
+        return Number(debug.frameMedianMs ?? 0) > 0;
+      }, undefined, { timeout: 15_000 }).catch(() => undefined);
       const feel = await page.evaluate(() => {
         const debug = (globalThis as unknown as {
           __GG_VISUAL_DEBUG__?: Record<string, number | string>;
