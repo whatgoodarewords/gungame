@@ -183,9 +183,8 @@ function triplanarMapMaterial(
   // made every interior a cave no light could brighten. The palette carries
   // the base brightness; the texture MODULATES it (0.55–1.15) so detail
   // survives without owning the exposure.
-  material.colorNode = color(palette.surface).mul(
-    sample(set.diffuse).mul(0.6).add(vec3(0.55, 0.55, 0.55)),
-  );
+  material.colorNode = sample(set.diffuse).mul(0.6).add(0.55)
+    .mul(color(palette.surface));
   material.roughnessNode = sample(set.roughness).r.mul(0.55).add(0.4);
   material.aoNode = sample(set.ao).r.mul(0.45).add(0.55);
   material.metalnessNode = float(set.metalness);
