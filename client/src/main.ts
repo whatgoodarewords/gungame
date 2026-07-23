@@ -1380,6 +1380,38 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       });
       return count;
     })();
+    // Forensic probe for the invisible-gun class: everything that decides
+    // whether a first mesh actually draws.
+    visualDebug.vmProbe = (() => {
+      if (viewmodel === undefined) return "no-viewmodel";
+      let firstMesh: { name: string; layersMask: number; visible: boolean; wx: number; wy: number; wz: number } | undefined;
+      let chainVisible = true;
+      viewmodel.root.traverse((node) => {
+        if (firstMesh === undefined && (node as { isMesh?: boolean }).isMesh === true) {
+          const world = new Vector3();
+          node.getWorldPosition(world);
+          firstMesh = {
+            name: node.name || node.type,
+            layersMask: node.layers.mask,
+            visible: node.visible,
+            wx: Number(world.x.toFixed(2)),
+            wy: Number(world.y.toFixed(2)),
+            wz: Number(world.z.toFixed(2)),
+          };
+        }
+      });
+      for (let node: { visible: boolean; parent: unknown } | null = viewmodel.root as never;
+        node !== null;
+        node = node.parent as never) {
+        if (!node.visible) chainVisible = false;
+      }
+      return JSON.stringify({
+        mesh: firstMesh ?? "none",
+        chainVisible,
+        rootParent: viewmodel.root.parent?.type ?? "detached",
+        camMask: fpsCam.camera.layers.mask,
+      });
+    })();
     const breakdown = perf.snapshot;
     visualDebug.frameMs = breakdown.frame;
     visualDebug.renderMs = breakdown.render;
