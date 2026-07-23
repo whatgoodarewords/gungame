@@ -1,0 +1,11 @@
+Bullet Decal
+Author: musdasch
+Source: https://opengameart.org/content/bullet-decal
+File: https://opengameart.org/sites/default/files/bullet_hole_0.png
+  (vendored as bullet_hole.png; 512x512 8-bit RGBA)
+Downloaded: 2026-07-23
+
+License: CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+No attribution required; credit retained as thanks.

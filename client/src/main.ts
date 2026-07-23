@@ -29,6 +29,7 @@ import {
   MapSecretKind,
   TICK_DT,
   WEAPONS,
+  WeaponId,
   ladderWeapons,
   loadGameplayMap,
   type GameplayMap,
@@ -331,12 +332,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           const scenePass = style.id === "toon-cel"
             ? toonOutlinePass(scene, fpsCam.camera, new Color(style.palette.ink), 0.0035, 1)
             : pass(scene, fpsCam.camera);
-          const weaponPass = pass(viewmodelScene, viewmodelCamera);
-          const composited = vec4(
-            mix(scenePass.rgb, weaponPass.rgb, weaponPass.a),
-            scenePass.a.max(weaponPass.a),
-          );
-          return new RenderPipeline(renderer, style.postChain(composited));
+          return new RenderPipeline(renderer, style.postChain(scenePass));
         },
       },
       {
@@ -1181,7 +1177,12 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       audio.playFire(fired.weaponId);
       const rackHold = VIEWMODEL_HOLDS[fired.weaponId];
       if (rackHold.rackMs > 0) {
-        audio.rack(rackHold.rackDelayMs / 1_000, rackHold.rackMs);
+        const mechanism = fired.weaponId === WeaponId.Scout || fired.weaponId === WeaponId.Deadeye
+          ? "bolt"
+          : fired.weaponId === WeaponId.Goldie
+            ? "slide"
+            : "pump";
+        audio.rack(rackHold.rackDelayMs / 1_000, rackHold.rackMs, mechanism);
       }
       const weapon = WEAPONS[fired.weaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
@@ -1562,6 +1563,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
     const renderStartedAt = performance.now();
     pipeline.render();
+    // First-person overlay: the TSL two-scene composite silently renders an
+    // empty weapon pass on the WebGL2 backend (never worked — CI-eyes r7/r8,
+    // and no historical screenshot ever shows a gun). Classic overlay pass:
+    // clear depth, draw the viewmodel scene on top. Post never touches the
+    // gun, which is the correct look anyway (no fog/grade on your hands).
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(viewmodelScene, viewmodelCamera);
+    renderer.autoClear = true;
     perf.mark("render", performance.now() - renderStartedAt);
     perf.endFrame(performance.now());
   };

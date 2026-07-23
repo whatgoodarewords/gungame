@@ -1,0 +1,41 @@
+Freesound CC0 weapon foley collection
+All sounds below are licensed CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+Selected via Freesound's license filter: license:"Creative Commons 0".
+Files are Freesound's HQ Ogg Vorbis encodes of the CC0 originals.
+Downloaded: 2026-07-23. No attribution required; credits retained as thanks.
+
+File -> Freesound source (id, author, original title):
+
+pistol-reload-full_fs854499.ogg
+  https://freesound.org/s/854499/ — seroutonin--deprivd — "A generic 9mm pistol being reloaded once"
+pistol-mag-out_fs719243.ogg
+  https://freesound.org/s/719243/ — seroutonin--deprivd — "A small pistol's magazine being removed"
+pistol-slide-rack_fs442560.ogg
+  https://freesound.org/s/442560/ — nikkolaus — "Sig Sauer P229 Handgun slide rack"
+rifle-reload_fs256912.ogg
+  https://freesound.org/s/256912/ — Kodack — "Assault Rifle Reload"
+rifle-reload-m4_fs326042.ogg
+  https://freesound.org/s/326042/ — Freeman213SG — "m4 rifle reload"
+shotgun-pump-cycle_fs370344.ogg
+  https://freesound.org/s/370344/ — Zott820 — "Pump Action Shotgun Cycle"
+shotgun-pump_fs673320.ogg
+  https://freesound.org/s/673320/ — Dentrabert — "Shotgun Pump"
+sniper-bolt-cycle_fs370345.ogg
+  https://freesound.org/s/370345/ — Zott820 — "Mosin Nagant Bolt Action Cycle"
+weapon-equip-draw_fs239959.ogg
+  https://freesound.org/s/239959/ — huddwink — "Gun draw holster"
+ricochet-1_fs478345.ogg
+  https://freesound.org/s/478345/ — Joao_Janz — "Bullet Ricochet 1_3"
+ricochet-2_fs394187.ogg
+  https://freesound.org/s/394187/ — saturdaysoundguy — "Ricochet 4"
+ricochet-22cal_fs523403.ogg
+  https://freesound.org/s/523403/ — C-V — "22 caliber with ricochet"
+distant-gunshot-1_fs384717.ogg
+  https://freesound.org/s/384717/ — morganpurkis — "Distant Gunshot 1"
+distant-gunshot-3_fs384715.ogg
+  https://freesound.org/s/384715/ — morganpurkis — "Distant Gunshot 3"
+bullet-flyby_fs855248.ogg
+  https://freesound.org/s/855248/ — qubodup — "Real Bullet Flyby Sound"
+bullet-whiz-subsonic_fs789222.ogg
+  https://freesound.org/s/789222/ — modusmogulus — "Fly-by whiz SFX (subsonic)"

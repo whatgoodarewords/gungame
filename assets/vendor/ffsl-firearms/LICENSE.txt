@@ -1,0 +1,22 @@
+The Free Firearm Sound Library
+Authors: Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney
+Source: https://opengameart.org/content/the-free-firearm-sound-library
+Archive: https://opengameart.org/sites/default/files/Prepared%20SFX%20Library.7z
+Downloaded: 2026-07-23
+
+License: CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+From the library's description: "This library holds CC0 NO RIGHTS RESERVED
+and may be used without royalty or credit for any application, personal or
+professional." Kickstarter-funded field recording project (December 2013).
+
+The full library is 56 recordings (24-bit/96 kHz stereo WAV) covering 22
+firearms, each with near-distance and mid-distance takes. This vendored
+subset keeps 10 files (five weapon classes x near + mid). Original archive
+filenames are preserved as the suffix of each renamed file (e.g.
+pistol-1911-shot-near_A42P.wav = "Prepared SFX Library/1911/A_42P.wav").
+Prepared-Master-Sheet.csv is the library's own metadata sheet, retained in
+full for provenance.
+
+No attribution required. Credit retained as thanks.

@@ -1,5 +1,5 @@
 import { NEAR_MISS_DIALS, WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { AUDIO_SAMPLE_URLS } from "./asset-manifest.js";
+import { AUDIO_SAMPLE_URLS, FOLEY_SAMPLE_URLS, GUNSHOT_SAMPLE_URLS } from "./asset-manifest.js";
 import { GUNSHOT_PARAMS, renderGunshot } from "./gunshot-synth.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
@@ -198,6 +198,14 @@ export class GameAudio {
   }
 
   playFire(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
+    // Real field recordings first (FFSL CC0): near take for the local player,
+    // mid take for remote/positional shots. 'The sounds aren't accurate' dies
+    // here — these ARE a 1911 / AR-15 / Benelli / Tikka.
+    const recorded = GUNSHOT_SAMPLE_URLS[weaponId];
+    if (recorded !== undefined) {
+      const url = position === undefined ? recorded.near : recorded.mid;
+      if (this.playSample(url, position, position === undefined ? 0.5 : 0.8)) return;
+    }
     // Designed four-layer gunshots (gunshot-synth) carry ballistic weapons
     // whole — no extra layers needed, the crack/body/thump/tail are baked in.
     if (this.playGunshot(weaponId, position)) return;
@@ -225,17 +233,38 @@ export class GameAudio {
     this.play(IMPACT_RECIPES[weaponId], position);
   }
 
-  /** Two-click rack (J10): chk at rack start, chk at 60% travel. */
-  rack(delaySeconds: number, rackMs: number): void {
+  /** Rack (J10): real pump/bolt/slide foley; two-click synth fallback. */
+  rack(delaySeconds: number, rackMs: number, mechanism: "pump" | "bolt" | "slide" = "pump"): void {
+    const url = mechanism === "pump"
+      ? FOLEY_SAMPLE_URLS.rackPump
+      : mechanism === "bolt"
+        ? FOLEY_SAMPLE_URLS.rackBolt
+        : FOLEY_SAMPLE_URLS.rackSlide;
+    if (this.playSampleDelayed(url, delaySeconds, 0.5)) return;
     this.play(recipe(0.03, 0.55, 850, 6_000, 0.055, 0.1), undefined, 1, delaySeconds);
     this.play(recipe(0.03, 0.5, 620, 5_200, 0.065, 0.1), undefined, 1,
       delaySeconds + (rackMs * 0.6) / 1_000);
   }
 
-  /** Equip snap (J10): tone at grab, thock at seat. */
+  /** Equip (J10): real draw foley; synth grab/seat fallback. */
   equip(): void {
+    if (this.playSampleDelayed(FOLEY_SAMPLE_URLS.equipDraw, 0, 0.45)) return;
     this.play(recipe(0.04, 0.35, 480, 4_200, 0.05, 0.15));
     this.play(recipe(0.06, 0.45, 220, 2_400, 0.06, 0.2), undefined, 1, 0.14);
+  }
+
+  private playSampleDelayed(url: string, delaySeconds: number, gainValue: number): boolean {
+    if (this.context === undefined) return false;
+    const buffer = this.samples.get(url);
+    if (buffer === undefined) return false;
+    this.ensureMaster();
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    source.buffer = buffer;
+    gain.gain.value = gainValue;
+    source.connect(gain).connect(this.master!);
+    source.start(this.context.currentTime + Math.max(0, delaySeconds));
+    return true;
   }
 
   hitmarker(damage: number): void {
@@ -451,6 +480,13 @@ export class GameAudio {
     if (this.preloadStarted || this.context === undefined) return;
     this.preloadStarted = true;
     const urls = new Set<string>([
+      ...Object.values(GUNSHOT_SAMPLE_URLS).flatMap((pair) =>
+        pair === undefined ? [] : [pair.near, pair.mid]),
+      FOLEY_SAMPLE_URLS.rackSlide,
+      FOLEY_SAMPLE_URLS.rackPump,
+      FOLEY_SAMPLE_URLS.rackBolt,
+      FOLEY_SAMPLE_URLS.equipDraw,
+      ...FOLEY_SAMPLE_URLS.ricochets,
       ...AUDIO_SAMPLE_URLS.footstepConcrete,
       AUDIO_SAMPLE_URLS.impactGeneric,
       AUDIO_SAMPLE_URLS.impactMetal,

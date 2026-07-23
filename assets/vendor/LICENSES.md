@@ -12,6 +12,10 @@ are retained as provenance and thanks.
 | `kenney-sci-fi/` | Sci-Fi Sounds / Kenney | https://kenney.nl/assets/sci-fi-sounds | CC0 1.0 |
 | `kenney-interface/` | Interface Sounds / Kenney | https://kenney.nl/assets/interface-sounds | CC0 1.0 |
 | `polyhaven/*` | textures and HDRIs / Poly Haven contributors | https://polyhaven.com | CC0 1.0 site-wide |
+| `ffsl-firearms/` | The Free Firearm Sound Library / Jaszczak, Nelson, Heras, Nanney | https://opengameart.org/content/the-free-firearm-sound-library | CC0 1.0; pack `LICENSE.txt` |
+| `freesound-cc0-weapon-foley/` | 16 individually CC0 Freesound recordings (per-file credits in pack `LICENSE.txt`) | https://freesound.org (license filter: Creative Commons 0) | CC0 1.0 per file |
+| `oga-bullet-decal/` | Bullet Decal / musdasch | https://opengameart.org/content/bullet-decal | CC0 1.0; pack `LICENSE.txt` |
+| `kenney-particle-pack/` | Particle Pack 1.1 (subset) / Kenney | https://kenney.nl/assets/particle-pack | CC0 1.0; pack `License.txt` |
 
 The `.source.ogg` files preserve the selected source encodes; adjacent `.ogg`
 files are normalized runtime derivatives. The KTX2 files are build derivatives
