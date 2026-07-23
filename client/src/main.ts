@@ -801,7 +801,29 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     });
     if (!document.hidden) hud.setPointerLock(input.isLocked, false);
   });
+  // CI probe input (?ciprobe=1, dev/e2e only): a synthetic input override
+  // driving the REAL tick→cmd→server→snapshot path — everything except the
+  // pointer-lock DOM layer, which headless browsers cannot grant reliably.
+  // This is how CI proves "a player who presses W actually moves" per engine.
+  const ciProbeEnabled = query.get("ciprobe") === "1";
+  interface CiProbeInput {
+    buttons?: number;
+    viewYaw?: number;
+    viewPitch?: number;
+    fire?: boolean;
+  }
   sim.setTickInput(() => {
+    const probe = ciProbeEnabled
+      ? (window as unknown as { __GG_CI_INPUT__?: CiProbeInput }).__GG_CI_INPUT__
+      : undefined;
+    if (probe !== undefined) {
+      return {
+        buttons: (probe.buttons ?? 0) | (probe.fire === true ? Button.Fire : 0),
+        viewYaw: probe.viewYaw ?? 0,
+        viewPitch: probe.viewPitch ?? 0,
+        fireFraction: probe.fire === true ? 128 : 0,
+      };
+    }
     const frame = input.sampleTick();
     return {
       buttons: frame.buttons,
@@ -1035,8 +1057,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       fpsCam.camera.lookAt(deathPosition.x, deathPosition.y + 0.9, deathPosition.z);
     } else {
       cameraKick.update(dtMs);
+      const ciProbe = ciProbeEnabled
+        ? (window as unknown as { __GG_CI_INPUT__?: { viewYaw?: number; viewPitch?: number } }).__GG_CI_INPUT__
+        : undefined;
       fpsCam.update(
-        px, py, pz, input.yaw, input.pitch, dtMs, duck,
+        px, py, pz,
+        ciProbe !== undefined ? (ciProbe.viewYaw ?? 0) / RAD2DEG : input.yaw,
+        ciProbe !== undefined ? (ciProbe.viewPitch ?? 0) / RAD2DEG : input.pitch,
+        dtMs, duck,
         cameraKick.pitchOffset, cameraKick.yawOffset,
       );
     }

@@ -27,3 +27,26 @@ jobs:
       - run: pnpm -r test
       - run: pnpm --filter @gungame/client build
       - run: pnpm --filter @gungame/client size
+
+  gameplay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @gungame/tools exec playwright install --with-deps chromium webkit
+      - run: pnpm --filter @gungame/tools exec tsx e2e/gameplay-verify.ts
+        env:
+          GG_E2E_OUT: ${{ github.workspace }}/e2e-artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gameplay-screenshots
+          path: e2e-artifacts/
+          retention-days: 7
