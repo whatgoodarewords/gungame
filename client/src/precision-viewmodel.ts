@@ -15,11 +15,35 @@ import {
 import { color } from "three/tsl";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
+import { WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
+import {
+  VIEWMODEL_CONFIGS,
+  VIEWMODEL_HOLDS,
+  VIEWMODEL_MOTION,
+  buildSilhouette,
+  type ViewmodelConfig,
+} from "./viewmodels.js";
+
 // Weapon GLB cache (character-visual-spec P1): one fetch+parse per URL for
 // the whole session — the old path refetched and reparsed on EVERY weapon
 // switch (every kill in gun game). Cached scenes own their geometry and
 // materials; equip clones share them and are never deep-disposed.
 const vendoredModelCache = new Map<string, Promise<{ scene: Object3D }>>();
+
+/** First-person target length (meters) per weapon — real-world class scale. */
+const WEAPON_VIEW_LENGTH_M: Partial<Record<number, number>> = {
+  [WeaponId.Pistol]: 0.30,
+  [WeaponId.Smg]: 0.48,
+  [WeaponId.Shotgun]: 0.78,
+  [WeaponId.Rifle]: 0.80,
+  [WeaponId.Scout]: 0.95,
+  [WeaponId.Knife]: 0.38,
+  [WeaponId.Sidewinder]: 0.32,
+  [WeaponId.Boomstick]: 0.82,
+  [WeaponId.Deadeye]: 0.92,
+  [WeaponId.Goldie]: 0.34,
+};
 
 function loadVendoredScene(url: string): Promise<{ scene: Object3D }> {
   let pending = vendoredModelCache.get(url);
@@ -30,15 +54,6 @@ function loadVendoredScene(url: string): Promise<{ scene: Object3D }> {
   return pending;
 }
 
-import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
-import {
-  VIEWMODEL_CONFIGS,
-  VIEWMODEL_HOLDS,
-  VIEWMODEL_MOTION,
-  buildSilhouette,
-  type ViewmodelConfig,
-} from "./viewmodels.js";
 
 export interface PrecisionViewmodelOptions {
   readonly loadAssets?: boolean;
@@ -91,6 +106,7 @@ export class PrecisionWeaponViewmodel {
   private weaponId: WeaponIdValue | undefined;
   private configKey = "";
   private model: Group | undefined;
+  private modelIsVendoredClone = false;
   private leftIk: Object3D | undefined;
   private loadGeneration = 0;
   private disposed = false;
@@ -165,8 +181,10 @@ export class PrecisionWeaponViewmodel {
     this.configKey = configKey;
     if (this.model !== undefined) {
       this.model.removeFromParent();
-      disposeSubtree(this.model);
+      // Vendored clones share cached geometry/materials — detach only.
+      if (!this.modelIsVendoredClone) disposeSubtree(this.model);
     }
+    this.modelIsVendoredClone = false;
     this.model = buildSilhouette(config, this.material);
     this.weaponMount.add(this.model);
     const generation = ++this.loadGeneration;
@@ -414,14 +432,19 @@ export class PrecisionWeaponViewmodel {
       const size = bounds.getSize(new Vector3());
       const center = bounds.getCenter(new Vector3());
       const longest = Math.max(size.x, size.y, size.z, 0.001);
+      // Normalize to a per-class REAL length. The old flat 0.95m turned a
+      // pistol into a giant rounded grip filling the camera (CI-eyes r6).
       model.position.sub(center);
-      model.scale.setScalar(0.95 / longest);
+      model.scale.setScalar((WEAPON_VIEW_LENGTH_M[config.weaponId] ?? 0.6) / longest);
       model.rotation.set(0, Math.PI, 0);
       const composed = new Group();
       composed.add(model);
       const previous = this.model;
       previous?.removeFromParent();
-      // Clones share cached geometry/materials — never deep-dispose them.
+      // The silhouette being replaced is procedural (disposable); the clone
+      // going in shares cache resources (never deep-disposed).
+      if (previous !== undefined && !this.modelIsVendoredClone) disposeSubtree(previous);
+      this.modelIsVendoredClone = true;
       this.model = composed;
       this.weaponMount.add(composed);
     } catch (error) {

@@ -139,7 +139,14 @@ try {
         const state = browser.document.querySelector("#app")?.dataset.envState;
         return state === "applied" || state === "safety";
       }, undefined, { timeout: 30_000 });
-      const envState = await page.locator("#app").getAttribute("data-env-state");
+      // The style re-apply pass (material init) legally re-enters "loading"
+      // after the first "applied"; settle-poll instead of racing one read.
+      let envState = await page.locator("#app").getAttribute("data-env-state");
+      const settleDeadline = Date.now() + 15_000;
+      while (envState !== "applied" && Date.now() < settleDeadline) {
+        await page.waitForTimeout(500);
+        envState = await page.locator("#app").getAttribute("data-env-state");
+      }
       if (envState !== "applied") {
         const diagnostic = await page.locator("#gg-render-diagnostic").textContent().catch(() => null);
         throw new Error(
