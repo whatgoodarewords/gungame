@@ -11,7 +11,7 @@
     "mappipe": "tsx mappipe/cli.ts",
     "netsim:steady": "tsx netsim/run-bots.ts --bots 12 --duration 600 --output tools/netsim/reports/steady.json",
     "smoke": "bash netsim/smoke-local.sh",
-    "test": "tsx mappipe/coplanar-overlap.test.ts && tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob && tsx mappipe/cli.ts validate maps/spire.gltf && tsx mappipe/cli.ts validate maps/spire.blob && tsx mappipe/cli.ts validate maps/foundry.gltf && tsx mappipe/cli.ts validate maps/foundry.blob && tsx mappipe/cli.ts validate maps/duna.gltf && tsx mappipe/cli.ts validate maps/duna.blob && tsx mappipe/cli.ts validate maps/cascade.gltf && tsx mappipe/cli.ts validate maps/cascade.blob && tsx mappipe/race-spots.test.ts && tsx netsim/fixture.ts && node assets/validate-pmrem.mjs && node assets/validate.mjs && tsx e2e/dark-frame.ts",
+    "test": "tsx mappipe/coplanar-overlap.test.ts && tsx mappipe/cli.ts validate maps/greybox.gltf && tsx mappipe/cli.ts validate maps/greybox.blob && tsx mappipe/cli.ts validate maps/spire.gltf && tsx mappipe/cli.ts validate maps/spire.blob && tsx mappipe/cli.ts validate maps/foundry.gltf && tsx mappipe/cli.ts validate maps/foundry.blob && tsx mappipe/cli.ts validate maps/duna.gltf && tsx mappipe/cli.ts validate maps/duna.blob && tsx mappipe/cli.ts validate maps/cascade.gltf && tsx mappipe/cli.ts validate maps/cascade.blob && tsx mappipe/race-spots.test.ts && tsx netsim/fixture.ts && node assets/validate-pmrem.mjs && node assets/validate.mjs",
     "test:e2e": "tsx e2e/visual-and-style.ts",
     "test:e2e:dark": "tsx e2e/dark-frame.ts",
     "test:e2e:hotfix1": "tsx e2e/hotfix1-mixed.ts",

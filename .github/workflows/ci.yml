@@ -44,6 +44,7 @@ jobs:
       - run: pnpm --filter @gungame/tools exec tsx e2e/gameplay-verify.ts
         env:
           GG_E2E_OUT: ${{ github.workspace }}/e2e-artifacts
+      - run: pnpm --filter @gungame/tools exec tsx e2e/dark-frame.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

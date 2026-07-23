@@ -141,6 +141,14 @@ try {
         await page.waitForTimeout(600);
         await page.screenshot({ path: `${OUT}/${tag}-4-firing.png` });
 
+        // Look up: is there sky, or are we entombed? (map enclosure check)
+        await page.evaluate(() => {
+          (globalThis as unknown as Record<string, unknown>).__GG_CI_INPUT__ =
+            { buttons: 0, viewYaw: 200, viewPitch: 55 };
+        });
+        await page.waitForTimeout(500);
+        await page.screenshot({ path: `${OUT}/${tag}-5-lookup.png` });
+
         const state = await page.evaluate(() => {
           const doc = (globalThis as unknown as {
             document: { querySelector(s: string): { getAttribute(n: string): string | null } | null };

@@ -15,6 +15,21 @@ import {
 import { color } from "three/tsl";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+// Weapon GLB cache (character-visual-spec P1): one fetch+parse per URL for
+// the whole session — the old path refetched and reparsed on EVERY weapon
+// switch (every kill in gun game). Cached scenes own their geometry and
+// materials; equip clones share them and are never deep-disposed.
+const vendoredModelCache = new Map<string, Promise<{ scene: Object3D }>>();
+
+function loadVendoredScene(url: string): Promise<{ scene: Object3D }> {
+  let pending = vendoredModelCache.get(url);
+  if (pending === undefined) {
+    pending = new GLTFLoader().loadAsync(url);
+    vendoredModelCache.set(url, pending);
+  }
+  return pending;
+}
+
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
 import { WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
 import {
@@ -182,8 +197,12 @@ export class PrecisionWeaponViewmodel {
       for (const value of Array.isArray(material) ? material : [material]) value.dispose();
       this.contactShadow = undefined;
     }
-    disposeSubtree(this.root);
+    // Detach the vendored-model clone first: it shares geometry/materials
+    // with the module cache, and disposeSubtree would destroy them for every
+    // future equip.
+    this.model?.removeFromParent();
     this.model = undefined;
+    disposeSubtree(this.root);
   }
 
   onFire(): void {
@@ -375,19 +394,21 @@ export class PrecisionWeaponViewmodel {
     generation: number,
   ): Promise<void> {
     try {
-      const gltf = await new GLTFLoader().loadAsync(url);
+      const gltf = await loadVendoredScene(url);
       if (
         this.disposed ||
         generation !== this.loadGeneration ||
         this.weaponId !== config.weaponId
       ) {
-        disposeSubtree(gltf.scene, true);
-        return;
+        return; // cache owns the resources; nothing to dispose
       }
-      const model = gltf.scene;
+      // Clone shares geometry/materials with the cache. KEEP the model's own
+      // materials — the old flat-orange overwrite made real models
+      // indistinguishable from procedural fallbacks (the #1 'programmer art'
+      // tell, character-visual-spec P1).
+      const model = gltf.scene.clone(true);
       model.traverse((object: Object3D) => {
         object.layers.set(1);
-        if (object instanceof Mesh) object.material = this.material;
       });
       const bounds = new Box3().setFromObject(model);
       const size = bounds.getSize(new Vector3());
@@ -400,7 +421,7 @@ export class PrecisionWeaponViewmodel {
       composed.add(model);
       const previous = this.model;
       previous?.removeFromParent();
-      if (previous !== undefined) disposeSubtree(previous);
+      // Clones share cached geometry/materials — never deep-dispose them.
       this.model = composed;
       this.weaponMount.add(composed);
     } catch (error) {

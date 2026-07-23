@@ -179,7 +179,13 @@ function triplanarMapMaterial(
     texture(value, p.yz).rgb.mul(weights.x)
       .add(texture(value, p.xz).rgb.mul(weights.y))
       .add(texture(value, p.xy).rgb.mul(weights.z));
-  material.colorNode = sample(set.diffuse).mul(color(palette.surface).add(0.35));
+  // CI-eyes round 2: dark vendored albedos (metal plate ≈ near-black steel)
+  // made every interior a cave no light could brighten. The palette carries
+  // the base brightness; the texture MODULATES it (0.55–1.15) so detail
+  // survives without owning the exposure.
+  material.colorNode = color(palette.surface).mul(
+    sample(set.diffuse).mul(0.6).add(vec3(0.55, 0.55, 0.55)),
+  );
   material.roughnessNode = sample(set.roughness).r.mul(0.55).add(0.4);
   material.aoNode = sample(set.ao).r.mul(0.45).add(0.55);
   material.metalnessNode = float(set.metalness);

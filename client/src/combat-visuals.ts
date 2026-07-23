@@ -11,6 +11,7 @@ import {
   LineSegments,
   Matrix4,
   MeshBasicNodeMaterial,
+  MeshStandardNodeMaterial,
   PointLight,
   Quaternion,
   Scene,
@@ -18,6 +19,7 @@ import {
   Vector3,
   type Material,
 } from "three/webgpu";
+import { color } from "three/tsl";
 
 import { WeaponId } from "../../packages/shared/src/index.js";
 
@@ -197,6 +199,8 @@ export interface RemoteCharacterState {
   readonly grounded: boolean;
   readonly alive: boolean;
   readonly ducked?: boolean;
+  /** View yaw in degrees (server convention) — enemies face where they AIM. */
+  readonly viewYaw?: number;
 }
 
 const PARTS = ["torso", "head", "leftArm", "rightArm", "leftLeg", "rightLeg"] as const;
@@ -215,6 +219,7 @@ export class RemoteCharacterSystem {
   readonly rimTorso: InstancedMesh;
   readonly rimHead: InstancedMesh;
   readonly footstepDust: InstancedMesh;
+  private readonly zoneMaterials: { head: Material; limb: Material };
   private readonly capacity: number;
   private readonly generations = new Map<number, number>();
   private readonly alive = new Map<number, boolean>();
@@ -238,8 +243,21 @@ export class RemoteCharacterSystem {
 
   constructor(scene: Scene, material: Material, capacity = 12) {
     this.capacity = capacity;
+    // Palette zones (character-visual-spec): actor-colored torso carries the
+    // team read, warm head band matches the real headshot zone, ink limbs
+    // ground the silhouette. One flat color head-to-toe read as Doom sprite.
+    const headMaterial = new MeshStandardNodeMaterial({ roughness: 0.6 });
+    headMaterial.colorNode = color(0xd9b18c);
+    const limbMaterial = new MeshStandardNodeMaterial({ roughness: 0.85 });
+    limbMaterial.colorNode = color(0x2f333a);
+    this.zoneMaterials = { head: headMaterial, limb: limbMaterial };
     this.meshes = Object.fromEntries(PARTS.map((part) => {
-      const mesh = new InstancedMesh(PART_GEOMETRY[part], material, capacity);
+      const zoned = part === "head"
+        ? headMaterial
+        : part === "torso"
+          ? material
+          : limbMaterial;
+      const mesh = new InstancedMesh(PART_GEOMETRY[part], zoned, capacity);
       mesh.name = `remote-character-${part}`;
       mesh.userData.riggedHumanoid = true;
       scene.add(mesh);
@@ -256,6 +274,11 @@ export class RemoteCharacterSystem {
     this.rimHead = new InstancedMesh(PART_GEOMETRY.head, rimMaterial, capacity);
     this.rimTorso.name = "enemy-accent-rim-torso";
     this.rimHead.name = "enemy-accent-rim-head";
+    // Additive cyan on a bright sky = invisible (the J3 lesson). Rim shells
+    // stay allocated for API compatibility but are never added to the scene;
+    // the specced ink-outline pass replaces them.
+    this.rimTorso.visible = false;
+    this.rimHead.visible = false;
     this.footstepDust = new InstancedMesh(
       new SphereGeometry(0.09, 5, 3),
       new MeshBasicNodeMaterial({
@@ -274,7 +297,9 @@ export class RemoteCharacterSystem {
   }
 
   setMaterial(material: Material): void {
-    for (const mesh of Object.values(this.meshes)) mesh.material = material;
+    // Style switches recolor the torso (the actor-palette zone); head and
+    // limb zones are style-independent.
+    this.meshes.torso.material = material;
   }
 
   update(states: readonly RemoteCharacterState[], elapsedSeconds: number): void {
@@ -304,9 +329,9 @@ export class RemoteCharacterSystem {
       const shimmer = state.alive && spawnAge < 1.5
         ? 1 + Math.sin(spawnAge * Math.PI * 12) * 0.035
         : 1;
-      const facing = speed > 0.15
-        ? Math.atan2(state.velocity.x, state.velocity.z)
-        : 0;
+      // Face where they aim (character-visual-spec): velocity-derived facing
+      // pointed standing enemies north and runners backward.
+      const facing = (state.viewYaw ?? 0) * Math.PI / 180;
       const duckScale = state.ducked === true ? 0.56 : 1;
       const phase = elapsedSeconds * Math.min(12, 4 + speed * 1.3) + state.id;
       const stride = state.grounded ? Math.sin(phase) * Math.min(0.72, speed * 0.09) : 0.34;
