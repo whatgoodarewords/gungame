@@ -221,6 +221,7 @@ export class MatchHud {
     settings: CrosshairSettings,
     gapPixels: number,
     scoped: boolean,
+    inaccurate = false,
   ): void {
     this.crosshair.style.setProperty("--cross-size", `${settings.size}px`);
     this.crosshair.style.setProperty("--cross-gap", `${gapPixels}px`);
@@ -231,6 +232,9 @@ export class MatchHud {
     this.crosshair.dataset.color = settings.color;
     this.crosshair.classList.toggle("dot", settings.dot);
     this.crosshair.classList.toggle("scoped", scoped);
+    // Velocity-accuracy teaching UI: the gap alone was too subtle — the
+    // crosshair goes amber while movement is ruining the shot.
+    this.crosshair.classList.toggle("inaccurate", inaccurate);
   }
 
   flashHit(kill = false): void {

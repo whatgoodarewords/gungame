@@ -917,3 +917,9 @@ canvas {
   border: 1px solid rgb(101 212 255 / 42%);
   border-radius: 0.25rem;
 }
+
+/* Velocity-accuracy state: amber = your movement is widening the cone. */
+.crosshair.inaccurate { --cross-color: #ffb136; }
+/* Hit/kill flashes still win over the inaccuracy tint. */
+.crosshair.inaccurate.hit-flash { --cross-color: #65d4ff; }
+.crosshair.inaccurate.kill-flash { --cross-color: #ffcf52; }

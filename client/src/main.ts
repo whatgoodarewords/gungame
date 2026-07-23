@@ -1104,6 +1104,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     fpsCam.camera.fov += (targetFov - fpsCam.camera.fov) * Math.min(1, dtMs / 80);
     fpsCam.camera.updateProjectionMatrix();
     hud.zoomOverlay.classList.toggle("visible", zoomed);
+    // Live-honest bloom: the exact velocity/air-aware cone the server rolls
+    // for this state (hybrid meta) — the crosshair teaches stop-to-shoot.
+    const liveSpread = effectiveSpreadDegrees(WEAPONS[combat.weaponId], {
+      horizontalSpeed: Math.hypot(curr.velocity.x, curr.velocity.z),
+      grounded: curr.grounded,
+      runSpeed: (currentMode === GameMode.Scoutzknivez ? SCOUTZ : DEFAULT).runSpeed,
+      scoped: zoomed,
+    });
     hud.setCrosshair(
       userSettings.crosshair,
       crosshairGapPixels(
@@ -1112,17 +1120,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         zoomed,
         window.innerHeight,
         fpsCam.camera.fov,
-        // Live-honest bloom: the exact velocity/air-aware cone the server
-        // rolls for this state (hybrid meta) — the crosshair teaches the
-        // stop-to-shoot rhythm.
-        effectiveSpreadDegrees(WEAPONS[combat.weaponId], {
-          horizontalSpeed: Math.hypot(curr.velocity.x, curr.velocity.z),
-          grounded: curr.grounded,
-          runSpeed: (currentMode === GameMode.Scoutzknivez ? SCOUTZ : DEFAULT).runSpeed,
-          scoped: zoomed,
-        }),
+        liveSpread,
       ),
       zoomed,
+      // Amber warning once movement more than doubles the planted cone.
+      liveSpread > WEAPONS[combat.weaponId].spreadDegrees * 2 + 0.01,
     );
 
     const horizontalSpeed = Math.hypot(curr.velocity.x, curr.velocity.z);
