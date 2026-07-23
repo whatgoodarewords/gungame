@@ -177,17 +177,15 @@ export class PrecisionWeaponViewmodel {
    * recursively at every attach point.
    */
   private applyViewmodelLayer(): void {
+    // Single-pass first-person rendering. CI-eyes r12 taxonomy: a standard-
+    // material layer-1 camera-child cube with DEFAULT depth flags renders
+    // fine, while depthTest=false made the gun vanish outright on the WebGL2
+    // node backend. The gun keeps default depth (minor wall-clip possible
+    // when hugging geometry — the honest tradeoff until an always-on-top
+    // technique is PROVEN on this backend by a screenshot round).
     this.root.traverse((node) => {
       node.layers.set(1);
-      // Single-pass first-person: always drawn last, never depth-clipped into
-      // world geometry (the classic depthTest-off viewmodel contract).
-      node.renderOrder = 1_000;
-      const mesh = node as { isMesh?: boolean; material?: { depthTest: boolean } | Array<{ depthTest: boolean }> };
-      if (mesh.isMesh === true && mesh.material !== undefined) {
-        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-          material.depthTest = false;
-        }
-      }
+      node.renderOrder = 999;
     });
   }
 
