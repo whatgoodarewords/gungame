@@ -167,6 +167,17 @@ export class PrecisionWeaponViewmodel {
     this.addProceduralArms();
     this.addContactShadow();
     if (this.loadAssets) void this.loadArms();
+    this.applyViewmodelLayer();
+  }
+
+  /**
+   * Layers are per-object, NOT inherited: a layer-1 root with layer-0 child
+   * meshes renders NOTHING through the layer-1 viewmodel camera — the gun was
+   * invisible on every backend that used the composited pipeline. Enforce
+   * recursively at every attach point.
+   */
+  private applyViewmodelLayer(): void {
+    this.root.traverse((node) => node.layers.set(1));
   }
 
   setWeapon(weaponId: WeaponIdValue, requested?: ViewmodelConfig): void {
@@ -187,6 +198,7 @@ export class PrecisionWeaponViewmodel {
     this.modelIsVendoredClone = false;
     this.model = buildSilhouette(config, this.material);
     this.weaponMount.add(this.model);
+    this.applyViewmodelLayer();
     const generation = ++this.loadGeneration;
     const url = WEAPON_MODEL_URLS[weaponId];
     if (this.loadAssets && url !== undefined) {
@@ -447,6 +459,7 @@ export class PrecisionWeaponViewmodel {
       this.modelIsVendoredClone = true;
       this.model = composed;
       this.weaponMount.add(composed);
+      this.applyViewmodelLayer();
     } catch (error) {
       console.warn(`viewmodel asset unavailable; keeping procedural ${config.silhouette}`, error);
     }

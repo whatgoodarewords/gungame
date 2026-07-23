@@ -110,6 +110,12 @@ export class RecoverableRenderPipeline {
     this.reportError = reportError;
   }
 
+  /** Active stage label when the underlying pipeline exposes one (diagnostics). */
+  get activeLabel(): string | undefined {
+    const labeled = this.active as { activeLabel?: string };
+    return labeled.activeLabel;
+  }
+
   replace(candidate: RenderPipelineLike, commit: () => void, rollback: () => void): void {
     this.cancelPending();
     this.pending = { previous: this.active, candidate, commit, rollback };

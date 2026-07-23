@@ -170,7 +170,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   );
   viewmodelCamera.layers.set(1);
   viewmodelScene.add(viewmodelCamera);
-  viewmodelScene.add(new AmbientLight(0xffffff, 1.65));
+  const viewmodelLight = new AmbientLight(0xffffff, 1.65);
+  // The viewmodel camera renders layer 1 only; a layer-0 light does not
+  // illuminate that pass — loaded guns rendered unlit black.
+  viewmodelLight.layers.enable(1);
+  viewmodelScene.add(viewmodelLight);
   const input = new RawInput(() =>
     canvas.isConnected ? canvas : root.querySelector<HTMLCanvasElement>("canvas:last-of-type") ?? canvas);
   const hud = new MatchHud(root);
@@ -859,7 +863,23 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const showAimTracer = (range: number): void => {
     fpsCam.camera.getWorldPosition(aimOrigin);
     fpsCam.camera.getWorldDirection(aimDirection);
+    // True wall hit via the sim collision world: debris lands where the
+    // bullet lands (owner: 'no debris when it hits the walls').
     aimEnd.copy(aimOrigin).addScaledVector(aimDirection, range);
+    const wallHit = sim.getCollisionWorld()?.sweepProjectile(
+      { x: aimOrigin.x, y: aimOrigin.y, z: aimOrigin.z },
+      { x: aimEnd.x, y: aimEnd.y, z: aimEnd.z },
+      0,
+    );
+    if (wallHit !== undefined) {
+      aimEnd.set(wallHit.point.x, wallHit.point.y, wallHit.point.z);
+      impacts.impact(
+        wallHit.point,
+        currentMode === GameMode.Scoutzknivez ? 0xb9a98a : 0x8997a1,
+        false,
+      );
+      audio.playImpact(sim.getCombatState().weaponId, wallHit.point);
+    }
     // Start the streak slightly forward/below the eye so it reads as leaving
     // the muzzle, not the forehead.
     aimOrigin.addScaledVector(aimDirection, 0.9);
@@ -1349,6 +1369,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     visualDebug.rigChildren = rig === undefined
       ? "none"
       : rig.root.children.map((child) => child.type).join(",");
+    visualDebug.pipelineStage = pipeline.activeLabel ?? "unknown";
+    visualDebug.viewmodelMeshes = (() => {
+      let count = 0;
+      viewmodel?.root.traverse((node) => {
+        if ((node as { isMesh?: boolean }).isMesh === true) count += 1;
+      });
+      return count;
+    })();
     const breakdown = perf.snapshot;
     visualDebug.frameMs = breakdown.frame;
     visualDebug.renderMs = breakdown.render;

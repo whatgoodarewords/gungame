@@ -21,8 +21,8 @@ import { color } from "three/tsl";
 
 const CAPACITY = 24;
 const SPEED = 300; // m/s — reads hitscan-instant but the eye catches direction
-const WIDTH = 0.022; // ≈2-3 px at 15 m on 768p
-const MAX_STREAK = 5;
+const WIDTH = 0.065; // CI-eyes r7 + owner: 0.022 was invisible in motion
+const MAX_STREAK = 7;
 const MAX_LIFETIME_MS = 250; // pool safety
 
 interface Slot {
@@ -51,11 +51,13 @@ export class TracerSystem {
   constructor(scene: Scene) {
     const material = new MeshBasicNodeMaterial({
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.95,
       depthWrite: false,
       side: DoubleSide,
     });
-    material.colorNode = color(0xe25c12);
+    // Hot amber — reads on sky, sand, and shadow alike (pure ember blended
+    // into the warm world; pure white died on the sky).
+    material.colorNode = color(0xffb136);
     this.mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, CAPACITY);
     this.mesh.name = "tracer-streaks-instanced";
     this.mesh.frustumCulled = false;

@@ -70,6 +70,8 @@ export interface SimHandle {
   getPingMs(): number;
   /** Command-pipeline health for the stuck-diagnostics chip. */
   getNetStats(): { readonly sentCmds: number; readonly ackedCmdSeq: number };
+  /** Sim collision world for render-side queries (wall-impact FX). */
+  getCollisionWorld(): CollisionWorld | undefined;
 }
 
 export interface CombatView {
@@ -195,6 +197,7 @@ export function createPlayground(
     drainFirePresentations: () => prediction?.drainFirePresentations() ?? [],
     getPingMs: () => network?.clock.roundTripMs ?? 0,
     getNetStats: () => ({ sentCmds: nextSeq - 1, ackedCmdSeq: lastAckedCmdSeq }),
+    getCollisionWorld: () => world,
   };
 
   let mapLoadSequence = 0;

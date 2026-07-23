@@ -1242,12 +1242,30 @@ export class Room {
       slot.botAimYaw = Math.atan2(-dx, -dz) * 180 / Math.PI + error;
     }
     const seq = slot.botSeq++;
+    // Weapon-aware trigger discipline: bots used to hold Fire whenever any
+    // target existed — including rockets point-blank into the wall they were
+    // strafing against (splash self-damage = the suicide epidemic in every
+    // killfeed). Projectiles need standoff; everything respects range.
+    let wantsFire = target !== undefined;
+    if (target !== undefined) {
+      const weapon = WEAPONS[this.weaponForTier(slot.tier)];
+      const distance = Math.hypot(
+        target.state.player.position.x - slot.state.player.position.x,
+        target.state.player.position.z - slot.state.player.position.z,
+      );
+      if (weapon.kind === "projectile") {
+        const standoff = Math.max(6, weapon.splashRadius * 2.5);
+        wantsFire = distance > standoff && distance < 45;
+      } else {
+        wantsFire = distance < weapon.range * 1.15;
+      }
+    }
     return {
       type: FrameType.Cmd,
       seq,
       tick,
       buttons: Buttons.Forward | Buttons.Zoom |
-        (target === undefined ? 0 : Buttons.Fire) |
+        (wantsFire ? Buttons.Fire : 0) |
         (tick % 53 === slot.id % 53 ? Buttons.Jump : 0),
       viewYaw: slot.botAimYaw,
       viewPitch: 0,
