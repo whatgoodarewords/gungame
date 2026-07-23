@@ -102,7 +102,13 @@ try {
   }
   if (browser !== null) {
     try {
-    for (const backend of ["webgl2", "webgpu"] as const) {
+    // CI runners have no real WebGPU — the emulated path throws teardown
+    // noise (popErrorScope) that fails runs while proving nothing. WebGL2 is
+    // the primary path and the CI gate; WebGPU verifies on local Metal runs.
+    const backends = process.env.CI !== undefined
+      ? (["webgl2"] as const)
+      : (["webgl2", "webgpu"] as const);
+    for (const backend of backends) {
       const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
       const errors: string[] = [];
       const consoleDiagnostics: string[] = [];

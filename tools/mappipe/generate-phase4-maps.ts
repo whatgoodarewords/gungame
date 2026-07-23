@@ -188,12 +188,18 @@ function spire(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
     { name: "col_floor_trench_south", geometry: box(-2, -0.35, 8, 2, 0, 24.7) },
     { name: "kill_center_trench", geometry: box(-2, -6, -8, 2, -0.1, 8) },
     { name: "bounds_spire", geometry: box(-40, -7, -32, 40, 40, 25) },
-    { name: "col_wall_west", geometry: box(-40, 0, -24.4, -39.4, 40, 24.4) },
-    { name: "col_wall_east", geometry: box(39.4, 0, -24.4, 40, 40, 24.4) },
-    { name: "col_wall_south", geometry: box(-39.4, 0, 24.4, 39.4, 40, 25) },
+    // Map-spec P1: 40 m shaft walls entombed the arena (no sun, no sky —
+    // the cave). Parapets + an outside kill-ring replace them.
+    { name: "col_wall_west", geometry: box(-40, 0, -24.4, -39.4, 3, 24.4) },
+    { name: "col_wall_east", geometry: box(39.4, 0, -24.4, 40, 3, 24.4) },
+    { name: "col_wall_south", geometry: box(-39.4, 0, 24.4, 39.4, 3, 25) },
+    { name: "kill_spire_escape_west", geometry: box(-75, -2, -60, -40.2, 70, 60) },
+    { name: "kill_spire_escape_east", geometry: box(40.2, -2, -60, 75, 70, 60) },
+    { name: "kill_spire_escape_south", geometry: box(-40.2, -2, 25.2, 40.2, 70, 60) },
+    { name: "kill_spire_escape_north", geometry: box(-40.2, -2, -60, 40.2, 70, -32.2) },
     // North wall is split around the strafe-chain entrance to the secret room.
-    { name: "col_wall_north_west", geometry: box(-39.4, 0, -25, 20, 40, -24.4) },
-    { name: "col_wall_north_east", geometry: box(25, 0, -25, 39.4, 40, -24.4) },
+    { name: "col_wall_north_west", geometry: box(-39.4, 0, -25, 20, 3, -24.4) },
+    { name: "col_wall_north_east", geometry: box(25, 0, -25, 39.4, 3, -24.4) },
     { name: "col_surf_ribbon_north_50deg", geometry: rampZ(-28, 28, 4, -24.39, 1, 5, 50) },
     { name: "col_surf_ribbon_south_50deg", geometry: rampZ(-28, 28, 4, 24.39, -1, 5, 50) },
     // Central spire: a single exposed mass with the exact 22 m highest perch.
@@ -250,10 +256,15 @@ function foundry(): { meshes: MeshEntry[]; spawns: SpawnEntry[] } {
   const meshes: MeshEntry[] = [
     { name: "bounds_foundry", geometry: box(-22.5, -5, -22.5, 22.5, 18, 22.5) },
     { name: "kill_foundry_void", geometry: box(-25, -5, -25, 25, -3.2, 25) },
-    { name: "col_wall_north", geometry: box(-22, 0, -22.5, 22, 18, -22) },
-    { name: "col_wall_south", geometry: box(-22, 0, 22, 22, 18, 22.5) },
-    { name: "col_wall_west", geometry: box(-22.5, 0, -22, -22, 18, 22) },
-    { name: "col_wall_east", geometry: box(22, 0, -22, 22.5, 18, 22) },
+    // Map-spec P1: parapets, not an 18 m crate interior.
+    { name: "col_wall_north", geometry: box(-22, 0, -22.5, 22, 3.2, -22) },
+    { name: "col_wall_south", geometry: box(-22, 0, 22, 22, 3.2, 22.5) },
+    { name: "col_wall_west", geometry: box(-22.5, 0, -22, -22, 3.2, 22) },
+    { name: "col_wall_east", geometry: box(22, 0, -22, 22.5, 3.2, 22) },
+    { name: "kill_foundry_escape_west", geometry: box(-55, -2, -55, -22.7, 60, 55) },
+    { name: "kill_foundry_escape_east", geometry: box(22.7, -2, -55, 55, 60, 55) },
+    { name: "kill_foundry_escape_north", geometry: box(-22.7, -2, -55, 22.7, 60, -22.7) },
+    { name: "kill_foundry_escape_south", geometry: box(-22.7, -2, 22.7, 22.7, 60, 55) },
     // Outer arena floor around the 16 x 16 crucible opening; pit floor is 2 m down.
     { name: "col_floor_north", geometry: box(-22, -0.3, -22, 22, 0, -8) },
     { name: "col_floor_south", geometry: box(-22, -0.3, 8, 22, 0, 22) },
