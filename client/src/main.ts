@@ -161,7 +161,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let userSettings: UserSettings = loadUserSettings(localStorage);
   const fpsCam = new FpsCamera(window.innerWidth / window.innerHeight, userSettings.fov);
   const cameraKick = new CameraKick();
-  fpsCam.camera.layers.disable(1);
+  fpsCam.camera.layers.enable(1);
   scene.add(fpsCam.camera);
   const viewmodelCamera = new PerspectiveCamera(
     VIEWMODEL_MOTION.fovDeg,
@@ -438,7 +438,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     const nextViewmodel = nextMaterials === undefined ? undefined : new WeaponViewmodel(nextMaterials.viewmodel);
     const nextRig = nextStyle.fogLightRig(scene, currentMap);
     if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = false;
-    if (nextViewmodel !== undefined) viewmodelScene.add(nextViewmodel.root);
+    if (nextViewmodel !== undefined) fpsCam.camera.add(nextViewmodel.root);
     currentStyleId = id;
     currentStyle = nextStyle;
     rig = nextRig;
@@ -457,14 +457,14 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     pipeline.replace(nextPipeline, () => {
       previous.rig?.dispose();
       if (previous.viewmodel !== undefined) {
-        viewmodelScene.remove(previous.viewmodel.root);
+        fpsCam.camera.remove(previous.viewmodel.root);
         previous.viewmodel.dispose();
       }
       if (previous.materials !== nextMaterials) disposeRenderMaterials(previous.materials);
     }, () => {
       nextRig.dispose();
       if (nextViewmodel !== undefined) {
-        viewmodelScene.remove(nextViewmodel.root);
+        fpsCam.camera.remove(nextViewmodel.root);
         nextViewmodel.dispose();
       }
       previous.rig?.dispose();
@@ -624,9 +624,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     dressing = dressingConstructor === undefined
       ? undefined
       : new dressingConstructor(scene, mapId, materials.map);
-    if (viewmodel !== undefined) viewmodelScene.remove(viewmodel.root);
+    if (viewmodel !== undefined) fpsCam.camera.remove(viewmodel.root);
     viewmodel = new WeaponViewmodel(materials.viewmodel);
-    viewmodelScene.add(viewmodel.root);
+    fpsCam.camera.add(viewmodel.root);
     rig = currentStyle.fogLightRig(scene, map);
     previous.rig?.dispose();
     if (previous.ghostMesh !== undefined) disposeSceneSubtree(previous.ghostMesh, true);
@@ -1563,15 +1563,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
     const renderStartedAt = performance.now();
     pipeline.render();
-    // First-person overlay: the TSL two-scene composite silently renders an
-    // empty weapon pass on the WebGL2 backend (never worked — CI-eyes r7/r8,
-    // and no historical screenshot ever shows a gun). Classic overlay pass:
-    // clear depth, draw the viewmodel scene on top. Post never touches the
-    // gun, which is the correct look anyway (no fog/grade on your hands).
-    renderer.autoClear = false;
-    renderer.clearDepth();
-    renderer.render(viewmodelScene, viewmodelCamera);
-    renderer.autoClear = true;
     perf.mark("render", performance.now() - renderStartedAt);
     perf.endFrame(performance.now());
   };

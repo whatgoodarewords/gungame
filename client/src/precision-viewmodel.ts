@@ -177,7 +177,18 @@ export class PrecisionWeaponViewmodel {
    * recursively at every attach point.
    */
   private applyViewmodelLayer(): void {
-    this.root.traverse((node) => node.layers.set(1));
+    this.root.traverse((node) => {
+      node.layers.set(1);
+      // Single-pass first-person: always drawn last, never depth-clipped into
+      // world geometry (the classic depthTest-off viewmodel contract).
+      node.renderOrder = 1_000;
+      const mesh = node as { isMesh?: boolean; material?: { depthTest: boolean } | Array<{ depthTest: boolean }> };
+      if (mesh.isMesh === true && mesh.material !== undefined) {
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          material.depthTest = false;
+        }
+      }
+    });
   }
 
   setWeapon(weaponId: WeaponIdValue, requested?: ViewmodelConfig): void {
