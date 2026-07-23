@@ -160,6 +160,13 @@ try {
             close: app?.getAttribute("data-last-close") ?? "unset",
           };
         });
+        // Full debug-state dump: every visualDebug key lands in the artifact
+        // so new client instrumentation is captured with zero harness churn.
+        const debugDump = await page.evaluate(() =>
+          JSON.stringify((globalThis as unknown as {
+            __GG_VISUAL_DEBUG__?: Record<string, unknown>;
+          }).__GG_VISUAL_DEBUG__ ?? {}));
+        writeFileSync(`${OUT}/${tag}-debug.json`, debugDump);
         const errors = consoleLines.filter((line) => line.startsWith("[error]") || line.startsWith("[pageerror]"));
         const pass = displacement > 3;
         results.push({
