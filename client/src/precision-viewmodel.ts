@@ -351,10 +351,12 @@ export class PrecisionWeaponViewmodel {
     const rz = hold.rotationDeg[2] * Math.PI / 180;
 
     this.root.visible = alive;
+    // FOV-95 anchor bias: holds were tuned for the retired 54-deg dedicated
+    // viewmodel camera; through the main camera the pose sat too low (r14).
     this.root.position.set(
-      hold.position[0] + hum,
-      hold.position[1] + idle - landing - goldieArc * 0.006,
-      hold.position[2] + backpush * hold.backpushM + rackArc * 0.045,
+      hold.position[0] - 0.02 + hum,
+      hold.position[1] + 0.09 + idle - landing - goldieArc * 0.006,
+      hold.position[2] + 0.08 + backpush * hold.backpushM + rackArc * 0.045,
     );
     this.root.rotation.set(
       rx + (equipAngle + this.recoil * hold.kickDeg) * Math.PI / 180 + this.swayPitch,

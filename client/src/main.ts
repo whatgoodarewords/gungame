@@ -812,26 +812,6 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   // pointer-lock DOM layer, which headless browsers cannot grant reliably.
   // This is how CI proves "a player who presses W actually moves" per engine.
   const ciProbeEnabled = query.get("ciprobe") === "1";
-  if (ciProbeEnabled) {
-    // Render-path taxonomy (invisible-gun forensics): which material/layer/
-    // parent combos actually draw through the post pipeline?
-    const mkCube = (mat: Material, layer: number, x: number): Mesh => {
-      const cube = new Mesh(new BoxGeometry(0.15, 0.15, 0.15), mat);
-      cube.position.set(x, -0.25, -1);
-      cube.layers.set(layer);
-      cube.renderOrder = 999;
-      return cube;
-    };
-    const basicA = new MeshBasicNodeMaterial({ color: 0xff0044 });
-    const stdB = new MeshStandardNodeMaterial({ color: 0x00ff88 });
-    const basicC = new MeshBasicNodeMaterial({ color: 0x2266ff });
-    fpsCam.camera.add(mkCube(basicA, 1, -0.5)); // A red: basic, layer1, camera
-    fpsCam.camera.add(mkCube(stdB, 1, 0));      // B green: standard, layer1, camera
-    fpsCam.camera.add(mkCube(basicC, 0, 0.5));  // C blue: basic, layer0, camera
-    const worldCube = new Mesh(new BoxGeometry(0.6, 0.6, 0.6), basicA);
-    worldCube.position.set(-18, 2.2, -19); // D red: basic, layer0, scene (near CI spawn)
-    scene.add(worldCube);
-  }
   interface CiProbeInput {
     buttons?: number;
     viewYaw?: number;
