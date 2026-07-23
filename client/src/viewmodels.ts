@@ -40,6 +40,8 @@ export interface ViewmodelHold {
   readonly backpushM: number;
   readonly backpushMs: number;
   readonly rackMs: number;
+  /** Delay after the shot before the rack motion/audio begins (J10: BANG → beat → chk-chk). */
+  readonly rackDelayMs: number;
   readonly wristFlickDeg: number;
   readonly humShakeM: number;
   readonly twoHanded: boolean;
@@ -53,7 +55,7 @@ const hold = (
   kickDeg: number,
   twoHanded: boolean,
   extras: Partial<Pick<ViewmodelHold,
-    "backpushM" | "backpushMs" | "rackMs" | "wristFlickDeg" | "humShakeM">> = {},
+    "backpushM" | "backpushMs" | "rackMs" | "rackDelayMs" | "wristFlickDeg" | "humShakeM">> = {},
 ): ViewmodelHold => Object.freeze({
   anchorNdc: [0.28, -0.32] as const,
   position,
@@ -64,6 +66,7 @@ const hold = (
   backpushM: extras.backpushM ?? 0,
   backpushMs: extras.backpushMs ?? 0,
   rackMs: extras.rackMs ?? 0,
+  rackDelayMs: extras.rackDelayMs ?? 0,
   wristFlickDeg: extras.wristFlickDeg ?? 0,
   humShakeM: extras.humShakeM ?? 0,
   twoHanded,
@@ -76,17 +79,17 @@ export const VIEWMODEL_HOLDS: Readonly<Record<WeaponIdValue, ViewmodelHold>> = O
   [WeaponId.Smg]: hold([0.29, -0.325, -0.78], [-3, -2, -1], 0.78,
     [-0.2, -0.02, -0.42], 1.4, true),
   [WeaponId.Shotgun]: hold([0.29, -0.335, -0.82], [-3, -2, -1], 0.72,
-    [-0.21, -0.015, -0.55], 5, true, { rackMs: 90 }),
+    [-0.21, -0.015, -0.55], 5, true, { rackMs: 220, rackDelayMs: 120 }),
   [WeaponId.Rifle]: hold([0.29, -0.325, -0.82], [-3, -2, -1], 0.7,
     [-0.2, -0.01, -0.58], 2.1, true),
   [WeaponId.Scout]: hold([0.285, -0.33, -0.86], [-3.2, -2, -1], 0.66,
-    [-0.19, 0, -0.64], 3.2, true, { rackMs: 90 }),
+    [-0.19, 0, -0.64], 3.2, true, { rackMs: 180, rackDelayMs: 150 }),
   [WeaponId.Knife]: hold([0.31, -0.35, -0.7], [-4, -2, 7], 0.82,
     [-0.16, -0.04, -0.3], 6, false, { wristFlickDeg: 6 }),
   [WeaponId.Sidewinder]: hold([0.285, -0.315, -0.72], [-3.5, -2, -1], 0.8,
     [-0.18, -0.04, -0.32], 1.8, false),
   [WeaponId.Boomstick]: hold([0.29, -0.335, -0.82], [-3, -2, -1], 0.7,
-    [-0.21, -0.015, -0.56], 5, true, { rackMs: 90 }),
+    [-0.21, -0.015, -0.56], 5, true, { rackMs: 240, rackDelayMs: 140 }),
   [WeaponId.Arc]: hold([0.29, -0.325, -0.76], [-3, -2, -1], 0.76,
     [-0.2, -0.015, -0.46], 0, true, { humShakeM: 0.0003 }),
   [WeaponId.Peacemaker]: hold([0.29, -0.34, -0.82], [-3, -2, -1], 0.7,
@@ -94,9 +97,9 @@ export const VIEWMODEL_HOLDS: Readonly<Record<WeaponIdValue, ViewmodelHold>> = O
   [WeaponId.Discus]: hold([0.3, -0.33, -0.74], [-3.5, -2, 2], 0.77,
     [-0.18, -0.02, -0.4], 2.5, true, { wristFlickDeg: 2.5 }),
   [WeaponId.Deadeye]: hold([0.285, -0.33, -0.86], [-3.2, -2, -1], 0.65,
-    [-0.19, 0, -0.64], 3.2, true, { rackMs: 90 }),
+    [-0.19, 0, -0.64], 3.2, true, { rackMs: 180, rackDelayMs: 150 }),
   [WeaponId.Goldie]: hold([0.285, -0.32, -0.72], [-3.5, -2, -1], 0.8,
-    [-0.18, -0.04, -0.32], 2.2, false),
+    [-0.18, -0.04, -0.32], 2.2, false, { rackMs: 260, rackDelayMs: 200 }),
 });
 
 export const VIEWMODEL_MOTION = Object.freeze({
@@ -110,7 +113,7 @@ export const VIEWMODEL_MOTION = Object.freeze({
   landingDipMs: 60,
   recoilDecayMs: 80,
   equipMs: 140,
-  equipStartDeg: -15,
+  equipStartDeg: -22,
   equipOvershoot: 0.1,
   idleAmplitudeM: 0.002,
   idlePeriodMs: 3_000,

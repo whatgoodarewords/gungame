@@ -225,6 +225,19 @@ export class GameAudio {
     this.play(IMPACT_RECIPES[weaponId], position);
   }
 
+  /** Two-click rack (J10): chk at rack start, chk at 60% travel. */
+  rack(delaySeconds: number, rackMs: number): void {
+    this.play(recipe(0.03, 0.55, 850, 6_000, 0.055, 0.1), undefined, 1, delaySeconds);
+    this.play(recipe(0.03, 0.5, 620, 5_200, 0.065, 0.1), undefined, 1,
+      delaySeconds + (rackMs * 0.6) / 1_000);
+  }
+
+  /** Equip snap (J10): tone at grab, thock at seat. */
+  equip(): void {
+    this.play(recipe(0.04, 0.35, 480, 4_200, 0.05, 0.15));
+    this.play(recipe(0.06, 0.45, 220, 2_400, 0.06, 0.2), undefined, 1, 0.14);
+  }
+
   hitmarker(damage: number): void {
     // Damage-pitched THOCK: click transient + short damped body — reads as
     // contact, not as a UI beep. Pitch still scales with damage (info intact).

@@ -224,10 +224,13 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   const safetyFill = new HemisphereLight(0xbfd8ff, 0x17191d, 0.15);
   safetyFill.name = "render-safety-fill";
   root.add(safetyFill);
-  // Sky/ground differential is the daylight look: cool from above, warm bounce
-  // from below. This carries most of the exposure so surfaces stay bright even
-  // facing away from the sun — flat and readable, never moody.
-  const sky = new HemisphereLight(0xcfe6ff, 0xcdb489, 1.05);
+  // CI-eyes finding 2026-07-23: enclosed interiors (foundry) rendered as a
+  // cave — the sun shadows the whole interior and hemisphere-only fill left
+  // nothing unconditional. Daylight = ambient FLOOR first (works on every
+  // backend, reaches every interior), hemisphere differential on top for the
+  // sky/ground color modeling, sun for shape.
+  root.add(new AmbientLight(0xe8f0ff, 0.85));
+  const sky = new HemisphereLight(0xcfe6ff, 0xcdb489, 0.8);
   root.add(sky);
   const key = new DirectionalLight(0xfff1d8, 2.0);
   key.position.set(34, 62, 22);

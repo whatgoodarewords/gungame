@@ -243,7 +243,11 @@ export class PrecisionWeaponViewmodel {
         (1 - (1 - equipT / overshootAt) ** 3)
       : -VIEWMODEL_MOTION.equipStartDeg * VIEWMODEL_MOTION.equipOvershoot *
         (1 - (equipT - overshootAt) / (1 - overshootAt));
-    const rackT = hold.rackMs === 0 ? 1 : Math.min(1, this.rackElapsedMs / hold.rackMs);
+    // J10 sequencing: BANG → beat (rackDelayMs) → chk-chk. Concurrent
+    // rack+recoil mushed both into one motion.
+    const rackT = hold.rackMs === 0
+      ? 1
+      : Math.min(1, Math.max(0, this.rackElapsedMs - hold.rackDelayMs) / hold.rackMs);
     const rackArc = hold.rackMs === 0 ? 0 : Math.sin(rackT * Math.PI);
     const backpushT = hold.backpushMs === 0
       ? 1
@@ -291,7 +295,7 @@ export class PrecisionWeaponViewmodel {
     this.root.rotation.set(
       rx + (equipAngle + this.recoil * hold.kickDeg) * Math.PI / 180 + this.swayPitch,
       ry + this.swayYaw,
-      rz + (this.recoil * hold.wristFlickDeg - goldieArc * 8) * Math.PI / 180,
+      rz + (this.recoil * hold.wristFlickDeg - goldieArc * 8 + rackArc * 4) * Math.PI / 180,
     );
     this.weaponMount.scale.setScalar(hold.scale);
     if (this.leftIk !== undefined) {

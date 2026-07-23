@@ -33,14 +33,15 @@ describe("weapon viewmodels", () => {
       landingDipMs: 60,
       recoilDecayMs: 80,
       equipMs: 140,
-      equipStartDeg: -15,
+      equipStartDeg: -22,
       equipOvershoot: 0.1,
       idleAmplitudeM: 0.002,
       idlePeriodMs: 3_000,
     });
     expect(VIEWMODEL_HOLDS[WeaponId.Boomstick]).toMatchObject({
       kickDeg: 5,
-      rackMs: 90,
+      rackMs: 240, // J10: a pump you can't see is a pump you don't have
+      rackDelayMs: 140,
       twoHanded: true,
     });
     expect(VIEWMODEL_HOLDS[WeaponId.Arc].humShakeM).toBe(0.0003);

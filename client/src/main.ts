@@ -102,7 +102,7 @@ import {
   type UserSettings,
 } from "./settings.js";
 import { PrecisionWeaponViewmodel as WeaponViewmodel } from "./precision-viewmodel.js";
-import { VIEWMODEL_CONFIGS, VIEWMODEL_MOTION } from "./viewmodels.js";
+import { VIEWMODEL_CONFIGS, VIEWMODEL_HOLDS, VIEWMODEL_MOTION } from "./viewmodels.js";
 import {
   FallbackRenderPipeline,
   RecoverableRenderPipeline,
@@ -1139,8 +1139,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
 
     const displayedWeapon = viewmodelCaptureConfig?.weaponId ?? combat.weaponId;
     if (displayedWeapon !== lastWeapon) {
+      const isFirstEquip = lastWeapon === undefined;
       lastWeapon = displayedWeapon;
       viewmodel?.setWeapon(displayedWeapon, viewmodelCaptureConfig);
+      // Tier-up is the core loop: the new gun gets a grab+seat sound (J10).
+      if (!isFirstEquip) audio.equip();
     }
     if (viewmodelCaptureKick) viewmodel?.onFire();
     // Each predicted-sim fire event presents exactly once. Multiple events in
@@ -1150,6 +1153,10 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       viewmodel?.onFire();
       cameraKick.fire(fired.weaponId, zoomed, fired.burstIndex);
       audio.playFire(fired.weaponId);
+      const rackHold = VIEWMODEL_HOLDS[fired.weaponId];
+      if (rackHold.rackMs > 0) {
+        audio.rack(rackHold.rackDelayMs / 1_000, rackHold.rackMs);
+      }
       const weapon = WEAPONS[fired.weaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
         showAimTracer(weapon.range);
