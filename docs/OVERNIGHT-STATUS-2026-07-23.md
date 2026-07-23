@@ -78,3 +78,26 @@ Load `dev.sml.world/gg/index.html` (bypasses any stale cache), corner tag
 must match the latest deploy, then judge: brightness, edges, enemy read,
 rack feel. If anything is off, the CI artifacts for that exact build show me
 what you saw — we debate pixels now, not vibes.
+
+
+---
+
+## Punch-list wave (owner feedback round, deployed: build `f28c2e4`)
+
+Every item from the playtest, screenshot-verified:
+1. **Guns/arms now render** — first time ever on WebGL2. Five-round forensic
+   chain: dead TSL composite → overlay/present fight → layer inheritance →
+   depthTest=false vanish → collapsed skinned arms. Final: single-pass,
+   camera-parented, proven config. Pose polish is now a taste dial.
+2. **Real firearm audio** — FFSL CC0 field recordings (1911, M45, Benelli
+   Nova, AR-15, Tikka T3), near takes local / mid takes positional; real
+   pump/bolt/slide/draw foley on rack and equip.
+3. **Bullets visible** — tracers 3x wider, hot amber, 7 m streaks.
+4. **Wall debris** — shots sweep the collision world; sparks/dust/impact
+   audio at the true hit point.
+5. **Crosshair teaches accuracy** — live bloom + amber tint when movement
+   more than doubles the cone.
+6. **Bot suicides fixed** — weapon-aware trigger discipline (rocket standoff).
+
+Queued next: gun pose/scale taste pass, bullet-hole decals + particle
+sprites (assets vendored), guns in enemy hands, sky saturation, map P2.
