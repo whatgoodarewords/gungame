@@ -269,6 +269,7 @@ interface PendingFire {
 }
 
 export class Room {
+  private botBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | undefined;
   readonly players = new Map<number, PlayerSlot>();
   readonly config: RoomConfig;
   readonly id: string;
@@ -1241,6 +1242,31 @@ export class Room {
       const error = Math.sin((tick + slot.id * 17) * 0.19) * BOT_AIM_ERROR_DEGREES;
       slot.botAimYaw = Math.atan2(-dx, -dz) * 180 / Math.PI + error;
     }
+    // Containment (owner report: bots JUMPING OFF THE MAP once the prison
+    // walls became parapets — elevated ledges near the perimeter are open
+    // cliffs and bots have no navigation). Playable bounds come from the
+    // spawn cloud; a bot near the edge steers hard toward the arena center.
+    const bounds = this.spawns.length === 0 ? undefined : this.botBounds ??= (() => {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const spawn of this.spawns) {
+        minX = Math.min(minX, spawn.position.x);
+        maxX = Math.max(maxX, spawn.position.x);
+        minZ = Math.min(minZ, spawn.position.z);
+        maxZ = Math.max(maxZ, spawn.position.z);
+      }
+      const padX = Math.max(4, (maxX - minX) * 0.15);
+      const padZ = Math.max(4, (maxZ - minZ) * 0.15);
+      return { minX: minX - padX, maxX: maxX + padX, minZ: minZ - padZ, maxZ: maxZ + padZ };
+    })();
+    const px = slot.state.player.position.x;
+    const pz = slot.state.player.position.z;
+    const nearEdge = bounds !== undefined &&
+      (px < bounds.minX || px > bounds.maxX || pz < bounds.minZ || pz > bounds.maxZ);
+    if (nearEdge && bounds !== undefined) {
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+      slot.botAimYaw = Math.atan2(-(centerX - px), -(centerZ - pz)) * 180 / Math.PI;
+    }
     const seq = slot.botSeq++;
     // Weapon-aware trigger discipline: bots used to hold Fire whenever any
     // target existed — including rockets point-blank into the wall they were
@@ -1266,7 +1292,7 @@ export class Room {
       tick,
       buttons: Buttons.Forward | Buttons.Zoom |
         (wantsFire ? Buttons.Fire : 0) |
-        (tick % 53 === slot.id % 53 ? Buttons.Jump : 0),
+        (!nearEdge && tick % 53 === slot.id % 53 ? Buttons.Jump : 0),
       viewYaw: slot.botAimYaw,
       viewPitch: 0,
       fireFraction: (tick * 29 + slot.id * 13) & 0xff,

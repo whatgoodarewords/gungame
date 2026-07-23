@@ -204,14 +204,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   input.onLockChange((locked) => hud.setPointerLock(locked));
   hud.onResume(() => input.requestLock());
 
-  // Fullscreen-first PLAY (native-feel §2): visible browser chrome is the #1
-  // "browser game" tell. Enter fullscreen on the same click gesture that
-  // captures the pointer; localStorage opt-out; Esc exits as usual.
-  document.addEventListener("pointerdown", (event) => {
+  // Fullscreen-first PLAY (native-feel §2), resequenced: requesting
+  // fullscreen on the SAME click as pointer lock made the two compete for
+  // the gesture — Safari rejects lock during the fullscreen transition
+  // ('stuck: can look at nothing, click does nothing'). Fullscreen now
+  // follows only AFTER lock succeeds; lock always wins the gesture.
+  input.onLockChange((locked) => {
+    if (!locked) return;
     if (localStorage.getItem("gg:fullscreen") === "0") return;
     if (document.fullscreenElement !== null) return;
-    const target = event.target;
-    if (!(target instanceof HTMLCanvasElement) || target.closest("#app") === null) return;
     void document.documentElement.requestFullscreen({ navigationUI: "hide" })
       .catch(() => undefined);
   });
