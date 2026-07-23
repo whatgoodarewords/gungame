@@ -1400,10 +1400,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           };
         }
       });
-      for (let node: { visible: boolean; parent: unknown } | null = viewmodel.root as never;
-        node !== null;
-        node = node.parent as never) {
-        if (!node.visible) chainVisible = false;
+      let walker: { visible: boolean; parent: unknown } | null =
+        viewmodel.root as unknown as { visible: boolean; parent: unknown };
+      while (walker !== null) {
+        if (!walker.visible) chainVisible = false;
+        walker = walker.parent as { visible: boolean; parent: unknown } | null;
       }
       return JSON.stringify({
         mesh: firstMesh ?? "none",
