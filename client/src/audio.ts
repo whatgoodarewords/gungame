@@ -1,5 +1,5 @@
 import { NEAR_MISS_DIALS, WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { AUDIO_SAMPLE_URLS, FOLEY_SAMPLE_URLS, GUNSHOT_SAMPLE_URLS } from "./asset-manifest.js";
+import { AUDIO_SAMPLE_URLS, FOLEY_SAMPLE_URLS, GUNSHOT_SAMPLE_URLS, IMPACT_SAMPLE_URLS } from "./asset-manifest.js";
 import { GUNSHOT_PARAMS, renderGunshot } from "./gunshot-synth.js";
 
 export type SurfaceMaterial = "concrete" | "metal" | "stone";
@@ -113,6 +113,8 @@ export class GameAudio {
   private muted = false;
   private readonly samples = new Map<string, AudioBuffer>();
   private preloadStarted = false;
+  private impactCounter = 0;
+  private tinkleCounter = 0;
   private footstepIndex = 0;
 
   unlock(): void {
@@ -245,12 +247,42 @@ export class GameAudio {
       position, 1, 0.035);
   }
 
-  playImpact(weaponId: WeaponIdValue, position?: { x: number; y: number; z: number }): void {
+  playImpact(
+    weaponId: WeaponIdValue,
+    position?: { x: number; y: number; z: number },
+    surface: SurfaceMaterial = "stone",
+  ): void {
+    // Wall-hit anatomy (combat-fx-reference): surface chip every hit, plus a
+    // ricochet whine on a minority — 1-in-4 on metal, 1-in-7 on stone.
+    // Deterministic counter, not RNG: replays and tests stay reproducible.
+    this.impactCounter += 1;
+    if (position !== undefined && weaponId !== WeaponId.Peacemaker && weaponId !== WeaponId.Discus) {
+      const chips = surface === "metal"
+        ? IMPACT_SAMPLE_URLS.surfaceChips.metal
+        : IMPACT_SAMPLE_URLS.surfaceChips.stone;
+      const chip = chips[this.impactCounter % chips.length]!;
+      this.playSample(chip, position, 0.5, 0.94 + (this.impactCounter % 5) * 0.03);
+      if (surface === "metal") this.playSample(AUDIO_SAMPLE_URLS.impactMetal, position, 0.28, 1.25);
+      const whineEvery = surface === "metal" ? 4 : 7;
+      if (this.impactCounter % whineEvery === 0) {
+        const whines = surface === "metal"
+          ? IMPACT_SAMPLE_URLS.ricochetWhines.metal
+          : IMPACT_SAMPLE_URLS.ricochetWhines.stone;
+        this.playSampleDelayed(whines[(this.impactCounter / whineEvery | 0) % whines.length]!, 0.03, 0.3);
+      }
+    }
     const sampled = weaponId === WeaponId.Peacemaker || weaponId === WeaponId.Discus
       ? AUDIO_SAMPLE_URLS.explosion
       : AUDIO_SAMPLE_URLS.impactGeneric;
     if (this.playSample(sampled, position, 0.65)) return;
     this.play(IMPACT_RECIPES[weaponId], position);
+  }
+
+  /** Brass tinkle on a casing's first floor contact. */
+  casingTinkle(position: { x: number; y: number; z: number }): void {
+    this.tinkleCounter += 1;
+    const url = IMPACT_SAMPLE_URLS.casingTinkles[this.tinkleCounter % IMPACT_SAMPLE_URLS.casingTinkles.length]!;
+    this.playSample(url, position, 0.34, 0.92 + (this.tinkleCounter % 4) * 0.05);
   }
 
   /** Rack (J10): real pump/bolt/slide foley; two-click synth fallback. */
@@ -510,6 +542,10 @@ export class GameAudio {
       FOLEY_SAMPLE_URLS.equipDraw,
       ...FOLEY_SAMPLE_URLS.ricochets,
       ...FOLEY_SAMPLE_URLS.distantShots,
+      ...IMPACT_SAMPLE_URLS.casingTinkles,
+      ...IMPACT_SAMPLE_URLS.ricochetWhines.stone,
+      ...IMPACT_SAMPLE_URLS.ricochetWhines.metal,
+      ...IMPACT_SAMPLE_URLS.surfaceChips.stone,
       ...AUDIO_SAMPLE_URLS.footstepConcrete,
       AUDIO_SAMPLE_URLS.impactGeneric,
       AUDIO_SAMPLE_URLS.impactMetal,

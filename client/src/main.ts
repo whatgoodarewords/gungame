@@ -188,6 +188,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   const perf = new FrameBudgetMeter();
   const latency = new LatencyEstimator();
   const impacts = new ImpactVisualSystem(scene);
+  impacts.onCasingBounce = (x, y, z) => audio.casingTinkle({ x, y, z });
   let clipMapName = "map";
   const clip = new ClipThat(canvas, () => clipMapName, () => audio.captureStream);
   audio.setMaster(userSettings.masterVolume, userSettings.muted);
@@ -902,7 +903,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     );
   };
 
-  const showAimTracer = (range: number): void => {
+  let aimShotCounter = 0;
+  const showAimTracer = (range: number, weaponId: WeaponIdValue): void => {
     fpsCam.camera.getWorldPosition(aimOrigin);
     fpsCam.camera.getWorldDirection(aimDirection);
     // True wall hit via the sim collision world: debris lands where the
@@ -919,9 +921,22 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         wallHit.point,
         currentMode === GameMode.Scoutzknivez ? 0xb9a98a : 0x8997a1,
         false,
+        wallHit.normal,
       );
-      audio.playImpact(sim.getCombatState().weaponId, wallHit.point);
+      impacts.addDecal(wallHit.point, wallHit.normal);
+      audio.playImpact(
+        weaponId,
+        wallHit.point,
+        currentMode === GameMode.Scoutzknivez ? "stone" : "metal",
+      );
     }
+    // Tracer frequency (combat-fx-reference: CS runs 3-4 streaks per 10
+    // rounds — every-bullet tracers read as a laser hose). Snipers and
+    // shotguns keep one streak per trigger pull; the automatics get 1-in-3.
+    aimShotCounter += 1;
+    const everyShot = weaponId === WeaponId.Scout || weaponId === WeaponId.Deadeye ||
+      weaponId === WeaponId.Shotgun || weaponId === WeaponId.Boomstick;
+    if (!everyShot && aimShotCounter % 3 !== 0) return;
     // Start the streak slightly forward/below the eye so it reads as leaving
     // the muzzle, not the forehead.
     aimOrigin.addScaledVector(aimDirection, 0.9);
@@ -1251,8 +1266,16 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
       const weapon = WEAPONS[fired.weaponId];
       if (weapon.kind !== "projectile" && weapon.kind !== "melee") {
-        showAimTracer(weapon.range);
-        impacts.ejectCasing(fpsCam.camera.position, input.yaw);
+        showAimTracer(weapon.range, fired.weaponId);
+        // Real floor under the shooter so the casing lands (and tinkles)
+        // instead of sinking through the world.
+        const camPos = fpsCam.camera.position;
+        const floorHit = sim.getCollisionWorld()?.sweepProjectile(
+          { x: camPos.x, y: camPos.y, z: camPos.z },
+          { x: camPos.x, y: camPos.y - 30, z: camPos.z },
+          0,
+        );
+        impacts.ejectCasing(camPos, input.yaw, floorHit?.point.y ?? camPos.y - 1.62);
       }
       // A real muzzle response drew this frame — arm the click-to-photon close
       // for the next rAF (≈ this frame's present). (F4/S3)

@@ -6,18 +6,27 @@ import {
   Matrix4,
   MeshBasicNodeMaterial,
   MeshStandardNodeMaterial,
+  PlaneGeometry,
   PointLight,
   Quaternion,
   Scene,
   SphereGeometry,
+  SRGBColorSpace,
+  TextureLoader,
   Vector3,
 } from "three/webgpu";
+import { BULLET_DECAL_URL } from "./asset-manifest.js";
 
 const SPARK_CAPACITY = 64;
 const PUFF_CAPACITY = 24;
 const BURST_CAPACITY = 96;
 export const CASING_CAPACITY = 32;
+const DECAL_CAPACITY = 160;
+const CASING_LIFE_S = 3.0;
 const HIDDEN_MATRIX = new Matrix4().makeScale(0, 0, 0);
+const WORLD_UP = new Vector3(0, 1, 0);
+const WORLD_X = new Vector3(1, 0, 0);
+const PLANE_FORWARD = new Vector3(0, 0, 1);
 
 export class ImpactVisualSystem {
   readonly sparks: InstancedMesh;
@@ -38,6 +47,13 @@ export class ImpactVisualSystem {
   private readonly casingLife = new Float32Array(CASING_CAPACITY);
   private readonly casingPosition = new Float32Array(CASING_CAPACITY * 3);
   private readonly casingVelocity = new Float32Array(CASING_CAPACITY * 3);
+  private readonly casingFloor = new Float32Array(CASING_CAPACITY);
+  private readonly casingBounces = new Uint8Array(CASING_CAPACITY);
+  private readonly casingResting = new Uint8Array(CASING_CAPACITY);
+  readonly decals: InstancedMesh;
+  private decalCursor = 0;
+  /** First floor contact per casing — main wires this to the brass tinkle. */
+  onCasingBounce: ((x: number, y: number, z: number) => void) | undefined;
   private sparkCursor = 0;
   private puffCursor = 0;
   private casingCursor = 0;
@@ -46,6 +62,10 @@ export class ImpactVisualSystem {
   private readonly scale = new Vector3();
   private readonly spinAxis = new Vector3(1, 1, 0).normalize();
   private readonly rotation = new Quaternion();
+  private readonly rollQuaternion = new Quaternion();
+  private readonly normalVector = new Vector3();
+  private readonly tangentA = new Vector3();
+  private readonly tangentB = new Vector3();
 
   constructor(scene: Scene) {
     this.sparks = new InstancedMesh(
@@ -88,15 +108,44 @@ export class ImpactVisualSystem {
       }),
       CASING_CAPACITY,
     );
+    // Bullet-hole decal pool: persistent (pool-wraps at capacity, no per-frame
+    // cost — matrices are written once at spawn). polygonOffset beats z-fight
+    // against the wall it sits on.
+    const decalMaterial = new MeshBasicNodeMaterial({
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    new TextureLoader().load(BULLET_DECAL_URL, (texture) => {
+      texture.colorSpace = SRGBColorSpace;
+      decalMaterial.map = texture;
+      decalMaterial.needsUpdate = true;
+      this.decals.visible = true;
+    });
+    this.decals = new InstancedMesh(
+      new PlaneGeometry(0.11, 0.11),
+      decalMaterial,
+      DECAL_CAPACITY,
+    );
+    // Hidden until the texture lands: an untextured white quad pool would
+    // flash solid squares on the first shots of a session.
+    this.decals.visible = false;
+    // Instances spread across the whole map; the base plane's bounds would
+    // cull them all as soon as the origin leaves the frustum.
+    this.decals.frustumCulled = false;
     this.sparks.name = "impact-sparks-instanced";
     this.puffs.name = "impact-puffs-instanced";
     this.bursts.name = "hit-burst-embers-instanced";
     this.casings.name = "shell-casings-pooled-32";
+    this.decals.name = "bullet-hole-decals-pooled-160";
     this.resetMatrices(this.sparks, SPARK_CAPACITY);
     this.resetMatrices(this.puffs, PUFF_CAPACITY);
     this.resetMatrices(this.bursts, BURST_CAPACITY);
     this.resetMatrices(this.casings, CASING_CAPACITY);
-    scene.add(this.sparks, this.puffs, this.bursts, this.casings);
+    this.resetMatrices(this.decals, DECAL_CAPACITY);
+    scene.add(this.sparks, this.puffs, this.bursts, this.casings, this.decals);
     for (let index = 0; index < 4; index += 1) {
       const light = new PointLight(0xffb35f, 0, 4.5, 2);
       light.userData.frames = 0;
@@ -109,26 +158,40 @@ export class ImpactVisualSystem {
     point: Readonly<{ x: number; y: number; z: number }>,
     surfaceColor: number,
     rocket = false,
+    normal?: Readonly<{ x: number; y: number; z: number }>,
   ): void {
+    // Debris cone leaves ALONG the surface normal (combat-fx-reference: the
+    // pre-normal system sprayed everything upward, so wall hits read as
+    // floor hits). No normal (player hits, legacy calls) keeps the up-cone.
+    this.normalVector.set(normal?.x ?? 0, normal?.y ?? 1, normal?.z ?? 0).normalize();
+    this.tangentA.crossVectors(
+      this.normalVector,
+      Math.abs(this.normalVector.y) > 0.92 ? WORLD_X : WORLD_UP,
+    ).normalize();
+    this.tangentB.crossVectors(this.normalVector, this.tangentA);
     for (let count = 0; count < 4; count += 1) {
       const index = this.sparkCursor++ % SPARK_CAPACITY;
       const base = index * 3;
       const phase = (index * 2.399963 + count * 1.31) % (Math.PI * 2);
-      const speed = 2.8 + count * 0.55;
+      const ring = 1.5 + count * 0.35;
+      const along = 2.2 + count * 0.5;
       this.sparkLife[index] = 0.13;
       this.sparkPosition[base] = point.x;
       this.sparkPosition[base + 1] = point.y;
       this.sparkPosition[base + 2] = point.z;
-      this.sparkVelocity[base] = Math.cos(phase) * speed;
-      this.sparkVelocity[base + 1] = 1.4 + count * 0.45;
-      this.sparkVelocity[base + 2] = Math.sin(phase) * speed;
+      this.sparkVelocity[base] = this.normalVector.x * along +
+        (this.tangentA.x * Math.cos(phase) + this.tangentB.x * Math.sin(phase)) * ring;
+      this.sparkVelocity[base + 1] = this.normalVector.y * along + 0.6 +
+        (this.tangentA.y * Math.cos(phase) + this.tangentB.y * Math.sin(phase)) * ring;
+      this.sparkVelocity[base + 2] = this.normalVector.z * along +
+        (this.tangentA.z * Math.cos(phase) + this.tangentB.z * Math.sin(phase)) * ring;
     }
     const puff = this.puffCursor++ % PUFF_CAPACITY;
     const puffBase = puff * 3;
     this.puffLife[puff] = rocket ? 0.26 : 0.18;
-    this.puffPosition[puffBase] = point.x;
-    this.puffPosition[puffBase + 1] = point.y;
-    this.puffPosition[puffBase + 2] = point.z;
+    this.puffPosition[puffBase] = point.x + this.normalVector.x * 0.06;
+    this.puffPosition[puffBase + 1] = point.y + this.normalVector.y * 0.06;
+    this.puffPosition[puffBase + 2] = point.z + this.normalVector.z * 0.06;
     this.puffs.setColorAt(puff, new Color(rocket ? 0x2a211b : surfaceColor));
     const light = this.lights[this.puffCursor % this.lights.length]!;
     light.color.set(rocket ? 0xff7538 : 0xffc27a);
@@ -168,13 +231,43 @@ export class ImpactVisualSystem {
     }
   }
 
+  /**
+   * Bullet-hole decal at a wall hit: oriented to the surface, deterministic
+   * golden-angle roll + size wobble so a spray never tiles. Matrices write
+   * once — the pool costs nothing per frame and wraps at capacity, CS-style.
+   */
+  addDecal(
+    point: Readonly<{ x: number; y: number; z: number }>,
+    normal: Readonly<{ x: number; y: number; z: number }>,
+  ): void {
+    const index = this.decalCursor++ % DECAL_CAPACITY;
+    this.normalVector.set(normal.x, normal.y, normal.z).normalize();
+    this.position.set(
+      point.x + this.normalVector.x * 0.006,
+      point.y + this.normalVector.y * 0.006,
+      point.z + this.normalVector.z * 0.006,
+    );
+    this.rotation.setFromUnitVectors(PLANE_FORWARD, this.normalVector);
+    this.rollQuaternion.setFromAxisAngle(PLANE_FORWARD, index * 2.399963);
+    this.rotation.multiply(this.rollQuaternion);
+    const size = 0.85 + ((index * 37) % 100) / 100 * 0.45;
+    this.scale.set(size, size, 1);
+    this.matrix.compose(this.position, this.rotation, this.scale);
+    this.decals.setMatrixAt(index, this.matrix);
+    this.decals.instanceMatrix.needsUpdate = true;
+  }
+
   ejectCasing(
     origin: Readonly<{ x: number; y: number; z: number }>,
     yaw: number,
+    floorY = -100,
   ): void {
     const index = this.casingCursor++ % CASING_CAPACITY;
     const base = index * 3;
-    this.casingLife[index] = 0.72;
+    this.casingLife[index] = CASING_LIFE_S;
+    this.casingFloor[index] = floorY;
+    this.casingBounces[index] = 0;
+    this.casingResting[index] = 0;
     this.casingPosition[base] = origin.x;
     this.casingPosition[base + 1] = origin.y - 0.18;
     this.casingPosition[base + 2] = origin.z;
@@ -245,10 +338,55 @@ export class ImpactVisualSystem {
         continue;
       }
       const base = index * 3;
+      // A rested casing lies still on the floor; only the end-of-life fade
+      // still writes its matrix.
+      if (this.casingResting[index] === 1) {
+        if (life < 0.35) {
+          this.position.fromArray(this.casingPosition, base);
+          this.rotation.setFromAxisAngle(WORLD_X, Math.PI / 2);
+          this.rollQuaternion.setFromAxisAngle(WORLD_UP, index * 2.399963);
+          this.rollQuaternion.multiply(this.rotation);
+          this.scale.setScalar(Math.max(0.05, life / 0.35));
+          this.matrix.compose(this.position, this.rollQuaternion, this.scale);
+          this.casings.setMatrixAt(index, this.matrix);
+        }
+        continue;
+      }
       this.casingVelocity[base + 1] = this.casingVelocity[base + 1]! - 20 * dtSeconds;
       for (let axis = 0; axis < 3; axis += 1) {
         this.casingPosition[base + axis] =
           this.casingPosition[base + axis]! + this.casingVelocity[base + axis]! * dtSeconds;
+      }
+      // Floor contact (combat-fx-reference: casings used to SINK THROUGH the
+      // floor): bounce with strong damping; the first contact is the brass
+      // tinkle everyone knows from CS.
+      const floorY = this.casingFloor[index]! + 0.033;
+      if (this.casingPosition[base + 1]! < floorY && this.casingVelocity[base + 1]! < 0) {
+        this.casingPosition[base + 1] = floorY;
+        const verticalSpeed = -this.casingVelocity[base + 1]!;
+        this.casingVelocity[base + 1] = verticalSpeed * 0.32;
+        this.casingVelocity[base] = this.casingVelocity[base]! * 0.55;
+        this.casingVelocity[base + 2] = this.casingVelocity[base + 2]! * 0.55;
+        if (this.casingBounces[index] === 0 && this.onCasingBounce !== undefined) {
+          this.onCasingBounce(
+            this.casingPosition[base]!,
+            this.casingPosition[base + 1]!,
+            this.casingPosition[base + 2]!,
+          );
+        }
+        this.casingBounces[index] = Math.min(255, this.casingBounces[index]! + 1);
+        // Too slow to bounce visibly again: lie flat where it landed.
+        if (verticalSpeed * 0.32 < 0.55) {
+          this.casingResting[index] = 1;
+          this.position.fromArray(this.casingPosition, base);
+          this.rotation.setFromAxisAngle(WORLD_X, Math.PI / 2);
+          this.rollQuaternion.setFromAxisAngle(WORLD_UP, index * 2.399963);
+          this.rollQuaternion.multiply(this.rotation);
+          this.scale.set(1, 1, 1);
+          this.matrix.compose(this.position, this.rollQuaternion, this.scale);
+          this.casings.setMatrixAt(index, this.matrix);
+          continue;
+        }
       }
       this.position.fromArray(this.casingPosition, base);
       this.rotation.setFromAxisAngle(this.spinAxis, life * 24);

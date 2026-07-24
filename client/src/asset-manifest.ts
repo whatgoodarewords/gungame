@@ -49,6 +49,17 @@ import distantShot1Url from "../../assets/vendor/freesound-cc0-weapon-foley/dist
 import distantShot3Url from "../../assets/vendor/freesound-cc0-weapon-foley/distant-gunshot-3_fs384715.ogg?url";
 import ricochet1Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-1_fs478345.ogg?url";
 import ricochet2Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-2_fs394187.ogg?url";
+import bulletHoleUrl from "../../assets/vendor/oga-bullet-decal/bullet_hole.png?url";
+import casingTinkle1Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-brass-concrete-1_fs210102.ogg?url";
+import casingTinkle2Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-30cal-bounce-2_fs205126.ogg?url";
+import casingTinkle3Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-bounce-various-3_fs318964.ogg?url";
+import whineStone1Url from "../../assets/vendor/freesound-cc0-combat-impacts/ricochet-whine-6_fs148840.ogg?url";
+import whineStone2Url from "../../assets/vendor/freesound-cc0-combat-impacts/ricochet-22-whine-5_fs148827.ogg?url";
+import whineMetal1Url from "../../assets/vendor/freesound-cc0-combat-impacts/ricochet-metal-4_fs392975.ogg?url";
+import whineMetal2Url from "../../assets/vendor/freesound-cc0-combat-impacts/ricochet-metal-rifle-3_fs675955.ogg?url";
+import chipStone1Url from "../../assets/vendor/freesound-cc0-combat-impacts/impact-concrete-chip-1_fs321478.ogg?url";
+import chipStone2Url from "../../assets/vendor/freesound-cc0-combat-impacts/impact-stone-debris-3_fs554148.ogg?url";
+import chipStone3Url from "../../assets/vendor/freesound-cc0-combat-impacts/impact-stone-rubble-2_fs569510.ogg?url";
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
 
 export const WRAD_ARMS_URL = wradArmsUrl;
@@ -98,6 +109,24 @@ export const FOLEY_SAMPLE_URLS = Object.freeze({
   equipDraw: equipDrawUrl,
   ricochets: [ricochet1Url, ricochet2Url],
   distantShots: [distantShot1Url, distantShot3Url],
+});
+
+/** Bullet-hole decal texture (OpenGameArt, CC0). */
+export const BULLET_DECAL_URL = bulletHoleUrl;
+
+/** Combat-impact layers (freesound CC0): wall-hit anatomy per
+ * docs/combat-fx-reference.md — surface chips every hit, ricochet whine on a
+ * minority, brass tinkle on first casing floor contact. */
+export const IMPACT_SAMPLE_URLS = Object.freeze({
+  casingTinkles: [casingTinkle1Url, casingTinkle2Url, casingTinkle3Url],
+  ricochetWhines: Object.freeze({
+    stone: [whineStone1Url, whineStone2Url],
+    metal: [whineMetal1Url, whineMetal2Url],
+  }),
+  surfaceChips: Object.freeze({
+    stone: [chipStone1Url, chipStone2Url, chipStone3Url],
+    metal: [chipStone1Url],
+  }),
 });
 
 export const AUDIO_SAMPLE_URLS = Object.freeze({

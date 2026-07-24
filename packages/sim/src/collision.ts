@@ -144,13 +144,26 @@ export class CollisionWorld {
     );
     if (hit === null || hit.distance - radius > distance) return undefined;
     const travel = Math.max(0, hit.distance - radius);
+    // True face normal (map geometry is baked in world space), flipped to
+    // oppose the ray for DoubleSide backface hits; decals and debris cones
+    // orient off this. Reversed ray direction stays the fallback.
+    let normal: Vec3 = { x: -delta.x, y: -delta.y, z: -delta.z };
+    const face = (hit as { face?: { normal?: Vector3 } }).face;
+    if (face?.normal !== undefined) {
+      const flip = face.normal.dot(delta) > 0 ? -1 : 1;
+      normal = {
+        x: face.normal.x * flip,
+        y: face.normal.y * flip,
+        z: face.normal.z * flip,
+      };
+    }
     return {
       point: {
         x: from.x + delta.x * travel,
         y: from.y + delta.y * travel,
         z: from.z + delta.z * travel,
       },
-      normal: { x: -delta.x, y: -delta.y, z: -delta.z },
+      normal,
     };
   }
 
