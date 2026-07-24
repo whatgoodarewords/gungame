@@ -183,8 +183,16 @@ function triplanarMapMaterial(
   // made every interior a cave no light could brighten. The palette carries
   // the base brightness; the texture MODULATES it (0.55–1.15) so detail
   // survives without owning the exposure.
-  material.colorNode = sample(set.diffuse).mul(0.6).add(0.55)
+  const albedo = sample(set.diffuse).mul(0.6).add(0.55)
     .mul(color(palette.surface));
+  material.colorNode = albedo;
+  // Flat-lit register carries its own light floor (CI r34-r36): on the
+  // WebGL2 node backend only ONE directional actually contributes — a
+  // second fill (with or without shadows) measured ~zero on faces the sun
+  // misses, so every such face rendered as a black void. 34% emissive
+  // albedo guarantees the Krunker-class baked-bright look on EVERY backend;
+  // the sun adds modeling and shadows on top.
+  material.emissiveNode = albedo.mul(0.34);
   material.roughnessNode = sample(set.roughness).r.mul(0.55).add(0.4);
   material.aoNode = sample(set.ao).r.mul(0.45).add(0.55);
   material.metalnessNode = float(set.metalness);
@@ -247,14 +255,12 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   // gives every vertical face directional modeling.
   const fill = new DirectionalLight(0xc9dcf2, 0.85);
   fill.position.set(-30, 42, -26);
-  // r35: with castShadow=false this fill contributed ~nothing on the WebGL2
-  // node backend while the shadow-casting key worked — backend appears to
-  // drop non-casting directionals when a casting one exists. Small shadow
-  // map (740-tri maps) keeps it cheap.
-  fill.castShadow = true;
-  fill.shadow.mapSize.set(1024, 1024);
-  fill.shadow.bias = -0.00025;
-  fill.shadow.normalBias = 0.018;
+  // r35/r36 measured this fill at ~zero contribution on the WebGL2 node
+  // backend with AND without shadows — that backend honors only one
+  // directional. The emissive floor on the map material is the real
+  // guarantee; the fill stays (no shadow pass) for backends that do
+  // support it, where it adds modeling on sun-missed faces.
+  fill.castShadow = false;
   root.add(fill);
   const key = new DirectionalLight(0xfff1d8, 2.0);
   key.position.set(34, 62, 22);
@@ -269,15 +275,13 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   if (map !== undefined) {
     const extentX = Math.max(18, (map.bounds.max.x - map.bounds.min.x) * 0.55);
     const extentZ = Math.max(18, (map.bounds.max.z - map.bounds.min.z) * 0.55);
-    for (const light of [key, fill]) {
-      light.shadow.camera.left = -extentX;
-      light.shadow.camera.right = extentX;
-      light.shadow.camera.top = extentZ;
-      light.shadow.camera.bottom = -extentZ;
-      light.shadow.camera.near = 1;
-      light.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
-      light.shadow.camera.updateProjectionMatrix();
-    }
+    key.shadow.camera.left = -extentX;
+    key.shadow.camera.right = extentX;
+    key.shadow.camera.top = extentZ;
+    key.shadow.camera.bottom = -extentZ;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
+    key.shadow.camera.updateProjectionMatrix();
   }
   root.add(key);
   scene.add(root);
