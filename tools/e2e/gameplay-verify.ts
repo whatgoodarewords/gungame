@@ -166,6 +166,25 @@ try {
         await page.waitForTimeout(500);
         await page.screenshot({ path: `${OUT}/${tag}-5-lookup.png` });
 
+        // Aim at the nearest enemy (bearing exposed by the client): character
+        // work gets a guaranteed enemy-in-frame shot every round.
+        const enemyView = await page.evaluate(() => {
+          const d = (globalThis as unknown as {
+            __GG_VISUAL_DEBUG__?: Record<string, number>;
+          }).__GG_VISUAL_DEBUG__ ?? {};
+          return {
+            yaw: Number(d.nearestEnemyYawDeg ?? 0),
+            pitch: Number(d.nearestEnemyPitchDeg ?? 0),
+            distance: Number(d.nearestEnemyDistance ?? -1),
+          };
+        });
+        await page.evaluate((view) => {
+          (globalThis as unknown as Record<string, unknown>).__GG_CI_INPUT__ =
+            { buttons: 0, viewYaw: view.yaw, viewPitch: view.pitch };
+        }, enemyView);
+        await page.waitForTimeout(700);
+        await page.screenshot({ path: `${OUT}/${tag}-6-enemy.png` });
+
         const state = await page.evaluate(() => {
           const doc = (globalThis as unknown as {
             document: { querySelector(s: string): { getAttribute(n: string): string | null } | null };

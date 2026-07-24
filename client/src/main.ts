@@ -1502,6 +1502,32 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       });
       return count;
     })();
+    // Nearest-enemy bearing (server yaw convention): the CI harness aims the
+    // camera here for a guaranteed enemy-in-frame screenshot every round —
+    // character work verifies against pixels instead of luck.
+    {
+      let nearestDistance = Infinity;
+      let nearestYaw = 0;
+      let nearestPitch = 0;
+      for (const remote of remotePlayers) {
+        const dx = remote.position.x - curr.position.x;
+        const dz = remote.position.z - curr.position.z;
+        const planar = Math.hypot(dx, dz);
+        if (planar < nearestDistance && planar > 0.001) {
+          nearestDistance = planar;
+          nearestYaw = Math.atan2(-dx, -dz) * RAD2DEG;
+          nearestPitch = Math.atan2(
+            remote.position.y + 1.1 - (curr.position.y + 1.62),
+            planar,
+          ) * RAD2DEG;
+        }
+      }
+      visualDebug.nearestEnemyDistance = Number.isFinite(nearestDistance)
+        ? Number(nearestDistance.toFixed(1))
+        : -1;
+      visualDebug.nearestEnemyYawDeg = Number(nearestYaw.toFixed(1));
+      visualDebug.nearestEnemyPitchDeg = Number(nearestPitch.toFixed(1));
+    }
     // Forensic probe for the invisible-gun class: everything that decides
     // whether a first mesh actually draws.
     visualDebug.vmProbe = (() => {
