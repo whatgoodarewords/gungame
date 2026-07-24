@@ -201,7 +201,26 @@ export interface RemoteCharacterState {
   readonly ducked?: boolean;
   /** View yaw in degrees (server convention) — enemies face where they AIM. */
   readonly viewYaw?: number;
+  /** View pitch in degrees — the held gun tilts with the aim. */
+  readonly viewPitch?: number;
+  /** Current weapon — the held-gun silhouette scales to the class. */
+  readonly weaponId?: number;
 }
+
+/** Held-gun barrel length (m) by weapon class — the tier read at a glance:
+ * stubby pistol vs long sniper is visible across the arena. */
+const HELD_GUN_LENGTH: Readonly<Record<number, number>> = {
+  [WeaponId.Pistol]: 0.3,
+  [WeaponId.Sidewinder]: 0.32,
+  [WeaponId.Goldie]: 0.3,
+  [WeaponId.Smg]: 0.46,
+  [WeaponId.Shotgun]: 0.7,
+  [WeaponId.Boomstick]: 0.72,
+  [WeaponId.Rifle]: 0.74,
+  [WeaponId.Scout]: 0.92,
+  [WeaponId.Deadeye]: 0.92,
+  [WeaponId.Knife]: 0.22,
+};
 
 const PARTS = ["torso", "head", "leftArm", "rightArm", "leftLeg", "rightLeg"] as const;
 type PartName = typeof PARTS[number];
@@ -218,6 +237,7 @@ export class RemoteCharacterSystem {
   readonly meshes: Readonly<Record<PartName, InstancedMesh>>;
   readonly rimTorso: InstancedMesh;
   readonly rimHead: InstancedMesh;
+  readonly heldGuns: InstancedMesh;
   readonly footstepDust: InstancedMesh;
   private readonly zoneMaterials: { head: Material; limb: Material };
   private readonly capacity: number;
@@ -279,6 +299,13 @@ export class RemoteCharacterSystem {
     // the specced ink-outline pass replaces them.
     this.rimTorso.visible = false;
     this.rimHead.visible = false;
+    // Guns in enemy hands (character-visual-spec P3): one instanced dark
+    // silhouette, z-scaled to the weapon class — the tier read at a glance.
+    const gunMaterial = new MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.35 });
+    gunMaterial.colorNode = color(0x1c1f24);
+    this.heldGuns = new InstancedMesh(new BoxGeometry(0.055, 0.075, 1), gunMaterial, capacity);
+    this.heldGuns.name = "remote-character-held-guns";
+    scene.add(this.heldGuns);
     this.footstepDust = new InstancedMesh(
       new SphereGeometry(0.09, 5, 3),
       new MeshBasicNodeMaterial({
@@ -311,6 +338,7 @@ export class RemoteCharacterSystem {
         for (const part of PARTS) this.meshes[part].setMatrixAt(index, HIDDEN);
         this.rimTorso.setMatrixAt(index, HIDDEN);
         this.rimHead.setMatrixAt(index, HIDDEN);
+        this.heldGuns.setMatrixAt(index, HIDDEN);
         continue;
       }
       this.visibleIds.add(state.id);
@@ -362,6 +390,27 @@ export class RemoteCharacterSystem {
         stride + airborneTuck, 0, duckScale);
       this.writeRim(index, "torso", 1.08);
       this.writeRim(index, "head", 1.12);
+      // Held gun: two-hand center hold, barrel forward (-Z local), tilted
+      // with the aim pitch, butt anchored near the hands.
+      const gunLength = HELD_GUN_LENGTH[state.weaponId ?? -1] ?? 0.5;
+      const pitchRad = (state.viewPitch ?? 0) * Math.PI / 180;
+      // Center rides the aim ray from the hand point so the gun pivots
+      // around the hands, not its own middle.
+      const alongBarrel = 0.14 + gunLength / 2;
+      this.localPosition.set(
+        0.24,
+        1.16 * duckScale + Math.sin(pitchRad) * alongBarrel,
+        -Math.cos(pitchRad) * alongBarrel,
+      );
+      this.localEuler.set(pitchRad, 0, 0);
+      this.scale.set(1, 1, gunLength);
+      this.localMatrix.compose(
+        this.localPosition,
+        this.quaternion.setFromEuler(this.localEuler),
+        this.scale,
+      );
+      this.resultMatrix.multiplyMatrices(this.rootMatrix, this.localMatrix);
+      this.heldGuns.setMatrixAt(index, this.resultMatrix);
 
       const step = Math.floor(phase / Math.PI);
       if (state.alive && state.grounded && speed > 2.2 && this.lastStep.get(state.id) !== step) {
@@ -378,6 +427,8 @@ export class RemoteCharacterSystem {
     this.rimHead.count = Math.max(1, visibleCount);
     this.rimTorso.instanceMatrix.needsUpdate = true;
     this.rimHead.instanceMatrix.needsUpdate = true;
+    this.heldGuns.count = Math.max(1, visibleCount);
+    this.heldGuns.instanceMatrix.needsUpdate = true;
     this.updateDust(Math.max(0, elapsedSeconds - this.lastElapsedSeconds));
     this.lastElapsedSeconds = elapsedSeconds;
     for (const id of this.generations.keys()) {
