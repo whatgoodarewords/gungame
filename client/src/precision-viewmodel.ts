@@ -16,7 +16,7 @@ import { color } from "three/tsl";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
+import { PREORIENTED_MODEL_URLS, WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
 import {
   VIEWMODEL_CONFIGS,
   VIEWMODEL_HOLDS,
@@ -461,16 +461,25 @@ export class PrecisionWeaponViewmodel {
       const model = gltf.scene.clone(true);
       model.traverse((object: Object3D) => {
         object.layers.set(1);
+        // Skinned viewmodel meshes: bounds live in bind space — culling
+        // desyncs from the posed mesh (gun-asset-report gotcha).
+        if ((object as { isSkinnedMesh?: boolean }).isSkinnedMesh === true) {
+          (object as { frustumCulled: boolean }).frustumCulled = false;
+        }
       });
-      const bounds = new Box3().setFromObject(model);
-      const size = bounds.getSize(new Vector3());
-      const center = bounds.getCenter(new Vector3());
-      const longest = Math.max(size.x, size.y, size.z, 0.001);
-      // Normalize to a per-class REAL length. The old flat 0.95m turned a
-      // pistol into a giant rounded grip filling the camera (CI-eyes r6).
-      model.position.sub(center);
-      model.scale.setScalar((WEAPON_VIEW_LENGTH_M[config.weaponId] ?? 0.6) / longest);
-      model.rotation.set(0, Math.PI, 0);
+      if (PREORIENTED_MODEL_URLS.has(url)) {
+        // Rigged flat-guns pack: real meters, -Z forward, grip origin —
+        // recentering or scaling would break bone space. Load verbatim.
+      } else {
+        const bounds = new Box3().setFromObject(model);
+        const size = bounds.getSize(new Vector3());
+        const center = bounds.getCenter(new Vector3());
+        const longest = Math.max(size.x, size.y, size.z, 0.001);
+        // Normalize legacy merged-mesh models to a per-class REAL length.
+        model.position.sub(center);
+        model.scale.setScalar((WEAPON_VIEW_LENGTH_M[config.weaponId] ?? 0.6) / longest);
+        model.rotation.set(0, Math.PI, 0);
+      }
       const composed = new Group();
       composed.add(model);
       const previous = this.model;

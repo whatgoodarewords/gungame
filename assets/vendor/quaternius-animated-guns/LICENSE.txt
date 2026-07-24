@@ -1,0 +1,19 @@
+Animated Guns Pack
+Author: Quaternius (https://quaternius.com)
+Source: https://quaternius.com/packs/animatedguns.html
+        (download link on that page: Google Drive folder
+         1ICYTdMXQqhkhrh8Fzjx9D0ozJuONwtC4)
+Retrieved: 2026-07-24
+
+License: CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The pack page states the license as CC0. Attribution is not required;
+credit retained here as provenance and thanks.
+
+Files:
+- fbx/*.fbx are the unmodified upstream FBX files.
+- *.glb are derivatives converted from those FBX files with FBX2glTF
+  v0.9.7 (npm package fbx2gltf, --binary), 2026-07-24. Each GLB keeps
+  the upstream armature (bones incl. Slide/Magazine/Trigger/Drum/etc.)
+  and the baked Fire / Reload / Slide animation clips.

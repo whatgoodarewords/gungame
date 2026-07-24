@@ -1,0 +1,73 @@
+Freesound CC0 combat impact collection
+All sounds below are licensed CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+Selected via Freesound's license filter: license:"Creative Commons 0".
+CC0 was re-verified on each individual sound page at download time.
+Files are Freesound's HQ Ogg Vorbis encodes of the CC0 originals.
+Downloaded: 2026-07-24. No attribution required; credits retained as thanks.
+
+File -> Freesound source (id, author, original title):
+
+Surface impacts — concrete / stone:
+impact-concrete-chip-1_fs321478.ogg
+  https://freesound.org/s/321478/ — dslrguide — "Concrete Hit 2"
+impact-stone-rubble-2_fs569510.ogg
+  https://freesound.org/s/569510/ — Sheyvan — "Stone Impact Rubble Debris 14"
+impact-stone-debris-3_fs554148.ogg
+  https://freesound.org/s/554148/ — Nox_Sound — "Foley_Impact_Stones_Strong_Debris_Stereo_DS.wav"
+impact-gravel-falls-4_fs179341.ogg
+  https://freesound.org/s/179341/ — lolamadeus — "Gravel Impacts and Falls.wav"
+
+Surface impacts — dirt / sand:
+impact-dirt-thud-1_fs319222.ogg
+  https://freesound.org/s/319222/ — worthahep88 — "Single Rock hit Dirt.wav"
+impact-dirt-thud-2_fs319229.ogg
+  https://freesound.org/s/319229/ — worthahep88 — "Single Rock hit dirt 2.wav"
+impact-sand-hard-3_fs683788.ogg
+  https://freesound.org/s/683788/ — Elements-Library — "Hard Impact on Sand"
+impact-sand-heavy-4_fs543699.ogg
+  https://freesound.org/s/543699/ — 200221-WeanBekker — "Heavy sand impacts.wav"
+
+Metal ricochets (whine tails; extends the 3 in freesound-cc0-weapon-foley):
+ricochet-metal-rifle-3_fs675955.ogg
+  https://freesound.org/s/675955/ — craigsmith — "S20-02 Rifle ricochets.wav"
+ricochet-metal-4_fs392975.ogg
+  https://freesound.org/s/392975/ — morganpurkis — "Ricochet 2.wav"
+ricochet-22-whine-5_fs148827.ogg
+  https://freesound.org/s/148827/ — cedarstudios — ".22 ricochet.mp3"
+ricochet-whine-6_fs148840.ogg
+  https://freesound.org/s/148840/ — cedarstudios — "ricochet.mp3"
+ricochet-bullet-7_fs30932.ogg
+  https://freesound.org/s/30932/ — aust_paul — "bullet ricochet.wav"
+
+Shell casing tinkles:
+casing-brass-concrete-1_fs210102.ogg
+  https://freesound.org/s/210102/ — GrayJoy — "Brass bullet shell casing drop onto concrete, multiple takes"
+casing-30cal-bounce-2_fs205126.ogg
+  https://freesound.org/s/205126/ — Danwardvs — ".30 Shell Bouncing"
+casing-bounce-various-3_fs318964.ogg
+  https://freesound.org/s/318964/ — GryffDavid — "Bouncing Shell Casings (Various Sizes)"
+casing-handful-4_fs337236.ogg
+  https://freesound.org/s/337236/ — Anthousai — "bullet shells - handfull - consolidated.wav"
+casing-shotgun-shell-5_fs773860.ogg
+  https://freesound.org/s/773860/ — MrGungus — "12 guage shotgun shell drop"
+casing-shotgun-eject-6_fs147261.ogg
+  https://freesound.org/s/147261/ — JohnDelayniKIng — "Shotgun shell ejection.aif"
+
+Bullet flybys / cracks (extends the 2 in freesound-cc0-weapon-foley):
+flyby-bullet-3_fs730351.ogg
+  https://freesound.org/s/730351/ — GO_s0unds123 — "Bullet Fly By"
+flyby-whizzby-4_fs505238.ogg
+  https://freesound.org/s/505238/ — Daleonfire — "Whizzby"
+flyby-ricochet-whiz-5_fs661794.ogg
+  https://freesound.org/s/661794/ — adh.dreaming — "Ricocheting Baby"
+flyby-bullet-crack-6_fs386854.ogg
+  https://freesound.org/s/386854/ — morganpurkis — "Bullet Crack.wav"
+
+Explosion layers:
+explosion-debris-short-1_fs560510.ogg
+  https://freesound.org/s/560510/ — Nox_Sound — "Explosion_Debris_Short_Stereo.wav"
+explosion-rubble-debris-2_fs132929.ogg
+  https://freesound.org/s/132929/ — (deleted user, id 1887925) — "Explosion and Rubble/Debris"
+explosion-boom-3_fs220062.ogg
+  https://freesound.org/s/220062/ — klangfabrik — "Explosion004.wav"

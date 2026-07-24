@@ -1,0 +1,12 @@
+OpenGameArt damage decal sources — CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+Downloaded: 2026-07-24. No attribution required; credits retained as thanks.
+
+details.zip (+ extracted details/ directory)
+  "Details for damaged and dirty textures" — rubberduck
+  https://opengameart.org/content/details-for-damaged-and-dirty-textures
+  License(s) on page: CC0
+  Contents: details.xcf (GIMP, layered: bullet holes, cracks, scratches,
+  dirt overlays) + example_damaged.png. Source material for baking
+  additional bullet-hole / concrete-chip decal variants to complement
+  oga-bullet-decal/bullet_hole.png.

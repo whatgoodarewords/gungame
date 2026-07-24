@@ -1,4 +1,13 @@
 import crowbarUrl from "../../assets/vendor/creative-trio-crowbar/crowbar.glb?url";
+import fgwPistolUrl from "../../assets/vendor/pichuliru-flat-guns-west/Pistol_Full_West.glb?url";
+import fgwSmgUrl from "../../assets/vendor/pichuliru-flat-guns-west/SMG_Full_West.glb?url";
+import fgwShotgunUrl from "../../assets/vendor/pichuliru-flat-guns-west/Shotgun_Pump_West.glb?url";
+import fgwRifleUrl from "../../assets/vendor/pichuliru-flat-guns-west/Rifle_Assault_West.glb?url";
+import fgwSniperUrl from "../../assets/vendor/pichuliru-flat-guns-west/Sniper_Rifle_West.glb?url";
+import fgePistolUrl from "../../assets/vendor/pichuliru-flat-guns-east/Pistol_Full_East.glb?url";
+import fgeShotgunUrl from "../../assets/vendor/pichuliru-flat-guns-east/Shotgun_Auto_East.glb?url";
+import fgeSniperUrl from "../../assets/vendor/pichuliru-flat-guns-east/Sniper_Rifle_East.glb?url";
+import fgwPistolCompactUrl from "../../assets/vendor/pichuliru-flat-guns-west/Pistol_Compact_West.glb?url";
 import wradArmsUrl from "../../assets/vendor/wrad-arms/arms.glb?url";
 import footstepConcrete0Url from "../../assets/vendor/kenney-impact/selected/footstep_concrete_000.ogg?url";
 import footstepConcrete1Url from "../../assets/vendor/kenney-impact/selected/footstep_concrete_001.ogg?url";
@@ -45,17 +54,27 @@ import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js
 export const WRAD_ARMS_URL = wradArmsUrl;
 
 export const WEAPON_MODEL_URLS: Partial<Readonly<Record<WeaponIdValue, string>>> = Object.freeze({
-  [WeaponId.Pistol]: pistolUrl,
-  [WeaponId.Smg]: smgUrl,
-  [WeaponId.Shotgun]: shotgunUrl,
-  [WeaponId.Rifle]: rifleUrl,
-  [WeaponId.Scout]: scoutUrl,
+  // Rigged flat-guns set (pichuliru, CC0): real-meter scale, -Z forward,
+  // grip-origin, slide/mag/bolt bones + muzzle sockets. West = classic
+  // ladder identity, East variants fill arsenal slots.
+  [WeaponId.Pistol]: fgwPistolUrl,
+  [WeaponId.Smg]: fgwSmgUrl,
+  [WeaponId.Shotgun]: fgwShotgunUrl,
+  [WeaponId.Rifle]: fgwRifleUrl,
+  [WeaponId.Scout]: fgwSniperUrl,
   [WeaponId.Knife]: crowbarUrl || bayonetUrl,
-  [WeaponId.Sidewinder]: sidewinderUrl,
-  [WeaponId.Boomstick]: boomstickUrl,
-  [WeaponId.Deadeye]: deadeyeUrl,
-  [WeaponId.Goldie]: goldieUrl,
+  [WeaponId.Sidewinder]: fgePistolUrl,
+  [WeaponId.Boomstick]: fgeShotgunUrl,
+  [WeaponId.Deadeye]: fgeSniperUrl,
+  [WeaponId.Goldie]: fgwPistolCompactUrl,
 });
+
+/** URLs from the rigged flat-guns packs: pre-oriented (-Z fwd), real meters,
+ * grip origin — loaded WITHOUT recenter/normalize/flip. */
+export const PREORIENTED_MODEL_URLS: ReadonlySet<string> = new Set([
+  fgwPistolUrl, fgwSmgUrl, fgwShotgunUrl, fgwRifleUrl, fgwSniperUrl,
+  fgePistolUrl, fgeShotgunUrl, fgeSniperUrl, fgwPistolCompactUrl,
+]);
 
 /** Real field-recorded gunshots (FFSL, CC0): near = local player, mid = remote/positional. */
 export const GUNSHOT_SAMPLE_URLS: Partial<Readonly<Record<WeaponIdValue, { near: string; mid: string }>>> =

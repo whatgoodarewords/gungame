@@ -1,0 +1,18 @@
+OpenGameArt explosion FX sprites — all CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+Downloaded: 2026-07-24. No attribution required; credits retained as thanks.
+
+sinestesia-explosions-2.zip (+ extracted sinestesia/ directory)
+  "2D Explosion Animations #2 | Frame by frame" — Sinestesia
+  https://opengameart.org/content/2d-explosion-animations-2-frame-by-frame
+  License(s) on page: CC0
+  Contents: 4 flipbook sheets, 4096x4096 RGBA, 8x8 grid = 64 frames of
+  512x512 each (plus Half Sized/ 2048px variants). Painterly fire +
+  spark-debris explosion sequences.
+
+stumpystrust-boom3.png
+  "Explosion Sheet" — StumpyStrust
+  https://opengameart.org/content/explosion-sheet
+  License(s) on page: CC0
+  Contents: 1024x1024 RGBA flipbook, 8x8 grid = 64 frames of 128x128.
+  Rolling fireball with smoke tail-off.
