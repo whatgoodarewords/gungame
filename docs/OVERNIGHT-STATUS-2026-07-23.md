@@ -200,3 +200,24 @@ their aim), muzzle smoke after sustained fire, remote muzzle glow,
 rockets exploding against walls with scorch decals, saturated day sky,
 and the CI eyes gained a guaranteed enemy-in-frame screenshot plus a
 crosshair identity probe for every future round.
+
+---
+
+## Final build of the night: `5293c4e` (LIVE)
+
+Adds ink outlines on enemies (dark inverted-hull contours on torso+head
+— the character-read lever at range, replacing the invisible additive
+rims). This is the build to judge everything against.
+
+**Your first 5 minutes (build tag must read `5293c4e`):**
+1. Movement: if stuck, the chip names why; F9 resets keybindings.
+2. Look at your hands: a real pistol, muzzle smoke after spraying.
+3. Spray a wall: bullet holes stay, debris kicks off the surface,
+   brass tinkles on the floor.
+4. Listen: every bot firefight around you is audible from where it
+   happens; far ones sound far.
+5. Look at the arena: no black voids anywhere, day sky, enemies with
+   guns in their hands and dark contours.
+
+If any of those five fail on your machine, say which number — each one
+now has instrumentation behind it.
