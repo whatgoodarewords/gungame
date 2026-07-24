@@ -202,6 +202,13 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     }
   });
   input.onLockChange((locked) => hud.setPointerLock(locked));
+  document.addEventListener("keydown", (event) => {
+    if (event.code !== "F9") return;
+    input.resetBindings();
+    stuckChip.textContent = "key bindings reset to defaults (WASD/space/shift)";
+    stuckChip.style.display = "block";
+    setTimeout(() => { stuckChip.style.display = "none"; }, 2_500);
+  });
   hud.onResume(() => input.requestLock());
 
   // Fullscreen-first PLAY (native-feel §2), resequenced: requesting
@@ -924,6 +931,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   root.appendChild(stuckChip);
   let stuckSinceMs = -1;
   let nextStuckCheckMs = 0;
+  let stuckChipLastPos: { x: number; z: number } | undefined;
   const updateStuckChip = (now: number, frozen: boolean): void => {
     if (now < nextStuckCheckMs) return;
     nextStuckCheckMs = now + 1_000;
@@ -938,10 +946,28 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       problem = "round frozen (scoreboard) — respawns when the next round starts";
     } else if (!input.isLocked) {
       problem = `mouse not captured (lock: ${lockState}) — click the game world`;
+    } else if (
+      stuckChipLastPos !== undefined &&
+      Math.hypot(
+        sim.getState().player.position.x - stuckChipLastPos.x,
+        sim.getState().player.position.z - stuckChipLastPos.z,
+      ) < 0.4 &&
+      input.recentKeyCodes().length > 0 &&
+      !input.anyMovementHeld
+    ) {
+      // Keys are ARRIVING but map to no movement button: stored bindings are
+      // corrupt/remapped — the one failure that survives every deploy on one
+      // machine only, invisible to fresh-profile CI.
+      problem = `keys detected (${input.recentKeyCodes().slice(0, 4).join(",")}) but none map to movement\n` +
+        "press F9 to reset key bindings to defaults";
     } else if (net.sentCmds > 128 && net.ackedCmdSeq === 0) {
       problem = `server is not processing input (${net.sentCmds} cmds sent, 0 acked)\n` +
         "screenshot this chip — this is the bug";
     }
+    stuckChipLastPos = {
+      x: sim.getState().player.position.x,
+      z: sim.getState().player.position.z,
+    };
     if (problem === "") {
       stuckSinceMs = -1;
       stuckChip.style.display = "none";
@@ -1376,6 +1402,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       ? "none"
       : rig.root.children.map((child) => child.type).join(",");
     visualDebug.pipelineStage = pipeline.activeLabel ?? "unknown";
+    visualDebug.vmRealGunLoaded = viewmodel?.vendoredModelActive === true ? 1 : 0;
     visualDebug.viewmodelMeshes = (() => {
       let count = 0;
       viewmodel?.root.traverse((node) => {

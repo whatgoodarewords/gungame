@@ -36,6 +36,8 @@ import rackSlideUrl from "../../assets/vendor/freesound-cc0-weapon-foley/pistol-
 import rackPumpUrl from "../../assets/vendor/freesound-cc0-weapon-foley/shotgun-pump_fs673320.ogg?url";
 import rackBoltUrl from "../../assets/vendor/freesound-cc0-weapon-foley/sniper-bolt-cycle_fs370345.ogg?url";
 import equipDrawUrl from "../../assets/vendor/freesound-cc0-weapon-foley/weapon-equip-draw_fs239959.ogg?url";
+import distantShot1Url from "../../assets/vendor/freesound-cc0-weapon-foley/distant-gunshot-1_fs384717.ogg?url";
+import distantShot3Url from "../../assets/vendor/freesound-cc0-weapon-foley/distant-gunshot-3_fs384715.ogg?url";
 import ricochet1Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-1_fs478345.ogg?url";
 import ricochet2Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-2_fs394187.ogg?url";
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
@@ -76,6 +78,7 @@ export const FOLEY_SAMPLE_URLS = Object.freeze({
   rackBolt: rackBoltUrl,
   equipDraw: equipDrawUrl,
   ricochets: [ricochet1Url, ricochet2Url],
+  distantShots: [distantShot1Url, distantShot3Url],
 });
 
 export const AUDIO_SAMPLE_URLS = Object.freeze({

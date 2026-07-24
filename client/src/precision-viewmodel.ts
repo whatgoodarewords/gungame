@@ -107,6 +107,8 @@ export class PrecisionWeaponViewmodel {
   private configKey = "";
   private model: Group | undefined;
   private modelIsVendoredClone = false;
+  /** True once a real GLB replaced the procedural silhouette (diagnostics). */
+  vendoredModelActive = false;
   private leftIk: Object3D | undefined;
   private loadGeneration = 0;
   private disposed = false;
@@ -211,6 +213,7 @@ export class PrecisionWeaponViewmodel {
       if (!this.modelIsVendoredClone) disposeSubtree(this.model);
     }
     this.modelIsVendoredClone = false;
+    this.vendoredModelActive = false;
     this.model = buildSilhouette(config, this.material);
     this.weaponMount.add(this.model);
     this.applyViewmodelLayer();
@@ -371,7 +374,9 @@ export class PrecisionWeaponViewmodel {
   }
 
   private addProceduralArms(): void {
-    const armGeometry = new CylinderGeometry(0.075, 0.1, 0.72, 8);
+    // Slimmer, shorter forearms with a dark sleeve tone — the fat full-length
+    // orange cylinders read as sausages on the owner's first sighting.
+    const armGeometry = new CylinderGeometry(0.045, 0.06, 0.46, 10);
     const left = new Mesh(armGeometry, this.material);
     left.position.set(-0.2, -0.3, -0.05);
     left.rotation.set(1.12, 0.12, -0.18);
@@ -474,6 +479,7 @@ export class PrecisionWeaponViewmodel {
       // going in shares cache resources (never deep-disposed).
       if (previous !== undefined && !this.modelIsVendoredClone) disposeSubtree(previous);
       this.modelIsVendoredClone = true;
+      this.vendoredModelActive = true;
       this.model = composed;
       this.weaponMount.add(composed);
       this.applyViewmodelLayer();

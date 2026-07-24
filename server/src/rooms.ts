@@ -1254,14 +1254,28 @@ export class Room {
         minZ = Math.min(minZ, spawn.position.z);
         maxZ = Math.max(maxZ, spawn.position.z);
       }
-      const padX = Math.max(4, (maxX - minX) * 0.15);
-      const padZ = Math.max(4, (maxZ - minZ) * 0.15);
-      return { minX: minX - padX, maxX: maxX + padX, minZ: minZ - padZ, maxZ: maxZ + padZ };
+      // Tight pad: 15% outward meant steering began only past the cliff.
+      return { minX: minX - 2, maxX: maxX + 2, minZ: minZ - 2, maxZ: maxZ + 2 };
     })();
     const px = slot.state.player.position.x;
     const pz = slot.state.player.position.z;
-    const nearEdge = bounds !== undefined &&
+    let nearEdge = bounds !== undefined &&
       (px < bounds.minX || px > bounds.maxX || pz < bounds.minZ || pz > bounds.maxZ);
+    // Ground probe (owner: bots suiciding into pits/cliffs — they beeline at
+    // targets across the spire trench and underworld kill volumes): if there
+    // is no floor within 4m below a point 1.6m ahead, do not walk there.
+    if (!nearEdge && this.world !== undefined && slot.state.player.grounded) {
+      const yawRad = slot.botAimYaw * Math.PI / 180;
+      const aheadX = px - Math.sin(yawRad) * 1.6;
+      const aheadZ = pz - Math.cos(yawRad) * 1.6;
+      const py = slot.state.player.position.y;
+      const drop = this.world.sweepProjectile(
+        { x: aheadX, y: py + 0.4, z: aheadZ },
+        { x: aheadX, y: py - 4, z: aheadZ },
+        0,
+      );
+      if (drop === undefined) nearEdge = true; // treat like an edge: steer to center
+    }
     if (nearEdge && bounds !== undefined) {
       const centerX = (bounds.minX + bounds.maxX) / 2;
       const centerZ = (bounds.minZ + bounds.maxZ) / 2;

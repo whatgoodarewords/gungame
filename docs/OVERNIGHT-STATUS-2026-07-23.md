@@ -101,3 +101,31 @@ Every item from the playtest, screenshot-verified:
 
 Queued next: gun pose/scale taste pass, bullet-hole decals + particle
 sprites (assets vendored), guns in enemy hands, sky saturation, map P2.
+
+---
+
+## Owner screenshot round (2026-07-24, build ba81a5c on their machine)
+
+The screenshot finally separated the layers: pointer lock ENGAGED (macOS
+banner), world rendering, build tag current — and speed 0.0 with bots
+suiciding in the killfeed. Response wave:
+
+1. **Bots**: the suicides are interior pits (spire trench, underworld kill
+   volumes) — bots beeline at targets with zero ground awareness, and the
+   perimeter pad even triggered past the cliff. Now: forward ground probe
+   (no floor within 4m below a point 1.6m ahead → steer to center), tight
+   2m bounds pad.
+2. **Input self-heal**: the only stuck-cause that survives every build on
+   one machine is stored keybindings (gg:controls). The chip now detects
+   "keys arriving but none map to movement" and F9 resets bindings to
+   defaults. This closes the class even when the cause is user-local state
+   no CI can see.
+3. **Distance-real audio** (owner: "sound should be distance dependent"):
+   >35m shots play recorded distant-gunshot beds (air-soaked boom, not a
+   quieter near-shot), positional rolloff 1.5.
+4. **Arms de-sausaged**: slim short forearms replacing the fat orange
+   cylinders.
+
+Standing arc (the "cheap" verdict): muzzle/smoke sprite integration,
+bullet-hole decals, guns in enemy hands, sky pass, map P2 zoning — assets
+vendored, specs written.

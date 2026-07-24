@@ -153,6 +153,7 @@ export class GameAudio {
       panner.panningModel = "HRTF";
       panner.distanceModel = "inverse";
       panner.refDistance = 2;
+      panner.rolloffFactor = 1.5;
       panner.maxDistance = 90;
       panner.positionX.value = position.x;
       panner.positionY.value = position.y;
@@ -180,10 +181,13 @@ export class GameAudio {
     return this.captureDestination?.stream;
   }
 
+  private listenerPos = { x: 0, y: 0, z: 0 };
+
   setListener(
     position: { x: number; y: number; z: number },
     forward: { x: number; y: number; z: number },
   ): void {
+    this.listenerPos = { ...position };
     if (this.context === undefined) return;
     const listener = this.context.listener;
     listener.positionX.value = position.x;
@@ -203,8 +207,24 @@ export class GameAudio {
     // here — these ARE a 1911 / AR-15 / Benelli / Tikka.
     const recorded = GUNSHOT_SAMPLE_URLS[weaponId];
     if (recorded !== undefined) {
-      const url = position === undefined ? recorded.near : recorded.mid;
-      if (this.playSample(url, position, position === undefined ? 0.5 : 0.8)) return;
+      // Distance-real: far shots don't sound like near shots quieter — they
+      // sound DIFFERENT (air soaks the crack, the boom rolls). >35m plays the
+      // recorded distant-gunshot bed; inside that, the mid take positional.
+      let url = position === undefined ? recorded.near : recorded.mid;
+      let gain = position === undefined ? 0.5 : 0.8;
+      if (position !== undefined) {
+        const distance = Math.hypot(
+          position.x - this.listenerPos.x,
+          position.y - this.listenerPos.y,
+          position.z - this.listenerPos.z,
+        );
+        if (distance > 35) {
+          const beds = FOLEY_SAMPLE_URLS.distantShots;
+          url = beds[(weaponId + Math.floor(distance)) % beds.length]!;
+          gain = 0.9;
+        }
+      }
+      if (this.playSample(url, position, gain)) return;
     }
     // Designed four-layer gunshots (gunshot-synth) carry ballistic weapons
     // whole — no extra layers needed, the crack/body/thump/tail are baked in.
@@ -436,6 +456,7 @@ export class GameAudio {
       panner.panningModel = "HRTF";
       panner.distanceModel = "inverse";
       panner.refDistance = 2;
+      panner.rolloffFactor = 1.5;
       panner.maxDistance = 90;
       panner.positionX.value = position.x;
       panner.positionY.value = position.y;
@@ -466,6 +487,7 @@ export class GameAudio {
       panner.panningModel = "HRTF";
       panner.distanceModel = "inverse";
       panner.refDistance = 2;
+      panner.rolloffFactor = 1.5;
       panner.maxDistance = 90;
       panner.positionX.value = position.x;
       panner.positionY.value = position.y;
@@ -487,6 +509,7 @@ export class GameAudio {
       FOLEY_SAMPLE_URLS.rackBolt,
       FOLEY_SAMPLE_URLS.equipDraw,
       ...FOLEY_SAMPLE_URLS.ricochets,
+      ...FOLEY_SAMPLE_URLS.distantShots,
       ...AUDIO_SAMPLE_URLS.footstepConcrete,
       AUDIO_SAMPLE_URLS.impactGeneric,
       AUDIO_SAMPLE_URLS.impactMetal,

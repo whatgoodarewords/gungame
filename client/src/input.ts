@@ -457,6 +457,27 @@ export class RawInput {
     return this.locked;
   }
 
+  /** Distinct key codes seen in the recent keydown ring (diagnostics). */
+  recentKeyCodes(): readonly string[] {
+    return [...new Set(this.keyEvents.filter((e) => e.phase === "down").map((e) => e.code))];
+  }
+
+  /** True while any movement-mapped button is currently held. */
+  get anyMovementHeld(): boolean {
+    return (this.buttons & (Button.Forward | Button.Back | Button.Left | Button.Right)) !== 0;
+  }
+
+  /**
+   * Self-heal for corrupted/remapped stored bindings — the one failure that
+   * survives every deploy and cache clear on ONE machine only: W does
+   * nothing forever and no fresh-profile CI can reproduce it.
+   */
+  resetBindings(): void {
+    localStorage.removeItem(CONTROL_BINDINGS_STORAGE_KEY);
+    this.bindings = DEFAULT_CONTROL_BINDINGS;
+    this.rebuildKeyButtons();
+  }
+
   private latchFire(eventMs = -1): void {
     this.buttons |= Button.Fire;
     this.queuedFire = true;
