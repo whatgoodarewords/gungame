@@ -188,11 +188,15 @@ export class PrecisionWeaponViewmodel {
       depthWrite: false,
       side: DoubleSide,
     });
-    new TextureLoader().load(MUZZLE_SMOKE_URL, (texture) => {
-      texture.colorSpace = SRGBColorSpace;
-      smokeMaterial.map = texture;
-      smokeMaterial.needsUpdate = true;
-    });
+    // TextureLoader needs a DOM (ImageLoader createElementNS) — the node-env
+    // unit tests construct viewmodels headlessly.
+    if (typeof document !== "undefined") {
+      new TextureLoader().load(MUZZLE_SMOKE_URL, (texture) => {
+        texture.colorSpace = SRGBColorSpace;
+        smokeMaterial.map = texture;
+        smokeMaterial.needsUpdate = true;
+      });
+    }
     this.muzzleSmokeMaterial = smokeMaterial;
     const smoke = new Mesh(new PlaneGeometry(0.2, 0.2), smokeMaterial);
     smoke.name = "viewmodel-muzzle-smoke";

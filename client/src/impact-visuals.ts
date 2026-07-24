@@ -118,12 +118,16 @@ export class ImpactVisualSystem {
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
     });
-    new TextureLoader().load(BULLET_DECAL_URL, (texture) => {
-      texture.colorSpace = SRGBColorSpace;
-      decalMaterial.map = texture;
-      decalMaterial.needsUpdate = true;
-      this.decals.visible = true;
-    });
+    // TextureLoader needs a DOM (ImageLoader createElementNS) — keep the
+    // system constructible in node-env tests.
+    if (typeof document !== "undefined") {
+      new TextureLoader().load(BULLET_DECAL_URL, (texture) => {
+        texture.colorSpace = SRGBColorSpace;
+        decalMaterial.map = texture;
+        decalMaterial.needsUpdate = true;
+        this.decals.visible = true;
+      });
+    }
     this.decals = new InstancedMesh(
       new PlaneGeometry(0.11, 0.11),
       decalMaterial,
