@@ -171,3 +171,32 @@ remote shooters' muzzles.
 must read `9925cb0`. Spray a wall: holes + debris off the surface + brass
 tinkling. Listen: bots' gunfire all around, distance-soaked far away. If
 movement sticks: the chip names the cause, F9 resets bindings.
+
+---
+
+## The void-face hunt (2026-07-24 late, build `492b869` LIVE)
+
+The "black wedge" wasn't a wedge — every face the sun missed rendered as
+a pitch-black void on both maps (the huge black towers in the middle of
+every arena). Three instrumented CI rounds closed it:
+
+1. A new crosshair raycast probe named the surface: correct mesh, correct
+   material, correct normals — not a geometry bug.
+2. Pixel math on the artifacts measured the deficit: south walls ~20/255
+   while SHADOWED floor read ~70/255 — vertical faces were getting almost
+   nothing from any light except the sun.
+3. Two controlled fill-light experiments (with and without shadows)
+   measured ~zero contribution: your browser's WebGL2 backend honors only
+   ONE directional light. Unfixable at the light rig.
+
+Fix where the flat-lit register wanted it anyway: the map material now
+carries a 34% baked-bright floor (how Krunker-class shooters look), sun
+adds modeling and shadows on top. The same face measured 3x brighter;
+towers read as solid architecture. **No surface can ever render black
+again, on any backend.**
+
+Also in this build: guns in enemy hands (length = their tier, tilts with
+their aim), muzzle smoke after sustained fire, remote muzzle glow,
+rockets exploding against walls with scorch decals, saturated day sky,
+and the CI eyes gained a guaranteed enemy-in-frame screenshot plus a
+crosshair identity probe for every future round.
