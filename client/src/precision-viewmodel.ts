@@ -137,6 +137,13 @@ export class PrecisionWeaponViewmodel {
     this.root.layers.set(1);
     this.weaponMount.name = "right-hand-weapon-mount";
     this.root.add(this.weaponMount);
+    // Constant close-range fill: the rigged guns are near-black flat
+    // materials and vanish against dark walls (r22). Radius-limited to the
+    // hands so world spill is negligible.
+    const handFill = new PointLight(0xfff2e0, 1.1, 1.3, 2);
+    handFill.name = "viewmodel-hand-fill";
+    handFill.position.set(0.05, 0.15, -0.25);
+    this.root.add(handFill);
     this.muzzleLight = new PointLight(0xffb365, 0, 2.4, 2);
     this.muzzleLight.name = "viewmodel-muzzle-flash-light";
     this.muzzleLight.position.set(0, 0.04, -0.62);
