@@ -129,3 +129,45 @@ suiciding in the killfeed. Response wave:
 Standing arc (the "cheap" verdict): muzzle/smoke sprite integration,
 bullet-hole decals, guns in enemy hands, sky pass, map P2 zoning — assets
 vendored, specs written.
+
+---
+
+## The gun wave (2026-07-24, build `9925cb0` LIVE)
+
+**The gun is real now.** Two days of "the gun isn't a gun" was never about
+lighting or composition — the real gun was never in the scene at all:
+
+1. The post-boot style upgrade swapped in a fresh viewmodel and the equip
+   trigger never re-armed — the instance you actually saw never got a
+   weapon. Bare arms forever, every machine, every build.
+2. The rigged gun models are skinned meshes, and the standard clone kept
+   them bound to a scene that never renders — the gun collapsed to a point
+   at the world origin. (The contact sheet lied to us: it loads models
+   directly, no clone, which is why it always looked fine.)
+
+Both fixed; the CI firing frame now shows a real pistol — slide, trigger
+guard, muzzle flash — seated on the arms.
+
+**Wall-hit anatomy shipped** (combat-fx-reference, your "the way bullets
+spray. hit walls. etc."):
+- Bullet-hole decals that persist (160-pool, oriented to the surface)
+- Debris cones leave ALONG the wall normal (wall hits no longer read as
+  floor hits)
+- Casings bounce with a brass tinkle and lie flat — no more sinking
+  through the floor
+- Surface-keyed chip audio every hit + ricochet whine on a minority
+  (1-in-4 metal, 1-in-7 stone)
+- CS tracer diet: 1-in-3 for automatics, every shot for snipers/shotguns
+
+**Other players' gunfire EXISTS now.** Every server shot broadcasts: you
+hear bots and players shooting from where they stand (your distance-beds
+past 35m), see their tracers, and their bullets chew the walls. Until
+today the entire arena fought in total silence unless a shot hit YOU.
+
+In CI now: muzzle heat (smoke curl after sustained fire) + a warm glow at
+remote shooters' muzzles.
+
+**Your 5-minute check:** load dev.sml.world/gg/index.html — corner tag
+must read `9925cb0`. Spray a wall: holes + debris off the surface + brass
+tinkling. Listen: bots' gunfire all around, distance-soaked far away. If
+movement sticks: the chip names the cause, F9 resets bindings.
