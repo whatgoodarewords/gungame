@@ -1450,21 +1450,20 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     // whether a first mesh actually draws.
     visualDebug.vmProbe = (() => {
       if (viewmodel === undefined) return "no-viewmodel";
-      let firstMesh: { name: string; layersMask: number; visible: boolean; wx: number; wy: number; wz: number } | undefined;
+      // Every viewmodel mesh in CAMERA-LOCAL coordinates: a gun that loaded
+      // but renders nowhere (collapsed skeleton, bad anchor) is identified in
+      // one dump instead of a screenshot guessing round.
+      const meshes: string[] = [];
+      const world = new Vector3();
       let chainVisible = true;
       viewmodel.root.traverse((node) => {
-        if (firstMesh === undefined && (node as { isMesh?: boolean }).isMesh === true) {
-          const world = new Vector3();
-          node.getWorldPosition(world);
-          firstMesh = {
-            name: node.name || node.type,
-            layersMask: node.layers.mask,
-            visible: node.visible,
-            wx: Number(world.x.toFixed(2)),
-            wy: Number(world.y.toFixed(2)),
-            wz: Number(world.z.toFixed(2)),
-          };
-        }
+        if ((node as { isMesh?: boolean }).isMesh !== true || meshes.length >= 16) return;
+        node.getWorldPosition(world);
+        fpsCam.camera.worldToLocal(world);
+        meshes.push(
+          `${node.name || node.type}${(node as { isSkinnedMesh?: boolean }).isSkinnedMesh === true ? "*" : ""}` +
+          `@${world.x.toFixed(2)},${world.y.toFixed(2)},${world.z.toFixed(2)}`,
+        );
       });
       let walker: { visible: boolean; parent: unknown } | null =
         viewmodel.root as unknown as { visible: boolean; parent: unknown };
@@ -1473,7 +1472,7 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         walker = walker.parent as { visible: boolean; parent: unknown } | null;
       }
       return JSON.stringify({
-        mesh: firstMesh ?? "none",
+        meshes,
         chainVisible,
         rootParent: viewmodel.root.parent?.type ?? "detached",
         camMask: fpsCam.camera.layers.mask,

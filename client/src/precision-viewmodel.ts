@@ -14,6 +14,7 @@ import {
 } from "three/webgpu";
 import { color } from "three/tsl";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { clone as cloneWithSkeleton } from "three/addons/utils/SkeletonUtils.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
 import { PREORIENTED_MODEL_URLS, WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
@@ -468,7 +469,12 @@ export class PrecisionWeaponViewmodel {
       // materials — the old flat-orange overwrite made real models
       // indistinguishable from procedural fallbacks (the #1 'programmer art'
       // tell, character-visual-spec P1).
-      const model = gltf.scene.clone(true);
+      // SkeletonUtils.clone, NOT Object3D.clone: the rigged packs are
+      // SkinnedMeshes, and a plain clone keeps binding to the ORIGINAL
+      // scene's bones — the mesh collapses to bind space at the world origin
+      // (CI r24: vmRealGunLoaded=1, twelve meshes, zero gun pixels; the
+      // contact sheet renders because it uses gltf.scene directly).
+      const model = cloneWithSkeleton(gltf.scene);
       model.traverse((object: Object3D) => {
         object.layers.set(1);
         // Skinned viewmodel meshes: bounds live in bind space — culling
