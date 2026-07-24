@@ -212,7 +212,9 @@ function tactilePost(source: Node<"vec4">): Node<"vec4"> {
 // ---------------------------------------------------------------------------
 
 const highKeyPalette: RenderPalette = {
-  background: 0x9ed2f5,
+  // Saturation chosen to SURVIVE ACES (which grays out pale blues): the
+  // owner read the previous 0x9ed2f5 as gray-blue in play.
+  background: 0x64aef0,
   surface: 0xd6d0c2,
   actor: 0xe0483e,
   accent: 0xff9042,
