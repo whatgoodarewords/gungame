@@ -1,5 +1,6 @@
 import {
   AdditiveBlending,
+  BackSide,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -283,22 +284,19 @@ export class RemoteCharacterSystem {
       scene.add(mesh);
       return [part, mesh];
     })) as unknown as Readonly<Record<PartName, InstancedMesh>>;
+    // Ink outlines (character-visual-spec P4): inverted-hull shells — the
+    // slightly-larger BackSide copy draws only where it pokes out past the
+    // body, a solid dark contour that holds up at range on the bright world.
+    // (Replaces the additive cyan rims: additive on a bright sky = invisible,
+    // the J3 lesson.)
     const rimMaterial = new MeshBasicNodeMaterial({
-      color: new Color(0x65d4ff),
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
-      blending: AdditiveBlending,
+      color: new Color(0x20242a),
+      side: BackSide,
     });
     this.rimTorso = new InstancedMesh(PART_GEOMETRY.torso, rimMaterial, capacity);
     this.rimHead = new InstancedMesh(PART_GEOMETRY.head, rimMaterial, capacity);
-    this.rimTorso.name = "enemy-accent-rim-torso";
-    this.rimHead.name = "enemy-accent-rim-head";
-    // Additive cyan on a bright sky = invisible (the J3 lesson). Rim shells
-    // stay allocated for API compatibility but are never added to the scene;
-    // the specced ink-outline pass replaces them.
-    this.rimTorso.visible = false;
-    this.rimHead.visible = false;
+    this.rimTorso.name = "enemy-ink-outline-torso";
+    this.rimHead.name = "enemy-ink-outline-head";
     // Guns in enemy hands (character-visual-spec P3): one instanced dark
     // silhouette, z-scaled to the weapon class — the tier read at a glance.
     const gunMaterial = new MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.35 });
