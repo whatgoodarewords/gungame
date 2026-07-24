@@ -462,6 +462,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       }
     }
     viewmodel = nextViewmodel;
+    // A fresh viewmodel instance has NO weapon: without re-arming the equip
+    // latch the render loop never calls setWeapon on it, so the player holds
+    // bare arms forever (CI r21-r23: vmRealGunLoaded=0 in every gameplay
+    // round while the contact sheet rendered all ten models fine).
+    lastWeapon = undefined;
     // Style families disagree about IBL (flat daylight vs HDRI); reconcile now,
     // and again on rollback below once currentStyle is restored.
     installEnvironmentForStyle();
@@ -484,6 +489,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       currentStyle = previous.style;
       materials = previous.materials;
       viewmodel = previous.viewmodel;
+      // Same latch reset on rollback: the restored instance may predate the
+      // current weapon. setWeapon's same-weapon guard makes this free.
+      lastWeapon = undefined;
       if (previous.viewmodel !== undefined) previous.viewmodel.root.visible = true;
       if (mapMesh !== undefined && previous.materials !== undefined) mapMesh.material = previous.materials.map;
       if (previous.materials !== undefined) {
