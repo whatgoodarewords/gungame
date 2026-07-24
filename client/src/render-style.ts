@@ -239,6 +239,16 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   root.add(new AmbientLight(0xe8f0ff, 0.85));
   const sky = new HemisphereLight(0xcfe6ff, 0xcdb489, 0.8);
   root.add(sky);
+  // CI-eyes r34 (center-pixel probe): south-facing walls read ~20/255 while
+  // SHADOWED floor read ~70 — vertical faces get almost nothing from the
+  // ambient/hemisphere terms on this backend, so every face the sun misses
+  // rendered as a black void (the systematic "black towers" class on both
+  // maps). No-GI arena answer: a shadowless fill from the opposite azimuth
+  // gives every vertical face directional modeling.
+  const fill = new DirectionalLight(0xc9dcf2, 0.85);
+  fill.position.set(-30, 42, -26);
+  fill.castShadow = false;
+  root.add(fill);
   const key = new DirectionalLight(0xfff1d8, 2.0);
   key.position.set(34, 62, 22);
   key.castShadow = true;
