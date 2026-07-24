@@ -364,10 +364,13 @@ export class PrecisionWeaponViewmodel {
     this.root.visible = alive;
     // FOV-95 anchor bias: holds were tuned for the retired 54-deg dedicated
     // viewmodel camera; through the main camera the pose sat too low (r14).
+    // r25: the extra +0.13/+0.18 lift (975e5c1) was compensating for the
+    // skeleton-collapse bug, not a composition truth — with the gun actually
+    // rendering it floated high of the arm tips. Seat it back onto them.
     this.root.position.set(
       hold.position[0] - 0.02 + hum,
-      hold.position[1] + 0.13 + idle - landing - goldieArc * 0.006,
-      hold.position[2] + 0.18 + backpush * hold.backpushM + rackArc * 0.045,
+      hold.position[1] + 0.05 + idle - landing - goldieArc * 0.006,
+      hold.position[2] + 0.08 + backpush * hold.backpushM + rackArc * 0.045,
     );
     this.root.rotation.set(
       rx + (equipAngle + this.recoil * hold.kickDeg) * Math.PI / 180 + this.swayPitch,

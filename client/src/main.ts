@@ -46,7 +46,7 @@ import {
   RefusalCode,
   RoundState,
 } from "../../packages/protocol/src/index.js";
-import { DEFAULT, SCOUTZ, effectiveSpreadDegrees } from "../../packages/sim/src/index.js";
+import { DEFAULT, SCOUTZ, effectiveSpreadDegrees, fireDirection } from "../../packages/sim/src/index.js";
 import { GameAudio, type SurfaceMaterial } from "./audio.js";
 import { BHOP_ROUTES, BhopTimeTrial } from "./bhop-ghost.js";
 import { FpsCamera } from "./camera.js";
@@ -1583,6 +1583,54 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
 
     for (const event of sim.drainCombatEvents()) {
       const headshot = (event.flags & EventFlags.Headshot) !== 0;
+      // Remote gunfire is a real event in the world: the shooter's gun
+      // sounds from where they stand (distance beds beyond 35m), their
+      // bullets streak and chew the walls. Before this, every other player
+      // fought in total silence unless they hit YOU.
+      if (event.kind === EventKind.Fire && event.actorId !== combat.selfId) {
+        const shooter = remotes.find((remote) => remote.id === event.actorId);
+        if (shooter !== undefined) {
+          const weaponId = event.weaponId as WeaponIdValue;
+          const weapon = WEAPONS[weaponId];
+          audio.playFire(weaponId, {
+            x: shooter.position.x,
+            y: shooter.position.y + 1.55,
+            z: shooter.position.z,
+          });
+          if (weapon !== undefined && weapon.kind !== "melee" && weapon.kind !== "projectile") {
+            const yawDeg = (event.targetId / 65535) * 360;
+            const pitchDeg = (event.amount / 65535) * 180 - 90;
+            const direction = fireDirection(yawDeg, pitchDeg);
+            aimOrigin.set(shooter.position.x, shooter.position.y + 1.55, shooter.position.z);
+            aimEnd.copy(aimOrigin).addScaledVector(
+              aimDirection.set(direction.x, direction.y, direction.z),
+              weapon.range,
+            );
+            const wallHit = sim.getCollisionWorld()?.sweepProjectile(
+              { x: aimOrigin.x, y: aimOrigin.y, z: aimOrigin.z },
+              { x: aimEnd.x, y: aimEnd.y, z: aimEnd.z },
+              0,
+            );
+            if (wallHit !== undefined) {
+              aimEnd.set(wallHit.point.x, wallHit.point.y, wallHit.point.z);
+              impacts.impact(
+                wallHit.point,
+                currentMode === GameMode.Scoutzknivez ? 0xb9a98a : 0x8997a1,
+                false,
+                wallHit.normal,
+              );
+              impacts.addDecal(wallHit.point, wallHit.normal);
+            }
+            // Same streak diet as the local gun: 1-in-3 for automatics.
+            const everyShot = weaponId === WeaponId.Scout || weaponId === WeaponId.Deadeye ||
+              weaponId === WeaponId.Shotgun || weaponId === WeaponId.Boomstick;
+            if (everyShot || event.id % 3 === 0) {
+              aimOrigin.addScaledVector(aimDirection, 0.6);
+              tracers.spawn(aimOrigin.x, aimOrigin.y, aimOrigin.z, aimEnd.x, aimEnd.y, aimEnd.z);
+            }
+          }
+        }
+      }
       if (event.kind === EventKind.HitConfirm && event.actorId === combat.selfId) {
         hud.hitmarker.classList.add("visible");
         hud.showDamageNumber(event.amount, headshot);

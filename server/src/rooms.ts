@@ -703,6 +703,19 @@ export class Room {
       cmd.fireFraction,
       slot.state.player.ducked,
     );
+    // Broadcast the shot itself (EventKind.Fire): other clients render the
+    // muzzle response, positional gunshot audio, and the wall impact. Yaw and
+    // pitch ride the two spare u16 fields, quantized.
+    this.broadcastEvent({
+      id: this.nextEvent(),
+      tick: serverTick,
+      kind: EventKind.Fire,
+      actorId: slot.id,
+      targetId: Math.round((((cmd.viewYaw % 360) + 360) % 360) / 360 * 65535) & 0xffff,
+      amount: Math.round((Math.max(-89, Math.min(89, cmd.viewPitch)) + 90) / 180 * 65535) & 0xffff,
+      weaponId: weapon.id,
+      flags: 0,
+    });
     if (weapon.kind === "projectile") {
       slot.stats.recordShot(false, 0);
       this.projectiles.spawn(

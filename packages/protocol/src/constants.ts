@@ -90,6 +90,11 @@ export const EventKind = {
   Impressive: 6,
   NearMiss: 7,
   ModeEnd: 8,
+  // Every shot broadcast: remote players' gunfire is visible and audible
+  // (muzzle presentation, positional shot audio, wall impacts). targetId and
+  // amount carry the shooter's quantized view yaw/pitch (u16 each) so the
+  // client can reconstruct the shot line without protocol shape changes.
+  Fire: 9,
 } as const;
 
 export const EventFlags = {
