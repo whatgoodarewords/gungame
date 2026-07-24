@@ -358,8 +358,8 @@ export class PrecisionWeaponViewmodel {
     // viewmodel camera; through the main camera the pose sat too low (r14).
     this.root.position.set(
       hold.position[0] - 0.02 + hum,
-      hold.position[1] + 0.09 + idle - landing - goldieArc * 0.006,
-      hold.position[2] + 0.08 + backpush * hold.backpushM + rackArc * 0.045,
+      hold.position[1] + 0.13 + idle - landing - goldieArc * 0.006,
+      hold.position[2] + 0.18 + backpush * hold.backpushM + rackArc * 0.045,
     );
     this.root.rotation.set(
       rx + (equipAngle + this.recoil * hold.kickDeg) * Math.PI / 180 + this.swayPitch,
@@ -378,10 +378,13 @@ export class PrecisionWeaponViewmodel {
     // orange cylinders read as sausages on the owner's first sighting.
     const armGeometry = new CylinderGeometry(0.045, 0.06, 0.46, 10);
     const left = new Mesh(armGeometry, this.material);
-    left.position.set(-0.2, -0.3, -0.05);
+    // Arms sit lower and closer than the gun so their tips frame the grip
+    // instead of covering it (contact-sheet round: the pistol hid exactly
+    // where the two cylinders converged).
+    left.position.set(-0.2, -0.34, 0.04);
     left.rotation.set(1.12, 0.12, -0.18);
     const right = new Mesh(armGeometry, this.material);
-    right.position.set(0.2, -0.3, -0.05);
+    right.position.set(0.2, -0.34, 0.04);
     right.rotation.set(1.12, -0.12, 0.18);
     left.name = "procedural-arm-left";
     right.name = "procedural-arm-right";
