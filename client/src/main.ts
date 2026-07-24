@@ -1063,6 +1063,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   (window as unknown as { __GG_VISUAL_DEBUG__?: Record<string, number | string> })
     .__GG_VISUAL_DEBUG__ = visualDebug;
 
+  // Last known position per live projectile — detonation presentation fires
+  // when one vanishes between frames.
+  const trackedProjectiles = new Map<string, { x: number; y: number; z: number; weaponId: number }>();
   const writeProjectile = (
     index: number,
     key: string,
@@ -1408,6 +1411,36 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
         z: curr.position.z - 3,
       }, 9);
       projectileList.length = 1;
+    }
+    // Wall/floor detonations: a projectile alive last frame and gone now blew
+    // up somewhere — until this, rockets only exploded audibly/visibly when
+    // they hit a PLAYER; wall hits were silent nothing.
+    for (const [key, last] of trackedProjectiles) {
+      let stillLive = false;
+      for (const projectile of projectileList) {
+        if (projectile.key === key) { stillLive = true; break; }
+      }
+      if (stillLive) continue;
+      trackedProjectiles.delete(key);
+      impacts.impact(last, 0x2a211b, true);
+      audio.playImpact(last.weaponId as WeaponIdValue, last);
+      const scorch = sim.getCollisionWorld()?.sweepProjectile(
+        last,
+        { x: last.x, y: last.y - 4, z: last.z },
+        0,
+      );
+      if (scorch !== undefined) impacts.addDecal(scorch.point, scorch.normal, 4.5);
+    }
+    for (const projectile of projectileList) {
+      let entry = trackedProjectiles.get(projectile.key);
+      if (entry === undefined) {
+        entry = { x: 0, y: 0, z: 0, weaponId: projectile.weaponId };
+        trackedProjectiles.set(projectile.key, entry);
+      }
+      entry.x = projectile.position.x;
+      entry.y = projectile.position.y;
+      entry.z = projectile.position.z;
+      entry.weaponId = projectile.weaponId;
     }
     const particlesStartedAt = performance.now();
     projectiles?.update(projectileList as readonly ProjectileView[]);

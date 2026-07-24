@@ -71,9 +71,17 @@ describe("RenderStyle bake-off harness", () => {
     // Zero post: the chain must return its input unchanged.
     const source = vec4(0.25, 0.5, 0.75, 1);
     expect(style.postChain(source)).toBe(source);
-    // Bright register: sky-blue background, light warm surfaces.
-    expect(style.palette.background).toBeGreaterThan(0x808080);
-    expect(style.palette.surface).toBeGreaterThan(0xa0a0a0);
+    // Bright register: sky-blue background, light warm surfaces. Compare
+    // perceptual luminance, not the raw hex integer — a saturated day-sky
+    // blue (low red byte) is still bright.
+    const luma = (hex: number): number => {
+      const r = (hex >> 16) & 0xff;
+      const g = (hex >> 8) & 0xff;
+      const b = hex & 0xff;
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    expect(luma(style.palette.background)).toBeGreaterThan(128);
+    expect(luma(style.palette.surface)).toBeGreaterThan(160);
   });
 });
 

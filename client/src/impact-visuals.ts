@@ -252,6 +252,7 @@ export class ImpactVisualSystem {
   addDecal(
     point: Readonly<{ x: number; y: number; z: number }>,
     normal: Readonly<{ x: number; y: number; z: number }>,
+    sizeMultiplier = 1,
   ): void {
     const index = this.decalCursor++ % DECAL_CAPACITY;
     this.normalVector.set(normal.x, normal.y, normal.z).normalize();
@@ -263,7 +264,7 @@ export class ImpactVisualSystem {
     this.rotation.setFromUnitVectors(PLANE_FORWARD, this.normalVector);
     this.rollQuaternion.setFromAxisAngle(PLANE_FORWARD, index * 2.399963);
     this.rotation.multiply(this.rollQuaternion);
-    const size = 0.85 + ((index * 37) % 100) / 100 * 0.45;
+    const size = (0.85 + ((index * 37) % 100) / 100 * 0.45) * sizeMultiplier;
     this.scale.set(size, size, 1);
     this.matrix.compose(this.position, this.rotation, this.scale);
     this.decals.setMatrixAt(index, this.matrix);
