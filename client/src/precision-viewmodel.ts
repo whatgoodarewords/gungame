@@ -8,6 +8,8 @@ import {
   MeshBasicNodeMaterial,
   PlaneGeometry,
   PointLight,
+  SRGBColorSpace,
+  TextureLoader,
   Vector3,
   type Material,
   type Object3D,
@@ -17,7 +19,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneWithSkeleton } from "three/addons/utils/SkeletonUtils.js";
 
 import { WeaponId, type WeaponIdValue } from "../../packages/shared/src/index.js";
-import { PREORIENTED_MODEL_URLS, WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
+import { MUZZLE_SMOKE_URL, PREORIENTED_MODEL_URLS, WEAPON_MODEL_URLS, WRAD_ARMS_URL } from "./asset-manifest.js";
 import {
   VIEWMODEL_CONFIGS,
   VIEWMODEL_HOLDS,
@@ -117,6 +119,9 @@ export class PrecisionWeaponViewmodel {
   private recoil = 0;
   private readonly muzzleFlash: Group;
   private readonly muzzleFlashMaterial: MeshBasicNodeMaterial;
+  private readonly muzzleSmoke: Mesh;
+  private readonly muzzleSmokeMaterial: MeshBasicNodeMaterial;
+  private muzzleHeat = 0;
   private muzzleFlashAgeMs = 0;
   private shotIndex = 0;
   private rackElapsedMs = Number.POSITIVE_INFINITY;
@@ -174,6 +179,27 @@ export class PrecisionWeaponViewmodel {
     flash.traverse((node) => node.layers.set(1));
     this.muzzleFlash = flash;
     this.weaponMount.add(flash);
+    // Muzzle-heat haze (combat-fx-reference): sustained fire accumulates a
+    // soft smoke curl at the muzzle that fades as the barrel cools. Appears
+    // only past ~4 rapid shots — single taps stay clean.
+    const smokeMaterial = new MeshBasicNodeMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    new TextureLoader().load(MUZZLE_SMOKE_URL, (texture) => {
+      texture.colorSpace = SRGBColorSpace;
+      smokeMaterial.map = texture;
+      smokeMaterial.needsUpdate = true;
+    });
+    this.muzzleSmokeMaterial = smokeMaterial;
+    const smoke = new Mesh(new PlaneGeometry(0.2, 0.2), smokeMaterial);
+    smoke.name = "viewmodel-muzzle-smoke";
+    smoke.position.set(0, 0.1, -0.62);
+    smoke.visible = false;
+    this.muzzleSmoke = smoke;
+    this.weaponMount.add(smoke);
     this.addProceduralArms();
     this.addContactShadow();
     // WRAD skinned arms DISABLED (CI-eyes r13): the bind-pose skinned rig
@@ -272,6 +298,7 @@ export class PrecisionWeaponViewmodel {
     this.shotIndex += 1;
     // Deterministic golden-angle roll: never repeats visibly, no RNG.
     this.muzzleFlash.rotation.z = this.shotIndex * 137.5 * (Math.PI / 180);
+    this.muzzleHeat = Math.min(1, this.muzzleHeat + 0.13);
   }
 
   onLand(): void {
@@ -303,6 +330,20 @@ export class PrecisionWeaponViewmodel {
     this.rackElapsedMs += dtMs;
     this.backpushElapsedMs += dtMs;
     this.landingElapsedMs += dtMs;
+    // Barrel cools over ~1.5s; haze shows only past the single-tap regime.
+    this.muzzleHeat *= Math.exp(-dtMs / 1_500);
+    const haze = Math.max(0, this.muzzleHeat - 0.3);
+    if (haze > 0.01) {
+      this.muzzleSmoke.visible = true;
+      this.muzzleSmokeMaterial.opacity = haze * 0.55;
+      const curl = this.elapsedMs * 0.001;
+      this.muzzleSmoke.rotation.z = curl * 0.7;
+      this.muzzleSmoke.position.y = 0.1 + Math.sin(curl * 1.3) * 0.015;
+      this.muzzleSmoke.scale.setScalar(0.8 + haze * 0.9 + Math.sin(curl * 0.9) * 0.06);
+    } else if (this.muzzleSmoke.visible) {
+      this.muzzleSmoke.visible = false;
+      this.muzzleSmokeMaterial.opacity = 0;
+    }
     if (this.weaponId === WeaponId.Goldie && this.previousAmmo === 1 && ammo === 0) {
       this.goldieReload = 1.2;
     }

@@ -231,6 +231,15 @@ export class ImpactVisualSystem {
     }
   }
 
+  /** One-frame warm glow at a remote shooter's muzzle (pooled lights). */
+  muzzleGlow(position: Readonly<{ x: number; y: number; z: number }>): void {
+    const light = this.lights[this.puffCursor % this.lights.length]!;
+    light.color.set(0xffc27a);
+    light.intensity = 2.6;
+    light.position.set(position.x, position.y, position.z);
+    light.userData.frames = 1;
+  }
+
   /**
    * Bullet-hole decal at a wall hit: oriented to the surface, deterministic
    * golden-angle roll + size wobble so a spray never tiles. Matrices write

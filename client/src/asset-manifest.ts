@@ -50,6 +50,7 @@ import distantShot3Url from "../../assets/vendor/freesound-cc0-weapon-foley/dist
 import ricochet1Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-1_fs478345.ogg?url";
 import ricochet2Url from "../../assets/vendor/freesound-cc0-weapon-foley/ricochet-2_fs394187.ogg?url";
 import bulletHoleUrl from "../../assets/vendor/oga-bullet-decal/bullet_hole.png?url";
+import muzzleSmokeUrl from "../../assets/vendor/kenney-particle-pack/smoke_04.png?url";
 import casingTinkle1Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-brass-concrete-1_fs210102.ogg?url";
 import casingTinkle2Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-30cal-bounce-2_fs205126.ogg?url";
 import casingTinkle3Url from "../../assets/vendor/freesound-cc0-combat-impacts/casing-bounce-various-3_fs318964.ogg?url";
@@ -113,6 +114,9 @@ export const FOLEY_SAMPLE_URLS = Object.freeze({
 
 /** Bullet-hole decal texture (OpenGameArt, CC0). */
 export const BULLET_DECAL_URL = bulletHoleUrl;
+
+/** Soft smoke sprite for muzzle-heat haze (Kenney particle pack, CC0). */
+export const MUZZLE_SMOKE_URL = muzzleSmokeUrl;
 
 /** Combat-impact layers (freesound CC0): wall-hit anatomy per
  * docs/combat-fx-reference.md — surface chips every hit, ricochet whine on a

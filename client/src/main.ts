@@ -1601,6 +1601,11 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
             const yawDeg = (event.targetId / 65535) * 360;
             const pitchDeg = (event.amount / 65535) * 180 - 90;
             const direction = fireDirection(yawDeg, pitchDeg);
+            impacts.muzzleGlow({
+              x: shooter.position.x + direction.x * 0.6,
+              y: shooter.position.y + 1.5 + direction.y * 0.6,
+              z: shooter.position.z + direction.z * 0.6,
+            });
             aimOrigin.set(shooter.position.x, shooter.position.y + 1.55, shooter.position.z);
             aimEnd.copy(aimOrigin).addScaledVector(
               aimDirection.set(direction.x, direction.y, direction.z),
