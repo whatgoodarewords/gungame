@@ -13,6 +13,7 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   Raycaster,
+  Vector2,
   RenderPipeline,
   Scene,
   SphereGeometry,
@@ -647,6 +648,9 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if (viewmodel !== undefined) fpsCam.camera.remove(viewmodel.root);
     viewmodel = new WeaponViewmodel(materials.viewmodel);
     fpsCam.camera.add(viewmodel.root);
+    // Same equip-latch reset as applyStyle: a fresh viewmodel instance has no
+    // weapon until the render loop re-runs setWeapon on it.
+    lastWeapon = undefined;
     rig = currentStyle.fogLightRig(scene, map);
     previous.rig?.dispose();
     if (previous.ghostMesh !== undefined) disposeSceneSubtree(previous.ghostMesh, true);
@@ -1043,6 +1047,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   let killStreak = 0;
   let howToShown = false;
   const nameplateRaycaster = new Raycaster();
+  const centerRaycaster = new Raycaster();
+  const CENTER_NDC = new Vector2(0, 0);
   const nextRemoteFootstep = new Map<number, number>();
   const listenerDirection = new Vector3();
   const aimOrigin = new Vector3();
@@ -1502,6 +1508,24 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
       });
       return count;
     })();
+    // Screen-center identity probe (ciprobe only): what object, face normal,
+    // and material sit under the crosshair. The black-structure class gets
+    // named by the debug dump instead of theorized about.
+    if (ciProbeEnabled) {
+      centerRaycaster.setFromCamera(CENTER_NDC, fpsCam.camera);
+      const hit = centerRaycaster.intersectObjects(scene.children, true)[0];
+      visualDebug.centerProbe = hit === undefined
+        ? "none"
+        : JSON.stringify({
+          name: hit.object.name || hit.object.type,
+          distance: Number(hit.distance.toFixed(1)),
+          normal: hit.face === undefined || hit.face === null
+            ? "none"
+            : `${hit.face.normal.x.toFixed(2)},${hit.face.normal.y.toFixed(2)},${hit.face.normal.z.toFixed(2)}`,
+          material: (hit.object as { material?: { constructor?: { name?: string } } })
+            .material?.constructor?.name ?? "none",
+        });
+    }
     // Nearest-enemy bearing (server yaw convention): the CI harness aims the
     // camera here for a guaranteed enemy-in-frame screenshot every round —
     // character work verifies against pixels instead of luck.

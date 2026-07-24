@@ -135,7 +135,22 @@ try {
         });
         await page.waitForTimeout(4_000);
         const after = await readX();
-        const displacement = Math.hypot(after.x - before.x, after.z - before.z);
+        let displacement = Math.hypot(after.x - before.x, after.z - before.z);
+        // Spawn-into-corner luck (r33: one case walked into a wall at 2.6m
+        // while three sibling cases hit 5.6m): turn 90° and push again before
+        // judging — a real movement regression fails BOTH directions.
+        if (displacement <= 3) {
+          await page.evaluate(() => {
+            (globalThis as unknown as Record<string, unknown>).__GG_CI_INPUT__ =
+              { buttons: 1, viewYaw: 90, viewPitch: 0 };
+          });
+          await page.waitForTimeout(3_000);
+          const retried = await readX();
+          displacement = Math.max(
+            displacement,
+            Math.hypot(retried.x - after.x, retried.z - after.z),
+          );
+        }
         await page.screenshot({ path: `${OUT}/${tag}-2-after-move.png` });
 
         // Turn 120° and look around (screenshot the world, not just one wall).
