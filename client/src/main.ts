@@ -1514,6 +1514,15 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
     if (ciProbeEnabled) {
       centerRaycaster.setFromCamera(CENTER_NDC, fpsCam.camera);
       const hit = centerRaycaster.intersectObjects(scene.children, true)[0];
+      let attributeNormal = "none";
+      if (hit !== undefined && hit.faceIndex !== undefined && hit.faceIndex !== null) {
+        const attr = (hit.object as { geometry?: { getAttribute(n: string): { getX(i: number): number; getY(i: number): number; getZ(i: number): number } | undefined } })
+          .geometry?.getAttribute("normal");
+        if (attr !== undefined) {
+          const v = hit.faceIndex * 3;
+          attributeNormal = `${attr.getX(v).toFixed(2)},${attr.getY(v).toFixed(2)},${attr.getZ(v).toFixed(2)}`;
+        }
+      }
       visualDebug.centerProbe = hit === undefined
         ? "none"
         : JSON.stringify({
@@ -1522,6 +1531,8 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
           normal: hit.face === undefined || hit.face === null
             ? "none"
             : `${hit.face.normal.x.toFixed(2)},${hit.face.normal.y.toFixed(2)},${hit.face.normal.z.toFixed(2)}`,
+          // Rendered (attribute) normal vs geometric: a mismatch = winding bug.
+          attributeNormal,
           material: (hit.object as { material?: { constructor?: { name?: string } } })
             .material?.constructor?.name ?? "none",
         });

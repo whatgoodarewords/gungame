@@ -247,7 +247,14 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   // gives every vertical face directional modeling.
   const fill = new DirectionalLight(0xc9dcf2, 0.85);
   fill.position.set(-30, 42, -26);
-  fill.castShadow = false;
+  // r35: with castShadow=false this fill contributed ~nothing on the WebGL2
+  // node backend while the shadow-casting key worked — backend appears to
+  // drop non-casting directionals when a casting one exists. Small shadow
+  // map (740-tri maps) keeps it cheap.
+  fill.castShadow = true;
+  fill.shadow.mapSize.set(1024, 1024);
+  fill.shadow.bias = -0.00025;
+  fill.shadow.normalBias = 0.018;
   root.add(fill);
   const key = new DirectionalLight(0xfff1d8, 2.0);
   key.position.set(34, 62, 22);
@@ -262,13 +269,15 @@ const makeDaylightRig = (scene: Scene, map?: GameplayMap): StyleRig => {
   if (map !== undefined) {
     const extentX = Math.max(18, (map.bounds.max.x - map.bounds.min.x) * 0.55);
     const extentZ = Math.max(18, (map.bounds.max.z - map.bounds.min.z) * 0.55);
-    key.shadow.camera.left = -extentX;
-    key.shadow.camera.right = extentX;
-    key.shadow.camera.top = extentZ;
-    key.shadow.camera.bottom = -extentZ;
-    key.shadow.camera.near = 1;
-    key.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
-    key.shadow.camera.updateProjectionMatrix();
+    for (const light of [key, fill]) {
+      light.shadow.camera.left = -extentX;
+      light.shadow.camera.right = extentX;
+      light.shadow.camera.top = extentZ;
+      light.shadow.camera.bottom = -extentZ;
+      light.shadow.camera.near = 1;
+      light.shadow.camera.far = Math.max(80, map.bounds.max.y - map.bounds.min.y + 72);
+      light.shadow.camera.updateProjectionMatrix();
+    }
   }
   root.add(key);
   scene.add(root);
