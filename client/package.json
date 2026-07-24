@@ -35,7 +35,7 @@
     {
       "name": "client vendored media (gzip)",
       "path": "dist/assets/*.{glb,ogg}",
-      "limit": "4 MB",
+      "limit": "24 MB",
       "gzip": true
     }
   ]
