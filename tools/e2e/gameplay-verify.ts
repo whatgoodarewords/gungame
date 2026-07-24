@@ -73,6 +73,23 @@ try {
   ]);
 
   const playwright = await import("playwright");
+  {
+    // Viewmodel contact sheet: one page, one screenshot, all gun models.
+    const sheetBrowser = await playwright.chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+    });
+    const sheetPage = await (await sheetBrowser.newContext({
+      viewport: { width: 1280, height: 720 },
+    })).newPage();
+    await sheetPage.goto(
+      "http://127.0.0.1:5173/gg/?name=VMSheet&create=1&mode=gungame&map=foundry&ciprobe=1&vmsheet=1&backend=webgl2",
+      { waitUntil: "domcontentloaded", timeout: 90_000 },
+    ).catch(() => undefined);
+    await sheetPage.waitForTimeout(9_000);
+    await sheetPage.screenshot({ path: `${OUT}/vmsheet.png` }).catch(() => undefined);
+    await sheetBrowser.close();
+  }
   for (const browserName of ["chromium", "webkit"] as const) {
     const engine = playwright[browserName];
     const browser = await engine.launch({

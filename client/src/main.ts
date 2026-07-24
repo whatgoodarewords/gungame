@@ -65,6 +65,7 @@ import { HudStateMachine } from "./hud-state.js";
 import { ImpactVisualSystem } from "./impact-visuals.js";
 import { Button, RawInput, rebindControl } from "./input.js";
 import { FrameBudgetMeter, LatencyEstimator } from "./perf.js";
+import { WEAPON_MODEL_URLS } from "./asset-manifest.js";
 import { OfflineEnvironmentAssets } from "./environment-assets.js";
 import { installEnvironmentWithFallback } from "./environment-state.js";
 import {
@@ -820,6 +821,33 @@ async function startGame(frontDoor?: MenuController): Promise<void> {
   // pointer-lock DOM layer, which headless browsers cannot grant reliably.
   // This is how CI proves "a player who presses W actually moves" per engine.
   const ciProbeEnabled = query.get("ciprobe") === "1";
+  // Viewmodel contact sheet (?vmsheet=1, dev/CI only): every weapon model in
+  // a lineup 2m ahead — one screenshot answers scale/orientation/read for
+  // all ten guns at once. Composition iterates against pixels, not guesses.
+  if (query.get("vmsheet") === "1") {
+    void (async () => {
+      const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+      const entries = Object.entries(WEAPON_MODEL_URLS);
+      for (let index = 0; index < entries.length; index += 1) {
+        const [, url] = entries[index]!;
+        if (url === undefined) continue;
+        try {
+          const gltf = await new GLTFLoader().loadAsync(url);
+          const model = gltf.scene;
+          model.traverse((node) => {
+            if ((node as { isSkinnedMesh?: boolean }).isSkinnedMesh === true) {
+              (node as { frustumCulled: boolean }).frustumCulled = false;
+            }
+          });
+          model.position.set((index - entries.length / 2) * 0.55, 1.4, -2.2);
+          model.rotation.y = Math.PI / 6;
+          fpsCam.camera.add(model);
+        } catch (error) {
+          console.warn(`vmsheet: model ${index} failed`, error);
+        }
+      }
+    })();
+  }
   interface CiProbeInput {
     buttons?: number;
     viewYaw?: number;
